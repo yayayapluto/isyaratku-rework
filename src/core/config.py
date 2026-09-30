@@ -36,6 +36,8 @@ _CONTRACT: tuple[tuple[str, str, str, Any], ...] = (
     ("smoothing", "vote_count", "int", 3),
     ("smoothing", "cooldown_seconds", "float", 1.5),
     ("queue", "max_size", "int", 4),
+    ("pipeline", "stats_window", "int", 240),
+    ("pipeline", "stop_timeout_seconds", "float", 2.0),
     ("tts", "device_name", "str", "CABLE Output"),
     ("tts", "rate", "int", 160),
     ("virtual_camera", "backend", "str", "unitycapture"),
@@ -58,6 +60,7 @@ _POSITIVE = frozenset({
     "window.frame_count",
     "window.stride",
     "queue.max_size",
+    "pipeline.stats_window",
     "tts.rate",
 })
 _NON_NEGATIVE = frozenset({"camera.device_index"})
@@ -79,14 +82,11 @@ class AppConfig:
     smoothing_vote_count: int
     smoothing_cooldown_seconds: float
     queue_max_size: int
+    pipeline_stats_window: int
+    pipeline_stop_timeout_seconds: float
     tts_device_name: str
     tts_rate: int
     virtual_camera_backend: str
-
-    @property
-    def contract_names(self) -> tuple[str, ...]:
-        """Nama key kontrak yang tersedia, untuk debug dan tes."""
-        return CONTRACT_KEYS
 
 
 def resolve_config_path() -> str:

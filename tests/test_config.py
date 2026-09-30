@@ -126,6 +126,8 @@ def test_contract_key_names_are_documented_exactly() -> None:
         "smoothing.vote_count",
         "smoothing.cooldown_seconds",
         "queue.max_size",
+        "pipeline.stats_window",
+        "pipeline.stop_timeout_seconds",
         "tts.device_name",
         "tts.rate",
         "virtual_camera.backend",

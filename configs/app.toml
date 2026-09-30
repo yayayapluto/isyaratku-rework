@@ -13,6 +13,10 @@
 #   smoothing.confidence_threshold = 0.7, smoothing.vote_count = 3,
 #   smoothing.cooldown_seconds = 1.5
 #   queue.max_size = 4
+#   pipeline.stats_window = 240, pipeline.stop_timeout_seconds = 2.0
+#   pipeline.stats_window = banyak frame terakhir yang dipakai menghitung FPS
+#     (240 default ~4 s pada 60 fps); pipeline.stop_timeout_seconds = batas tunggu
+#     join thread saat stop.
 #   tts.device_name = "CABLE Output", tts.rate = 160
 #   virtual_camera.backend = "unitycapture"
 #
@@ -28,6 +32,11 @@
 #   Jalur headless dengan FakeVirtualCameraSink (tanpa time.sleep, tanpa
 #   hardware): FPS terkirim 1655.60, 5023 frame dibaca / 4966 dikirim / 57
 #   dibuang dalam 3.00 s. Angka itu lingkungan beban CPU, BUKAN patokan kamera.
+#
+# Konstanta fake (bukan kontrak, hanya fixture test/headless): FakeCameraSource
+# speed = 4.0 piksel/frame, sisi kotak 40 px, posisi y = 0.6 tinggi frame.
+# Diganti nyata oleh ekstraksi landmark slice 2 dan model slice 4; fake tanpa
+# time.sleep supaya angka FPS headless mencerminkan beban CPU apa adanya.
 #
 # Contoh menimpa satu nilai:
 # [camera]
