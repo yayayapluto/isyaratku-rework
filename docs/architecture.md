@@ -25,7 +25,7 @@ Aturan proyek: tidak ada angka ajaib di kode. Kontrak ini menentukan cara konfig
 - Validasi saat load: tipe salah atau key wajib tidak ada = gagal cepat dengan pesan jelas yang menyebut nama key. Key tak dikenal = peringatan lalu diabaikan, tidak pernah diterima diam-diam.
 - Environment: variabel `ISYARATKU_CONFIG` boleh menunjuk path konfigurasi alternatif, untuk jalankan debug.
 
-Nama key adalah kontrak. Kode memakai nama ini persis.
+Nama key adalah kontrak. Kode memakai nama ini persis. Tabel di bawah punya 15 baris untuk 17 key karena `camera.width`, `camera.height`, dan `camera.fps` berbagi satu baris.
 
 | Key | Tipe | Default awal | Dipakai di |
 | --- | --- | --- | --- |
