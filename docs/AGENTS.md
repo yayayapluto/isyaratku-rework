@@ -45,7 +45,7 @@ Arah tunggal: `ui -> core <- adapters`.
 - Branch utama: `main`. Semua development dikerjakan di `dev`. Tidak ada branch baru (tidak ada feature branch); cukup `dev`.
 - `main` hanya menerima hasil yang sudah jadi dan terverifikasi lewat merge dari `dev`. Langsung commit ke `main` dilarang.
 - Remote belum ada; `git remote add` menyusul ketika user memberi URL.
-- Pesan commit: singkat, imperatif, Bahasa Indonesia (mis. `tambah normalisasi landmark`).
+- Pesan commit: Conventional Commits dengan deskripsi imperatif Bahasa Indonesia (mis. `feat: tambah normalisasi landmark`, `fix: ...`, `docs: ...`, `chore: ...`). Commit root/inisiasi boleh tanpa prefix.
 - `data/` tidak masuk git (`.gitignore`). Artefak model di `models/` MASUK git — model adalah bagian deliverable demo.
 
 ## Kebenaran data
