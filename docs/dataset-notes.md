@@ -18,7 +18,41 @@ Dokumen ini hanya merekam apa yang sudah diketahui dan apa yang belum diperiksa.
 - Keduanya git-ignored. Jangan pernah mengedit berkas di `data/raw/` — training hanya membacanya.
 - Rencana pola nama berkas fitur: `data/extracted/<signer>/<class>/<sample>.npy` (belum dibuat, dicatat sebagai rencana).
 
+## Kandidat dataset
+
+Berikut daftar 21 kandidat terpilih (3 per kategori dari 7 kategori) sesuai rekap pemilihan di docs/info-dataset.md.
+
+| Kategori | Dataset Kaggle (owner/slug) | Lisensi |
+| --- | --- | --- |
+| Huruf/Abjad | `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` | CC BY 4.0 |
+| Huruf/Abjad | `bonarsitorus/sign-language-bisindo` | MIT |
+| Huruf/Abjad | `achmadnoer/alfabet-bisindo` | CC0 |
+| Kata/isolated sign | `glennleonali/wl-bisindo` | CC BY-NC 4.0 |
+| Kata/isolated sign | `aridone/dataset-bisindo-40-kata-5-subjek` | Unknown |
+| Kata/isolated sign | `anggiyohanespardede/bisindo-40-kata-mp4` | MIT |
+| Dinamis & Statis | `muhammaddhiaulhaq/bahasa-isyarat-indonesia-statis` | MIT |
+| Dinamis & Statis | `raihanazarina/bisindo-hand-gesture-dataset` | CC BY-SA 4.0 |
+| Dinamis & Statis | `muhammaddhiaulhaq/bahasa-isyarat-indonesia-dinamis` | MIT |
+| Landmark/preprocessed | `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` | CC BY 4.0 |
+| Landmark/preprocessed | `bonarsitorus/sign-language-bisindo` | MIT |
+| Landmark/preprocessed | `padmavatitanuwijaya2/dataset-bisindo-mediapipe` | Unknown |
+| Raw video/korpus/TVRI | `mfadhilahakbarr/bisindo-raw-annotated` | CC BY 4.0 |
+| Raw video/korpus/TVRI | `rizkyyangpalsu/bisindo-video-dataset` | Unknown |
+| Raw video/korpus/TVRI | `radityaaditama/raw-7-siaran-bisindo-tvri` | Apache 2.0 |
+| Skripsi/penelitian | `mdaverofirmansyah/dataset-gestur-bisindo` | Unknown |
+| Skripsi/penelitian | `chandragusta/dataset-skripsi` | Unknown |
+| Skripsi/penelitian | `victoriapalilingan19/isyaratku-bisindo-split` | Unknown |
+| Gloss/NLP | `aytidar11/bisindo-gloss2ids` | Unknown |
+| Gloss/NLP | `raditadit/gloss2ids` | Unknown |
+| Gloss/NLP | `nano1410/prak-2-mma-all-vits` | MIT |
+
+- Detail alasan pilih dan tolak ada di docs/info-dataset.md.
+- Aturan keras: dataset berlisensi proprietary atau HAKI (mis. MedSign) dikecualikan dan tidak masuk daftar kandidat.
+- Belum ada satu pun berkas dari 21 dataset di atas yang dibuka secara lokal; isi masing-masing masih belum diinspeksi.
+
 ## Yang belum diinspeksi
+
+Tabel berikut berlaku untuk seluruh 21 dataset kandidat; belum ada satu pun yang diunduh.
 
 | Item | Status |
 | --- | --- |
@@ -34,24 +68,6 @@ Dokumen ini hanya merekam apa yang sudah diketahui dan apa yang belum diperiksa.
 | Porsi gambar statis versus video per class | belum diinspeksi |
 | Ada atau tidak ada pretrained model di paket dataset | belum diinspeksi |
 | Format anotasi, bila ada | belum diinspeksi |
-| Dataset mana yang dipilih dari docs/info-dataset.md | belum diputuskan |
-
-## Kandidat dataset
-
-Referensi: docs/info-dataset.md (disuplai user, 87 entri Kaggle terbagi 7 kategori).
-
-Dokumen itu adalah DAFTAR KANDIDAT, bukan pilihan. Setiap entri berstatus "belum diinspeksi": tautan, isi berkas, jumlah kelas, jumlah sample, jumlah signer, resolusi, dan FPS belum dibuka dan belum diverifikasi. Tidak ada satu pun dataset yang sudah dipilih. Angka di docs/info-dataset.md berasal dari metadata Kaggle, bukan dari isi dataset yang sudah diunduh.
-
-Kandidat yang paling mungkin untuk scope KATA (isyarat video terisolasi, beberapa signer, 20+ kata), diambil dari kategori Kata/isolated sign dan kategori Dinamis di dokumen itu:
-
-| Kandidat | Catatan |
-| --- | --- |
-| `glennleonali/wl-bisindo` | Signer ID di nama berkas, ada skrip split per signer; lisensi CC BY-NC 4.0. |
-| `aridone/dataset-bisindo-40-kata-5-subjek` | 5 subjek, 50 video per subjek per kata; lisensi Unknown. |
-| `anggiyohanespardede/bisindo-40-kata-mp4` | Pelengkap jumlah sampel setelah `aridone`; lisensi MIT. |
-| `muhammaddhiaulhaq/bahasa-isyarat-indonesia-dinamis` | Video dinamis, baru 5 kata, lisensi MIT — hanya pendukung, jauh di bawah 20+ kata. |
-
-Kandidat di atas BUKAN keputusan. Lisensi dan isi keempatnya masih harus diperiksa satu per satu lewat checklist inspeksi sebelum ada yang dipakai, dan kandidat bisa berubah setelah inspeksi.
 
 ## Checklist inspeksi
 
@@ -80,3 +96,4 @@ Belum ada temuan. Bagian ini diisi hasil checklist di atas, satu subbagian per i
 - Jangan membuat label atau kelas baru karena belum terlihat isi dataset.
 - Jangan menulis angka class, jumlah sample, jumlah signer, atau akurasi di dokumen lain sebelum ada di bagian temuan inspeksi.
 - Split data harus per signer, bukan acak per video. Lihat docs/architecture.md untuk pipeline dan docs/implementation-plan.md untuk slice 4.
+- Daftar kandidat dan alasannya ada di docs/info-dataset.md; jangan menambah dataset training yang tidak ada di sana tanpa memutakhirkan dokumen ini.

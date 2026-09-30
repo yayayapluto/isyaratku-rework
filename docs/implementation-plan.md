@@ -51,6 +51,7 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
 - Kriteria selesai:
   - [ ] Predictor dummy mengeluarkan label dari fitur dengan logika tetap.
   - [ ] Checkpoint inspeksi dataset sudah tercatat di docs/dataset-notes.md.
+  - [ ] Unduh dataset dari docs/info-dataset.md ke data/raw/ sesuai urutan KATA, ANGKA, HURUF, lalu isi checklist inspeksi di docs/dataset-notes.md.
   - [ ] Split data per signer, bukan acak per video.
   - [ ] Ekstraksi landmark dan training jalan di training/, runtime tidak mengimpor training/.
   - [ ] Model awal baseline sederhana selesai dilatih dan dievaluasi.
