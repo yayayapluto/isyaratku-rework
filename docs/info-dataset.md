@@ -44,13 +44,13 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 | --- | --- | --- | --- | --- |
 | `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` | 29 MB | CC BY 4.0 | `landmarks_train.csv` dan `landmarks_val.csv`, 21 landmark MediaPipe 3D (x,y,z) per baris, label A–Z; versi 3 diperbarui 2026-05-26; 85 unduhan; usability 0.71 | Format sudah sama dengan pipeline proyek (landmark, bukan piksel), dapat langsung dievaluasi tanpa ekstraksi video. Ini kandidat HURUF tercepat untuk baseline. |
 | `bonarsitorus/sign-language-bisindo` | 257 MB | MIT | Folder gambar `A`/`B`/... berisi JPG dan folder `.npy` berisi numpy array landmark tangan; diperbarui 2024-12-13; 124 unduhan; usability 0.56 | Paling lengkap: gambar mentah plus landmark. Berguna dua arah: langsung pakai `.npy`, atau pakai gambar untuk menguji ulang ekstraktor MediaPipe sendiri dengan format `.npy` sesuai rencana `data/extracted/<signer>/<class>/<sample>.npy`. |
-| `achmadnoer/alfabet-bisindo` | 125 MB | CC0 | 312 gambar A–Z, 12 gambar per huruf (4 pose × 3 latar), tampak depan dari jarak sekitar 70 cm; versi 2 "Final Update" 2021-11-17; 3.936 unduhan; usability 0.81 | Akuisisi paling rapi untuk huruf statis: sudut, jarak, dan komposisi latar tertulis. Ukuran kecil. Keterbatasan: gambar only, 1 signer tidak diketahui. |
+| `achmadnoer/alfabet-bisindo` | 125 MB | CC0 | 312 gambar A–Z, 12 gambar per huruf (4 pose × 3 latar), tampak depan dari jarak sekitar 70 cm; versi 2 "Final Update" 2021-11-17; 3.936 unduhan; usability 0.81 | Akuisisi paling rapi untuk huruf statis: sudut, jarak, dan komposisi latar tertulis. Ukuran kecil. Keterbatasan: hanya gambar, dan jumlah signer tidak diketahui. |
 
 ### Ditolak
 
 | Ref | Ukuran | Lisensi | Alasan tolak |
 | --- | --- | --- | --- |
-| `tatyaaulya/dataset-bisindo-huruf-angka-dan-kata` | 2.68 GB | CC BY 4.0 | Deskripsi kosong, 9 unduhan. Isi tidak terverifikasi, dan ukuran besar biaya muat tidak sebanding dengan risiko. |
+| `tatyaaulya/dataset-bisindo-huruf-angka-dan-kata` | 2.68 GB | CC BY 4.0 | Deskripsi kosong, 9 unduhan. Isi tidak terverifikasi, dan ukuran besar sehingga biaya tidak sebanding dengan risiko. |
 | `rayramadita/bisindo-alphabet` | 14 MB | MIT | Isinya animasi, bukan rekaman webcam. Model dilatih pada distribusi visual yang sama sekali berbeda. |
 | `meisyavira/abjad-bahasa-isyarat-indonesia-bisindo` | 168 MB | ODbL | Gabungan data `achmadnoer` ditambah data sendiri; 25 gambar per kelas. Nilai tambah kecil karena yang terbaik dari sumbernya sudah dipilih langsung, dan lisensi ODbL menambah syarat share-alike pada database. |
 | `alfredolorentiars/bisindo-letter-dataset` | 23 MB | Unknown | Tanpa deskripsi. 357 unduhan tidak membuktikan isi. |
@@ -66,7 +66,7 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 | Ref | Ukuran | Lisensi | Isi terverifikasi | Alasan dipilih |
 | --- | --- | --- | --- | --- |
 | `glennleonali/wl-bisindo` | 2.16 GB | CC BY-NC 4.0 | 1.600 video, 32 gloss × 10 sampel × 5 signer, varian Banten; nama file `[signerID]_[labelID]_[sampleID].mp4`; split protocol SD (70/30) dan SI (4 train : 1 signer test) tersedia via `data_structuring/*_split_metadata.json` dan `organize_dataset.py`; diterbitkan paper Procedia CS 2025 DOI 10.1016/j.procs.2025.08.277 | Satu-satunya dataset KATA di Kaggle yang menyediakan: paper, angka baseline (fastest baseline 97,08% pada split acak), signer ID eksplisit di nama file, dan skrip split resmi. Ini langsung memenuhi aturan keras split per signer tanpa harus menebak identitas signer. |
-| `aridone/dataset-bisindo-40-kata-5-subjek` | 1.54 GB | Unknown | 10.000 video, 50 video per subjek per kata, 5 subjek, portrait 480p, mp4; deskripsi menyebut cocok untuk evaluasi LOSO; versi 2 (2026-08-12) hapus audio; 16 unduhan; menunjuk `anggiyohanespardede/bisindo-40-kata-mp4` sebagai subjek ke-6/referensi | Signer eksplisit di nama (5 subjek), jumlah sampel per kelas besar sehingga variance per signer terlihat — paling mendekati kebutuhannya model realtime. Risiko: lisensi Unknown. |
+| `aridone/dataset-bisindo-40-kata-5-subjek` | 1.54 GB | Unknown | 10.000 video, 50 video per subjek per kata, 5 subjek, portrait 480p, mp4; deskripsi menyebut cocok untuk evaluasi LOSO; versi 2 (2026-08-12) hapus audio; 16 unduhan; menunjuk `anggiyohanespardede/bisindo-40-kata-mp4` sebagai subjek ke-6/referensi | Signer eksplisit di nama (5 subjek), jumlah sampel per kelas besar sehingga variance per signer terlihat — paling mendekati kebutuhan model realtime. Risiko: lisensi Unknown. |
 | `anggiyohanespardede/bisindo-40-kata-mp4` | 957 MB | MIT | Tanpa deskripsi; 755 unduhan; 3.839 dilihat; usability 0.44; versi 1 (2024-02-27) | Lisensi paling longgar dan jumlah pakainya terbanyak → kandidat pelengkap untuk menambah jumlah sampel kata setelah `aridone`. Tanda "40 kata mp4" konsisten dengan judulnya, dan disebut dataset referensi oleh `aridone`. |
 
 ### Ditolak
@@ -144,7 +144,7 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 
 | Ref | Ukuran | Lisensi | Isi terverifikasi | Alasan dipilih |
 | --- | --- | --- | --- | --- |
-| `mdaverofirmansyah/dataset-gestur-bisindo` | 19 MB | Unknown | Deskripsi resmi: "Mengandung gestur statis dan dinamis"; 6 unduhan; v1 2025-06-13. | Satu-satunya di kategori ini dengan deskripsi isi sah. Ukuran sangat kecil sehingga murah diinspeksi. Sumber tambahan untuk uji distribusi stalih (statis vs dinamis), bukan training utama. |
+| `mdaverofirmansyah/dataset-gestur-bisindo` | 19 MB | Unknown | Deskripsi resmi: "Mengandung gestur statis dan dinamis"; 6 unduhan; v1 2025-06-13. | Satu-satunya di kategori ini dengan deskripsi isi sah. Ukuran sangat kecil sehingga murah diinspeksi. Sumber tambahan untuk uji distribusi statis versus dinamis, bukan training utama. |
 | `chandragusta/dataset-skripsi` | 633 MB | Unknown | Judul "Gestur Tangan BISINDO"; 26 unduhan; 563 dilihat; usability 0.1875; 0 kernel. | Dataset skripsi dengan judul deskriptif dan ukuran moderat. Tanpa deskripsi → hanya untuk inspeksi tambahan. |
 | `victoriapalilingan19/isyaratku-bisindo-split` | 8.08 GB | Unknown | Nama slug mirip aplikasi ini; deskripsi Kaggle kosong sehingga apa isi "tersplit"-nya tidak terverifikasi; 2 unduhan; usability 0. | Dipakai sebagai alarm, bukan bahan training: proyek orang lain dengan nama sama menunjukkan pembagian split tertentu (apakah per signer atau acak) yang belum diketahui. Ukurannya besar, jadi hanya diunduh setelah metadata memperjelas isinya. |
 
@@ -170,7 +170,7 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 | --- | --- | --- | --- | --- |
 | `aytidar11/bisindo-gloss2ids` | 26 KB | Unknown | Milik Raditya Aditama (nama di metadata); v1 2025-09-16; 6 unduhan; usability 0.0625. | Ukuran sangat kecil dan tujuannya persis: pemetaan label model ke ID yang stabil. Sumber "gloss2ids" lain dari owner yang sama bisa dipakai cross-check. Isi berkasnya belum diinspeksi. |
 | `raditadit/gloss2ids` | 68 KB | Unknown | v2 "Update 2025-06-11"; 2 unduhan. | Pemetaan gloss ke ID versi lain. Dipakai untuk cross-check: kalau dua pemetaan berbeda, jangan pakai salah satunya sampai asalnya jelas. |
-| `nano1410/prak-2-mma-all-vits` | 9.75 GB | MIT | Tanpa deskripsi; v2 2025-11-18; 7 unduhan. | Satu-satunya dataset dengan skala besar dan MIT di kategori ini; nama "all-vits" menandakan berkas TTS VITS. Masih perlu inspeksi: apabila memang audio + transkrip Bahasa Indonesia, ini kandidat big untuk jalur TTS offline alternatif `piper-tts`. |
+| `nano1410/prak-2-mma-all-vits` | 9.75 GB | MIT | Tanpa deskripsi; v2 2025-11-18; 7 unduhan. | Satu-satunya dataset dengan skala besar dan MIT di kategori ini; nama "all-vits" menandakan berkas TTS VITS. Masih perlu inspeksi: apabila memang audio + transkrip Bahasa Indonesia, ini kandidat besar untuk jalur TTS offline alternatif `piper-tts`. |
 
 ### Ditolak
 
