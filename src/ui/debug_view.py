@@ -9,14 +9,10 @@ from __future__ import annotations
 
 import numpy as np
 import PySide6.QtCore as qc
-import PySide6.QtGui as qg
 import PySide6.QtWidgets as qw
 
-from ..adapters.camera import OpenCvCameraSource
-from ..adapters.virtual_camera import UnityVirtualCameraSink
-from ..core.config import AppConfig, load_config
 from ..core.pipeline import Frame, Pipeline, Stats
-from .check_task import run_checks_async
+from .check_task import finish_checks, make_renderer, start_checks
 from .ready_view import (
     STATUS_CHECKING,
     STATUS_ERROR,
@@ -32,6 +28,11 @@ DEBUG_TEXT = "Mode debug — belum ada model."
 
 class DebugView(qw.QMainWindow):
     """Dasbor debug: semua panel di satu jendela, pipeline yang sama."""
+
+    STATUS_IDLE = STATUS_IDLE
+    STATUS_RUNNING = STATUS_RUNNING
+    STATUS_ERROR = STATUS_ERROR
+    STATUS_CHECKING = STATUS_CHECKING
 
     def __init__(self, config: AppConfig, parent: qw.QWidget | None = None) -> None:
         super().__init__(parent)
@@ -89,13 +90,13 @@ class DebugView(qw.QMainWindow):
         self._fps_label = _metric_row("FPS terkirim")
         self._sent_label = _metric_row("Frame dikirim")
         self._dropped_label = _metric_row("Frame dibuang")
-        self._elapsed_label = _metric_row("Berjalan")
+        self._window_label = _metric_row("Jendela FPS")
         layout = qw.QVBoxLayout()
         for widget in (
             self._fps_label,
             self._sent_label,
             self._dropped_label,
-            self._elapsed_label,
+            self._window_label,
         ):
             layout.addWidget(widget)
         layout.addStretch(1)
@@ -117,59 +118,28 @@ class DebugView(qw.QMainWindow):
         layout = qw.QVBoxLayout()
         layout.addWidget(self._predictions)
         layout.addWidget(self._voting)
-        layout.addWidget(self._landmarks)
-        layout.addWidget(qw.QLabel("Kata yang diucapkan:"))
         layout.addWidget(self._spoken_words)
         layout.addStretch(1)
         return layout
 
-    # -- aksi --------------------------------------------------------------------
     def _on_start(self) -> None:
         """Mulai pemeriksaan lalu pipeline. Aman ditekan berulang kali."""
-        # Guard: Start kedua tidak boleh membuka kamera berkali-kali.
-        if self._pipeline is not None or self._check_task is not None:
-            return
-        self._set_status(*STATUS_CHECKING)
-        self._start_button.setEnabled(False)
-        # Runner disimpan supaya QRunnable tidak di-GC selama jalan.
-        self._check_task = run_checks_async(
-            self._config.camera_device_index, self._on_checks_done
-        )
+        start_checks(self, details=None)
 
     def _on_checks_done(self, results) -> None:
         """Dipanggil di GUI thread saat pemeriksaan selesai."""
-        self._check_task = None
-        self._start_button.setEnabled(True)
-        failures = [message for _, ok, message in results if not ok]
-        if failures:
-            self._set_status(*STATUS_ERROR)
-            summary = "\n".join(f"- {message}" for message in failures)
-            qw.QMessageBox.warning(self, "Pemeriksaan awal gagal", summary)
-            return
-        try:
-            camera = OpenCvCameraSource(self._config)
-            sink = UnityVirtualCameraSink(
-                self._config,
-                self._config.camera_width,
-                self._config.camera_height,
-                self._config.camera_fps,
-            )
-        except Exception as exc:
-            self._set_status(*STATUS_ERROR)
-            return
         self._newest_frame = None
         self._raw_image = None
-        self._pipeline = Pipeline(
-            camera=camera,
-            sink=sink,
-            config=self._config,
-            renderer=lambda frame: draw_overlay(frame, DEBUG_TEXT),
-            on_frame=self._on_frame,
-            on_stats=self._on_stats,
+        finish_checks(
+            self,
+            results,
+            details=None,
+            # Salinan piksel mentah disimpan SEBELUM draw_overlay menimpa frame.
+            renderer=make_renderer(DEBUG_TEXT, self._store_raw, draw_overlay),
         )
-        self._pipeline.start()
-        self._timer.start()
-        self._set_status(*STATUS_RUNNING)
+
+    def _store_raw(self, image: np.ndarray) -> None:
+        self._raw_image = image
 
     def _on_stop(self) -> None:
         self._timer.stop()
@@ -178,13 +148,16 @@ class DebugView(qw.QMainWindow):
             self._pipeline = None
         self._set_status(*STATUS_IDLE)
 
-    def _on_frame(self, frame: Frame) -> None:
-        """Ambil salinan piksel mentah SEBELUM renderer menimpa gambar.
+    def _message_warning(self, title: str, text: str) -> None:
+        qw.QMessageBox.warning(self, title, text)
 
-        ``draw_overlay`` menulis ke ``frame.image`` in place, jadi panel mentah
-        butuh salinan sendiri. Satu salinan frame terbaru saja, bukan tiap frame.
+    def _on_frame(self, frame: Frame) -> None:
+        """Simpan frame terbaru untuk panel overlay.
+
+        Piksel mentah tidak disalin di sini: pipeline memanggil renderer
+        lebih dulu, jadi pada titik ini overlay sudah menimpa ``frame.image``
+        in place. Salinannya terjadi di ``_store_raw`` lewat renderer.
         """
-        self._raw_image = frame.image.copy()
         self._newest_frame = frame
 
     def _on_stats(self, stats: Stats) -> None:
@@ -194,7 +167,9 @@ class DebugView(qw.QMainWindow):
         self._fps_label.setText(f"FPS terkirim: {stats.fps:5.1f}")
         self._sent_label.setText(f"Frame dikirim: {stats.frames_sent}")
         self._dropped_label.setText(f"Frame dibuang: {stats.frames_dropped}")
-        self._elapsed_label.setText(f"Berjalan: {stats.elapsed_seconds:5.1f} s")
+        self._window_label.setText(
+            f"Jendela FPS: {stats.elapsed_seconds:5.1f} s"
+        )
 
     def _set_status(self, state: str, style: str) -> None:
         self._status.setText(f"Status: {state}")
