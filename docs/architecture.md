@@ -14,6 +14,35 @@ Dokumen ini menjelaskan susun direktori, alur pipeline, dua mode aplikasi, strat
 | data/ | Dataset mentah dan fitur hasil ekstraksi. | Tidak masuk git. |
 | configs/ | Semua angka yang bisa dituning. | Tidak ada magic number di kode. |
 
+## Kontrak konfigurasi
+
+Aturan proyek: tidak ada angka ajaib di kode. Kontrak ini menentukan cara konfigurasi dimuat dan dibaca.
+
+- Penyimpanan: satu berkas YAML di `configs/app.yaml`, dimuat sekali saat startup oleh loader di `src/core/config.py`.
+- Aturan: `src/core/` membaca konfigurasi sebagai dataclass bertipe (mis. `AppConfig`) — tanpa framework, tanpa mutasi global. Loader adalah fungsi murni dari path berkas.
+- Pembaca: adapter membaca dari objek config yang diterima constructor-nya. Fungsi core menerima field yang dibutuhkan sebagai parameter. UI tidak pernah membaca config untuk nilai pemrosesan.
+- Default: setiap key WAJIB punya default supaya aplikasi jalan tanpa berkas konfigurasi; berkas hanya menimpa.
+- Validasi saat load: tipe salah atau key wajib tidak ada = gagal cepat dengan pesan jelas yang menyebut nama key. Key tak dikenal = peringatan lalu diabaikan, tidak pernah diterima diam-diam.
+- Environment: variabel `ISYARATKU_CONFIG` boleh menunjuk path konfigurasi alternatif, untuk jalankan debug.
+
+Nama key adalah kontrak. Kode memakai nama ini persis.
+
+| Key | Tipe | Default awal | Dipakai di |
+| --- | --- | --- | --- |
+| `camera.device_index` | int | 0 | camera adapter |
+| `camera.width` / `camera.height` / `camera.fps` | int | 640 / 480 / 30 | camera + virtual camera |
+| `landmark.max_num_hands` | int | 2 | mediapipe adapter |
+| `landmark.model_complexity` | int | 0 | mediapipe adapter |
+| `window.frame_count` | int | 30 | windowing |
+| `window.stride` | int | 5 | windowing |
+| `smoothing.confidence_threshold` | float | 0.7 | smoothing |
+| `smoothing.vote_count` | int | 3 | smoothing |
+| `smoothing.cooldown_seconds` | float | 1.5 | smoothing |
+| `queue.max_size` | int | 4 | threading |
+| `tts.device_name` | str | "CABLE Input" | speech sink |
+| `tts.rate` | int | 160 | speech sink |
+| `virtual_camera.backend` | str | "unitycapture" | virtual camera sink |
+
 ## Alur pipeline
 
 Urutan satu arah, setiap tahap bisa diuji terpisah:
@@ -33,7 +62,7 @@ Rincian langkah:
 1. Kamera mengambil frame.
 2. MediaPipe Hands dan Pose mengeluarkan landmark.
 3. Landmark dinormalisasi terhadap titik acuan (pergelangan atau tengah bahu) dan diskala dengan lebar bahu. Fitur gerak berupa selisih antar frame ditambahkan.
-4. Landmark yang hilang diperlakukan konsisten lewat satu kebijakan tetap: interpolasi atau nol. Kebijakan dipilih sekali dan dipakai di semua tahap.
+4. Landmark yang hilang mengikuti kebijakan zero-fill: landmark yang tidak terdeteksi bernilai 0.0 untuk seluruh koordinatnya, dengan flag kehadiran per tangan. Lihat docs/tech-decisions.md untuk alasan dan jalur upgrade ke interpolasi carry-forward.
 5. Sliding window mengumpulkan frame. Inference berjalan beberapa kali per detik sementara video tetap lancar.
 6. Prediksi per window masuk tahap smoothing. Kelas "tidak ada isyarat" memastikan tidak ada isyarat tidak menghasilkan output.
 7. Hasil smoothing yang stabil menghasilkan teks untuk overlay dan kata untuk TTS. Prediksi mentah tidak boleh langsung mengucapkan suara.

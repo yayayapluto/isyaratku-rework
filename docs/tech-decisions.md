@@ -19,20 +19,21 @@ Setiap baris sudah ditutup. Alasan satu baris.
 | Seluruh angka tuning di configs/ | Parameter bisa diubah tanpa mengubah kode, dan mudah dibaca juri. |
 | Model sequence baseline lebih dulu | Baseline sederhana memberi angka pembanding sebelum model besar. |
 | Setiap adapter punya versi fake | Pipeline dan test bisa jalan di komputer tanpa webcam. |
-| Dataset Kaggle yang sudah ditemukan dipakai lebih dulu, bukan rekaman mandiri | Hemat waktu; rekaman mandiri opsional hanya untuk fine-tuning bila akurasi kurang. |
+| Framework GUI: CustomTkinter | Dasbor satu jendela cukup dengan frame dan grid; PySide6 butuh waktu lebih lama. Ditandai asumsi sampai dikonfirmasi user. |
+| Landmark hilang: zero-fill plus flag kehadiran | Deterministik dan teruji; interpolasi menambah state tersembunyi. |
 | Arah produk hanya isyarat menjadi teks dan suara | Menjaga satu pipeline tetap stabil, bukan dua arah yang setengah jadi. |
 
 ## Belum diputuskan / pertanyaan terbuka
 
 | Pertanyaan | Catatan |
 | --- | --- |
-| Framework GUI: CustomTkinter atau PySide6 | CustomTkinter: cepat dibuat, keterbatasan layout. PySide6: lebih mampu, lebih lama. Asumsi: CustomTkinter cukup untuk dua view ini, tapi belum final. |
+| Konfirmasi user atas pilihan CustomTkinter | Asumsi: CustomTkinter cukup. Ganti ke PySide6 bila layout dashboard membatasi. |
 | Mesin TTS: pyttsx3 atau Piper | Suara bahasa Indonesia yang tersedia belum dicek. Kalau tidak tersedia, dukungan bahasa Indonesia menjadi blocker pipeline slice 5. |
 | Apakah Holistic pernah dibutuhkan | Dipakai hanya kalau pose dari Hands + Pose terbukti tidak cukup. Untuk sekarang jangan dipakai. |
 | Identitas dataset: nama, URL, versi, lisensi | Belum diinspeksi. Lihat docs/dataset-notes.md. |
 | Daftar kata minimum untuk v1 | Usulan awal 20 sampai 30 kata relevan meeting, tapi daftar pastinya belum diputuskan. Asumsi: daftar awal belum ada, jadi belum bisa dijadikan label model. |
 | Arsitektur model untuk isyarat kata: GRU atau 1D-CNN | Keduanya kandidat. Dilihat dari hasil evaluasi, bukan pilihan awal. |
-| Kebijakan landmark hilang: interpolasi atau nol | Harus satu kebijakan konsisten. Belum diputuskan. |
+| Titik acuan normalisasi: pergelangan tangan atau tengah bahu | Belum diuji mana yang lebih stabil; keduanya kandidat, keputusan setelah slice 3. |
 | Ukuran label set output model | Bergantung hasil inspeksi dataset dan daftar kata v1. Belum diputuskan. |
 | Inference realtime di CPU atau butuh GPU | Bergantung ukuran model. Angka target 25 hingga 30 FPS harus diuji di CPU dulu; keperluan GPU diperiksa pada slice 4. |
 | Bahasa GUI | Asumsi: Bahasa Indonesia, belum dikonfirmasi user. |
@@ -43,6 +44,6 @@ Setiap baris sudah ditutup. Alasan satu baris.
 
 Asumsi adalah penalaran sementara. Setiap asumsi harus diganti keputusan user setelah diverifikasi.
 
-- CustomTkinter cukup untuk mode ready-to-use dan dasbor debug.
+- Pilihan CustomTkinter dipakai sampai user konfirmasi; PySide6 adalah cadangan.
 - Cloud TTS tidak dipakai sama sekali karena syarat offline.
 - Daftar kata awal akan diambil dari kelas dataset, bukan ditulis manual lebih dulu.

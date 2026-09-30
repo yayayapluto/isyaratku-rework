@@ -9,6 +9,14 @@ Dokumen ini hanya merekam apa yang sudah diketahui dan apa yang belum diperiksa.
 - Cakupannya mencakup huruf, angka, dan kata.
 - Datanya campuran: sebagian gambar statis, sebagian video.
 - Preferensi proyek: pakai dataset yang sudah ada lebih dulu. Rekaman mandiri hanya opsional untuk fine-tuning bila akurasi kurang.
+- User mengetahui cara mendapatkan dataset dari Kaggle; lokasi dan struktur salinan lokal akan dicatat di bagian Path dataset.
+
+## Path dataset
+
+- Dataset mentah: `data/raw/` — isi hasil unduhan Kaggle TARUH DI SINI (folder hasil ekstraksi atau zip).
+- Fitur landmark hasil ekstraksi: `data/extracted/`.
+- Keduanya git-ignored. Jangan pernah mengedit berkas di `data/raw/` — training hanya membacanya.
+- Rencana pola nama berkas fitur: `data/extracted/<signer>/<class>/<sample>.npy` (belum dibuat, dicatat sebagai rencana).
 
 ## Yang belum diinspeksi
 
