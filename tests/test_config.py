@@ -67,6 +67,13 @@ def test_zero_or_negative_raises_naming_the_key(tmp_path) -> None:
         load_config(str(path))
 
 
+def test_non_positive_stop_timeout_raises_naming_the_key(tmp_path) -> None:
+    path = tmp_path / "nonsense.toml"
+    path.write_text("[pipeline]\nstop_timeout_seconds = -1.0\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="pipeline.stop_timeout_seconds"):
+        load_config(str(path))
+
+
 # -- unknown keys ------------------------------------------------------------
 def test_unknown_key_warns_and_does_not_raise(tmp_path, capsys) -> None:
     path = tmp_path / "asing.toml"

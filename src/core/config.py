@@ -61,6 +61,7 @@ _POSITIVE = frozenset({
     "window.stride",
     "queue.max_size",
     "pipeline.stats_window",
+    "pipeline.stop_timeout_seconds",
     "tts.rate",
 })
 _NON_NEGATIVE = frozenset({"camera.device_index"})

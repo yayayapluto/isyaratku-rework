@@ -7,11 +7,8 @@ import PySide6.QtCore as qc
 import PySide6.QtGui as qg
 import PySide6.QtWidgets as qw
 
-from ..adapters.camera import OpenCvCameraSource
-from ..adapters.virtual_camera import UnityVirtualCameraSink
-from ..core.config import AppConfig, load_config
 from ..core.pipeline import Frame, Pipeline, Stats
-from .check_task import run_checks_async
+from .check_task import finish_checks, start_checks
 from .render import draw_overlay
 
 PREVIEW_INTERVAL_MS = 40
@@ -23,6 +20,11 @@ STATUS_CHECKING = ("memeriksa...", "color: #b45309; font-weight: 600;")
 
 class ReadyView(qw.QMainWindow):
     """Jendela utama mode siap pakai: dua tombol, satu pratinjau, satu status."""
+
+    STATUS_IDLE = STATUS_IDLE
+    STATUS_RUNNING = STATUS_RUNNING
+    STATUS_ERROR = STATUS_ERROR
+    STATUS_CHECKING = STATUS_CHECKING
 
     def __init__(self, config: AppConfig, parent: qw.QWidget | None = None) -> None:
         super().__init__(parent)
@@ -76,57 +78,26 @@ class ReadyView(qw.QMainWindow):
     # -- aksi --------------------------------------------------------------------
     def _on_start(self) -> None:
         """Mulai pemeriksaan lalu pipeline. Aman ditekan berulang kali."""
-        # Guard: Start kedua tidak boleh membuka kamera berkali-kali.
-        if self._pipeline is not None or self._check_task is not None:
-            return
-        self._set_status(*STATUS_CHECKING)
-        self._details.setText("Memeriksa kamera, UnityCapture, dan VB-Cabel...")
-        self._start_button.setEnabled(False)
-        # Runner disimpan supaya QRunnable tidak di-GC selama jalan.
-        self._check_task = run_checks_async(
-            self._config.camera_device_index, self._on_checks_done
-        )
+        # Start kedua ditolak selama pemeriksaan atau pipeline masih hidup,
+        # sehingga kamera tidak pernah dibuka dua kali.
+        start_checks(self, self._details)
 
     def _on_checks_done(self, results) -> None:
         """Dipanggil di GUI thread saat pemeriksaan selesai."""
-        self._check_task = None
-        self._start_button.setEnabled(True)
-        failures = [message for _, ok, message in results if not ok]
-        if failures:
-            self._set_status(*STATUS_ERROR)
-            summary = "\n".join(f"- {message}" for message in failures)
+        camera = finish_checks(
+            self,
+            results,
+            self._details,
+            lambda frame: draw_overlay(frame, "Belum ada prediksi."),
+        )
+        if camera is not None:
             self._details.setText(
-                f"Perbaiki masalah berikut lalu tekan Start lagi:\n{summary}"
+                f"Kamera {camera.backend} {self._config.camera_width}x"
+                f"{self._config.camera_height} -> UnityCapture."
             )
-            qw.QMessageBox.warning(self, "Pemeriksaan awal gagal", summary)
-            return
-        try:
-            camera = OpenCvCameraSource(self._config)
-            sink = UnityVirtualCameraSink(
-                self._config,
-                self._config.camera_width,
-                self._config.camera_height,
-                self._config.camera_fps,
-            )
-        except Exception as exc:
-            self._set_status(*STATUS_ERROR)
-            self._details.setText(f"Pipeline gagal start: {exc}")
-            return
-        self._pipeline = Pipeline(
-            camera=camera,
-            sink=sink,
-            config=self._config,
-            renderer=lambda frame: draw_overlay(frame, "Belum ada prediksi."),
-            on_frame=self._on_frame,
-            on_stats=self._on_stats,
-        )
-        self._pipeline.start()
-        self._timer.start()
-        self._set_status(*STATUS_RUNNING)
-        self._details.setText(
-            f"Kamera {camera.backend} {self._config.camera_width}x"
-            f"{self._config.camera_height} -> UnityCapture."
-        )
+
+    def _message_warning(self, title: str, text: str) -> None:
+        qw.QMessageBox.warning(self, title, text)
 
     def _on_stop(self) -> None:
         self._timer.stop()
