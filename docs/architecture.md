@@ -1,0 +1,98 @@
+# Arsitektur
+
+Dokumen ini menjelaskan susun direktori, alur pipeline, dua mode aplikasi, strategi fake adapter, dan tata threading.
+
+## Peran direktori
+
+| Direktori | Isi | Aturan keras |
+| --- | --- | --- |
+| src/core/ | Normalisasi landmark, windowing, gating, voting, cooldown, perakitan pipeline. | Tidak mengimpor GUI, hardware, atau framework model. |
+| src/adapters/ | Satu adapter per dunia luar, masing-masing punya versi fake. | Semua adapter menerima interface yang sama dengan fake-nya. |
+| src/ui/ | View mode ready-to-use dan mode debug. | Hanya tampilkan data dan picu aksi. Tidak boleh ada logika pemrosesan. |
+| training/ | Skrip ekstraksi landmark, training, evaluasi. | Dipisah dari runtime. runtime tidak mengimpor training/. |
+| models/ | Artefak model hasil training. | Diubah hanya oleh training/. |
+| data/ | Dataset mentah dan fitur hasil ekstraksi. | Tidak masuk git. |
+| configs/ | Semua angka yang bisa dituning. | Tidak ada magic number di kode. |
+
+## Alur pipeline
+
+Urutan satu arah, setiap tahap bisa diuji terpisah:
+
+```
+kamera -> MediaPipe landmark -> normalisasi + fitur gerak -> windowing 30 frame / stride 5
+   -> prediksi per window + kelas "tidak ada isyarat"
+   -> gating (tangan terdeteksi dan bergerak)
+   -> smoothing (confidence threshold, voting, cooldown)
+   -> cabang output:
+       overlay teks di video -> virtual camera (Zoom/Meet)
+       kata hasil smoothing -> cache audio -> TTS -> device audio aplikasi meeting
+```
+
+Rincian langkah:
+
+1. Kamera mengambil frame.
+2. MediaPipe Hands dan Pose mengeluarkan landmark.
+3. Landmark dinormalisasi terhadap titik acuan (pergelangan atau tengah bahu) dan diskala dengan lebar bahu. Fitur gerak berupa selisih antar frame ditambahkan.
+4. Landmark yang hilang diperlakukan konsisten lewat satu kebijakan tetap: interpolasi atau nol. Kebijakan dipilih sekali dan dipakai di semua tahap.
+5. Sliding window mengumpulkan frame. Inference berjalan beberapa kali per detik sementara video tetap lancar.
+6. Prediksi per window masuk tahap smoothing. Kelas "tidak ada isyarat" memastikan tidak ada isyarat tidak menghasilkan output.
+7. Hasil smoothing yang stabil menghasilkan teks untuk overlay dan kata untuk TTS. Prediksi mentah tidak boleh langsung mengucapkan suara.
+
+## Mode aplikasi
+
+Satu codebase dan satu pipeline, dua view berbeda.
+
+**Mode ready-to-use**
+- UI minimal dengan tombol Start dan Stop.
+- Tidak ada pemilihan perangkat kamera atau audio. Pemilihan perangkat terjadi di Zoom atau Meet.
+- Saat Start, aplikasi menjalankan pemeriksaan otomatis: kamera, UnityCapture, VB-Cable.
+- Kegagalan pemeriksaan menampilkan pesan jelas, misalnya "UnityCapture belum terdeteksi".
+- Ada indikator status kecil: berjalan, berhenti, atau error.
+
+**Mode debug**
+- Satu jendela dasbor dengan beberapa panel, bukan banyak jendela.
+- Panel: video mentah, video dengan landmark, FPS per tahap, latensi total, tiga prediksi teratas beserta confidence, status voting buffer dan cooldown, persentase frame dengan landmark tidak lengkap, log kata yang sudah diucapkan.
+- Panel tambahan opsional: tombol rekam satu sample landmark dari webcam.
+- Mode debug hanya mengamati pipeline yang sama. Tidak ada logika terpisah.
+- Ukuran performa dilakukan di mode ready-to-use karena mode debug menambah beban render.
+
+## Strategi fake adapter
+
+Setiap adapter punya versi fake karena pipeline tidak boleh bergantung pada keberadaan hardware.
+
+- Adapter diinjeksi ke pipeline melalui constructor atau parameter, bukan dibuat di dalam pipeline.
+- Fake adapter mengimplementasikan interface yang sama dengan adapter asli.
+- Fake mengeluarkan kejadian terkendali: frame sintetis, landmark tetap, landmark hilang sebagian, dan selesainya urutan isyarat tertentu.
+- Pipeline bisa dijalankan dari awal sampai akhir tanpa kamera dan tanpa perangkat audio nyata.
+
+Alasan: tanpa fake, bug di core hanya terlihat setelah hardware tersedia, dan test berhenti dipakai karena gagal di komputer lain.
+
+Daftar adapter dan fakenya:
+
+| Adapter | Fake |
+| --- | --- |
+| CameraSource | FakeCameraSource: menghasilkan frame dengan pola tetap atau dari berkas. |
+| LandmarkExtractor | FakeLandmarkExtractor: mengeluarkan landmark sintetis atau kosong. |
+| Predictor | FakePredictor: memetakan fitur ke label tetap. |
+| VirtualCameraSink | FakeVirtualCameraSink: menyimpan frame ke memori. |
+| SpeechSink | FakeSpeechSink: mencatat teks, tidak memutar suara. |
+
+## Threading dan queue
+
+Tiga pekerja terpisah yang dihubungkan queue, supaya inference tidak mengganggu kelancaran video:
+
+1. Pekerja capture + landmark: ambil frame, jalankan MediaPipe, taruh landmark di queue fitur.
+2. Pekerja inference: ambil fitur, jalankan model, taruh hasil prediksi di queue prediksi.
+3. Pekerja output: taruh frame ke overlay, kirim ke virtual camera, dan jalankan render UI.
+
+TTS berjalan di thread sendiri, di luar ketiga pekerja di atas. Audio sudah dibuat lebih dulu untuk satu kata sehingga pemutaran tidak bolong.
+
+Aturan queue:
+
+- Queue berbatas supaya backlog tidak tumbuh tanpa kendali. Ukuran queue masuk configs/.
+- Pekerja output tidak boleh menunggu pekerja inference. Kriteria ukuran batas dan perilaku saat queue penuh: belum diputuskan.
+- UI diperbarui dari snapshot terbaru, bukan dari setiap frame.
+
+## Verifikasi struktur
+
+Setiap perubahan arsitektur harus memenuhi pemeriksaan ini: tidak ada berkas di src/core/ yang mengimpor src/ui/, src/adapters/, library GUI, atau framework model. Perintahnya akan ditentukan.
