@@ -58,11 +58,13 @@ def _run_headless(seconds: float) -> int:
     from .render import draw_overlay
 
     config = load_config()
-    print(f"Konfigurasi dimuat: {config.virtual_camera_backend} "
-          f"{config.camera_width}x{config.camera_height}@{config.camera_fps}")
+    print(
+        f"Konfigurasi dimuat: {config.virtual_camera_backend} "
+        f"{config.camera_width}x{config.camera_height}@{config.camera_fps}"
+    )
 
     print("\nPemeriksaan awal:")
-    for name, ok, message in run_checks():
+    for name, ok, message in run_checks(config.camera_device_index):
         print(f"  [{'OK' if ok else 'GAGAL'}] {name}: {message}")
 
     sink = FakeVirtualCameraSink(config)
@@ -76,6 +78,11 @@ def _run_headless(seconds: float) -> int:
     pipeline.start()
     time.sleep(seconds)
     pipeline.stop()
+
+    fail = pipeline.error
+    if fail is not None:
+        print(f"\nPipeline berhenti lebih awal karena galat: {fail}")
+        return 1
 
     stats = pipeline.stats()
     print("\nStatistik pipeline (fake adapter):")

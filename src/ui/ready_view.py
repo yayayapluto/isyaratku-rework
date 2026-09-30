@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
+import numpy as np
 import PySide6.QtCore as qc
 import PySide6.QtGui as qg
 import PySide6.QtWidgets as qw
 
 from ..adapters.camera import OpenCvCameraSource
-from ..adapters.checks import run_checks
 from ..adapters.virtual_camera import UnityVirtualCameraSink
 from ..core.config import AppConfig, load_config
 from ..core.pipeline import Frame, Pipeline, Stats
+from .check_task import run_checks_async
 from .render import draw_overlay
 
 PREVIEW_INTERVAL_MS = 40
-STATUS_STYLE = {
-    "berjalan": "color: #1b7f3b; font-weight: 600;",
-    "berhenti": "color: #475569;",
-    "error": "color: #b91c1c; font-weight: 600;",
-}
+STATUS_IDLE = ("berhenti", "color: #475569;")
+STATUS_RUNNING = ("berjalan", "color: #1b7f3b; font-weight: 600;")
+STATUS_ERROR = ("error", "color: #b91c1c; font-weight: 600;")
+STATUS_CHECKING = ("memeriksa...", "color: #b45309; font-weight: 600;")
 
 
 class ReadyView(qw.QMainWindow):
@@ -28,6 +28,7 @@ class ReadyView(qw.QMainWindow):
         super().__init__(parent)
         self._config = config
         self._pipeline: Pipeline | None = None
+        self._check_task = None
         self._newest_frame: Frame | None = None
 
         self.setWindowTitle("IsyaratKu Cam — Siap Pakai")
@@ -42,12 +43,13 @@ class ReadyView(qw.QMainWindow):
         self._preview.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
         self._preview.setMinimumSize(640, 360)
         self._preview.setStyleSheet(
-            "background: #0f172a; color: #94a3b8; border: 1px solid #1e293b; border-radius: 8px;"
+            "background: #0f172a; color: #94a3b8; border: 1px solid #1e293b; "
+            "border-radius: 8px;"
         )
         layout.addWidget(self._preview, stretch=1)
 
         self._status = qw.QLabel("Status: berhenti")
-        self._status.setStyleSheet(STATUS_STYLE["berhenti"])
+        self._status.setStyleSheet(STATUS_IDLE[1])
         layout.addWidget(self._status, alignment=qc.Qt.AlignmentFlag.AlignLeft)
 
         buttons = qw.QHBoxLayout()
@@ -73,18 +75,30 @@ class ReadyView(qw.QMainWindow):
 
     # -- aksi --------------------------------------------------------------------
     def _on_start(self) -> None:
-        failures = [message for _, ok, message in run_checks() if not ok]
+        """Mulai pemeriksaan lalu pipeline. Aman ditekan berulang kali."""
+        # Guard: Start kedua tidak boleh membuka kamera berkali-kali.
+        if self._pipeline is not None or self._check_task is not None:
+            return
+        self._set_status(*STATUS_CHECKING)
+        self._details.setText("Memeriksa kamera, UnityCapture, dan VB-Cabel...")
+        self._start_button.setEnabled(False)
+        # Runner disimpan supaya QRunnable tidak di-GC selama jalan.
+        self._check_task = run_checks_async(
+            self._config.camera_device_index, self._on_checks_done
+        )
+
+    def _on_checks_done(self, results) -> None:
+        """Dipanggil di GUI thread saat pemeriksaan selesai."""
+        self._check_task = None
+        self._start_button.setEnabled(True)
+        failures = [message for _, ok, message in results if not ok]
         if failures:
-            self._set_status("error")
-            qw.QMessageBox.warning(
-                self,
-                "Pemeriksaan awal gagal",
-                "\n".join(f"- {message}" for message in failures),
-            )
+            self._set_status(*STATUS_ERROR)
+            summary = "\n".join(f"- {message}" for message in failures)
             self._details.setText(
-                "Perbaiki masalah berikut lalu tekan Start lagi:\n"
-                + "\n".join(f"- {message}" for message in failures)
+                f"Perbaiki masalah berikut lalu tekan Start lagi:\n{summary}"
             )
+            qw.QMessageBox.warning(self, "Pemeriksaan awal gagal", summary)
             return
         try:
             camera = OpenCvCameraSource(self._config)
@@ -95,7 +109,7 @@ class ReadyView(qw.QMainWindow):
                 self._config.camera_fps,
             )
         except Exception as exc:
-            self._set_status("error")
+            self._set_status(*STATUS_ERROR)
             self._details.setText(f"Pipeline gagal start: {exc}")
             return
         self._pipeline = Pipeline(
@@ -108,9 +122,9 @@ class ReadyView(qw.QMainWindow):
         )
         self._pipeline.start()
         self._timer.start()
-        self._set_status("berjalan")
+        self._set_status(*STATUS_RUNNING)
         self._details.setText(
-            f"Kamera {self._pipeline.camera.backend} {self._config.camera_width}x"
+            f"Kamera {camera.backend} {self._config.camera_width}x"
             f"{self._config.camera_height} -> UnityCapture."
         )
 
@@ -119,43 +133,51 @@ class ReadyView(qw.QMainWindow):
         if self._pipeline is not None:
             self._pipeline.stop()
             self._pipeline = None
-        self._set_status("berhenti")
+        self._set_status(*STATUS_IDLE)
         self._details.setText("")
 
     def _on_frame(self, frame: Frame) -> None:
         self._newest_frame = frame
 
     def _on_stats(self, stats: Stats) -> None:
-        if self._status.text() != "Status: berjalan":
+        """Angka pengukuran; berhenti tampil begitu pipeline menyatakan galat."""
+        if self._pipeline is None or self._pipeline.error is not None:
             return
         self._details.setText(
             f"FPS terkirim {stats.fps:5.1f} | dikirim {stats.frames_sent} | "
             f"dibuang {stats.frames_dropped} | dibaca {stats.frames_captured}"
         )
 
-    def _set_status(self, state: str) -> None:
+    def _set_status(self, state: str, style: str) -> None:
         self._status.setText(f"Status: {state}")
-        self._status.setStyleSheet(STATUS_STYLE[state])
+        self._status.setStyleSheet(style)
 
     # -- pratinjau ---------------------------------------------------------------
     def _paint_preview(self) -> None:
-        """Gambar hanya frame terbaru; frame di antaranya dibuang."""
+        """Frame terbaru saja yang digambar; frame di antaranya dibuang."""
+        pipeline = self._pipeline
+        if pipeline is None:
+            return
+        fail = pipeline.error
+        if fail is not None:
+            self._stop_timer_on_error(fail)
+            return
         frame = self._newest_frame
         self._newest_frame = None
         if frame is None:
             return
-        height, width = frame.image.shape[:2]
-        image = qg.QImage(
-            frame.image.tobytes(), width, height, width * 3, qg.QImage.Format.Format_BGR888
-        )
-        pixmap = qg.QPixmap.fromImage(image.copy())
         self._preview.setPixmap(
-            pixmap.scaled(
+            pixmap_bgr(frame.image).scaled(
                 self._preview.size(),
                 qc.Qt.AspectRatioMode.KeepAspectRatio,
                 qc.Qt.TransformationMode.SmoothTransformation,
             )
         )
+
+    def _stop_timer_on_error(self, fail: Exception) -> None:
+        self._timer.stop()
+        self._set_status(*STATUS_ERROR)
+        self._details.setText(f"Pipeline berhenti karena galat: {fail}")
 
     def closeEvent(self, event) -> None:
         self._on_stop()
@@ -165,3 +187,12 @@ class ReadyView(qw.QMainWindow):
 def build_ready_view() -> ReadyView:
     """Bangun view dengan config default; dipakai entry point dan CLI."""
     return ReadyView(load_config())
+
+
+def pixmap_bgr(image: np.ndarray) -> qg.QPixmap:
+    """Frame BGR numpy menjadi QPixmap; buffer disalin agar data tetap aman."""
+    height, width = image.shape[:2]
+    qimage = qg.QImage(
+        image.tobytes(), width, height, width * 3, qg.QImage.Format.Format_BGR888
+    )
+    return qg.QPixmap.fromImage(qimage.copy())

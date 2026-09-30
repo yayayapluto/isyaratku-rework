@@ -1,17 +1,29 @@
 """View mode debug: dasbor satu jendela dengan video mentah, video overlay,
-angka, dan panel status yang jujur soal apa yang belum ada."""
+angka, dan panel status yang jujur soal apa yang belum ada.
+
+Kelas ini sengaja terpisah dari ReadyView: mode debug menampilkan angka dan
+panel yang tidak ada di mode siap pakai, bukan mencabang di dalam satu view.
+"""
 
 from __future__ import annotations
 
+import numpy as np
 import PySide6.QtCore as qc
 import PySide6.QtGui as qg
 import PySide6.QtWidgets as qw
 
 from ..adapters.camera import OpenCvCameraSource
-from ..adapters.checks import run_checks
 from ..adapters.virtual_camera import UnityVirtualCameraSink
 from ..core.config import AppConfig, load_config
 from ..core.pipeline import Frame, Pipeline, Stats
+from .check_task import run_checks_async
+from .ready_view import (
+    STATUS_CHECKING,
+    STATUS_ERROR,
+    STATUS_IDLE,
+    STATUS_RUNNING,
+    pixmap_bgr,
+)
 from .render import draw_overlay
 
 PREVIEW_INTERVAL_MS = 40
@@ -25,8 +37,9 @@ class DebugView(qw.QMainWindow):
         super().__init__(parent)
         self._config = config
         self._pipeline: Pipeline | None = None
+        self._check_task = None
         self._newest_frame: Frame | None = None
-        self._raw_image = None
+        self._raw_image: np.ndarray | None = None
 
         self.setWindowTitle("IsyaratKu Cam — Mode Debug")
         self.resize(1180, 780)
@@ -65,14 +78,14 @@ class DebugView(qw.QMainWindow):
         self._stop_button = qw.QPushButton("Stop")
         self._stop_button.clicked.connect(self._on_stop)
         self._status = qw.QLabel("Status: berhenti")
-        self._status.setStyleSheet("color: #475569;")
+        self._status.setStyleSheet(STATUS_IDLE[1])
         row.addWidget(self._start_button)
         row.addWidget(self._stop_button)
         row.addWidget(self._status)
         row.addStretch(1)
         return row
 
-    def _build_metrics(self) -> qw.QVBoxLayout:
+    def _build_metrics(self) -> qw.QLayout:
         self._fps_label = _metric_row("FPS terkirim")
         self._sent_label = _metric_row("Frame dikirim")
         self._dropped_label = _metric_row("Frame dibuang")
@@ -112,14 +125,26 @@ class DebugView(qw.QMainWindow):
 
     # -- aksi --------------------------------------------------------------------
     def _on_start(self) -> None:
-        failures = [m for _, ok, m in run_checks() if not ok]
+        """Mulai pemeriksaan lalu pipeline. Aman ditekan berulang kali."""
+        # Guard: Start kedua tidak boleh membuka kamera berkali-kali.
+        if self._pipeline is not None or self._check_task is not None:
+            return
+        self._set_status(*STATUS_CHECKING)
+        self._start_button.setEnabled(False)
+        # Runner disimpan supaya QRunnable tidak di-GC selama jalan.
+        self._check_task = run_checks_async(
+            self._config.camera_device_index, self._on_checks_done
+        )
+
+    def _on_checks_done(self, results) -> None:
+        """Dipanggil di GUI thread saat pemeriksaan selesai."""
+        self._check_task = None
+        self._start_button.setEnabled(True)
+        failures = [message for _, ok, message in results if not ok]
         if failures:
-            self._set_status("error", "Status: error")
-            qw.QMessageBox.warning(
-                self,
-                "Pemeriksaan awal gagal",
-                "\n".join(f"- {m}" for m in failures),
-            )
+            self._set_status(*STATUS_ERROR)
+            summary = "\n".join(f"- {message}" for message in failures)
+            qw.QMessageBox.warning(self, "Pemeriksaan awal gagal", summary)
             return
         try:
             camera = OpenCvCameraSource(self._config)
@@ -130,7 +155,7 @@ class DebugView(qw.QMainWindow):
                 self._config.camera_fps,
             )
         except Exception as exc:
-            self._set_status("error", f"Status: error ({exc})")
+            self._set_status(*STATUS_ERROR)
             return
         self._newest_frame = None
         self._raw_image = None
@@ -138,42 +163,52 @@ class DebugView(qw.QMainWindow):
             camera=camera,
             sink=sink,
             config=self._config,
-            renderer=self._render,
+            renderer=lambda frame: draw_overlay(frame, DEBUG_TEXT),
             on_frame=self._on_frame,
             on_stats=self._on_stats,
         )
         self._pipeline.start()
         self._timer.start()
-        self._set_status("ok", "Status: berjalan")
+        self._set_status(*STATUS_RUNNING)
 
     def _on_stop(self) -> None:
         self._timer.stop()
         if self._pipeline is not None:
             self._pipeline.stop()
             self._pipeline = None
-        self._set_status("idle", "Status: berhenti")
-
-    def _render(self, frame: Frame) -> Frame:
-        """Simpan salinan piksel mentah sebelum strip overlay digambar."""
-        self._raw_image = frame.image
-        return draw_overlay(frame, DEBUG_TEXT)
+        self._set_status(*STATUS_IDLE)
 
     def _on_frame(self, frame: Frame) -> None:
+        """Ambil salinan piksel mentah SEBELUM renderer menimpa gambar.
+
+        ``draw_overlay`` menulis ke ``frame.image`` in place, jadi panel mentah
+        butuh salinan sendiri. Satu salinan frame terbaru saja, bukan tiap frame.
+        """
+        self._raw_image = frame.image.copy()
         self._newest_frame = frame
 
     def _on_stats(self, stats: Stats) -> None:
+        """Angka pengukuran; berhenti tampil begitu pipeline menyatakan galat."""
+        if self._pipeline is None or self._pipeline.error is not None:
+            return
         self._fps_label.setText(f"FPS terkirim: {stats.fps:5.1f}")
         self._sent_label.setText(f"Frame dikirim: {stats.frames_sent}")
         self._dropped_label.setText(f"Frame dibuang: {stats.frames_dropped}")
         self._elapsed_label.setText(f"Berjalan: {stats.elapsed_seconds:5.1f} s")
 
-    def _set_status(self, state: str, text: str) -> None:
-        color = {"ok": "#1b7f3b", "error": "#b91c1c", "idle": "#475569"}[state]
-        self._status.setText(text)
-        self._status.setStyleSheet(f"color: {color}; font-weight: 600;")
+    def _set_status(self, state: str, style: str) -> None:
+        self._status.setText(f"Status: {state}")
+        self._status.setStyleSheet(style)
 
     def _paint_preview(self) -> None:
-        """Gambar hanya frame terbaru per tick; frame di antaranya dibuang."""
+        """Frame terbaru saja yang digambar; frame di antaranya dibuang."""
+        pipeline = self._pipeline
+        if pipeline is None:
+            return
+        fail = pipeline.error
+        if fail is not None:
+            self._stop_timer_on_error(fail)
+            return
         frame = self._newest_frame
         self._newest_frame = None
         if frame is None:
@@ -181,6 +216,15 @@ class DebugView(qw.QMainWindow):
         if self._raw_image is not None:
             _paint(self._raw_panel, self._raw_image)
         _paint(self._overlay_panel, frame.image)
+
+    def _stop_timer_on_error(self, fail: Exception) -> None:
+        self._timer.stop()
+        self._set_status(*STATUS_ERROR)
+        qw.QMessageBox.warning(
+            self,
+            "Pipeline berhenti",
+            f"Pipeline berhenti karena galat:\n{fail}",
+        )
 
     def closeEvent(self, event) -> None:
         self._on_stop()
@@ -224,15 +268,10 @@ def _metric_row(title: str) -> qw.QLabel:
     return label
 
 
-def _paint(panel: qw.QFrame, image) -> None:
-    height, width = image.shape[:2]
-    qimage = qg.QImage(
-        image.tobytes(), width, height, width * 3, qg.QImage.Format.Format_BGR888
-    )
-    pixmap = qg.QPixmap.fromImage(qimage.copy())
+def _paint(panel: qw.QFrame, image: np.ndarray) -> None:
     screen = panel._screen
     screen.setPixmap(
-        pixmap.scaled(
+        pixmap_bgr(image).scaled(
             screen.minimumSize(),
             qc.Qt.AspectRatioMode.KeepAspectRatio,
             qc.Qt.TransformationMode.SmoothTransformation,
