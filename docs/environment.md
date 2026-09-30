@@ -239,6 +239,69 @@ Target: `AMD64 Windows 10.0.26200`, Python 3.14.6 64-bit.
 
 Paket terkait sudah terpasang: mediapipe 1.0.1, opencv-python 5.0.0.93, numpy 2.5.3, onnxruntime 1.30.0. `import mediapipe` sukses tanpa error. `torch` 2.14.0+cpu tersedia untuk model sequence. `tensorflow` tidak terpasang.
 
-Model file MediaPipe yang dibundel (`face_landmarker`, `pose_landmarker_lite`, `hand_landmarker`) seharusnya menyertai paket, tapi keberadaannya diperiksa nanti di slice 2 saat adapter dibuat; belum dicek di sini.
+### Ukuran performa 2026-09-30
 
-Kecepatan inferensi MediaPipe di CPU mesin ini: **tidak dapat diverifikasi** — butuh pengukuran frame nyata di slice 2.
+Skrip sementara sudah dijalankan lalu dihapus. Konfigurasi yang diukur mengikuti default config: `num_hands=2`, `model_complexity` tidak berlaku untuk API Tasks (lihat catatan API), 200 frame, kamera nyata `USB2.0 HD UVC WebCam`.
+
+```text
+=== RESULT
+frames=200 camera=yes
+model_asset_path=NONE init_error=FileNotFoundError: Unable to open file at hand_landmarker.task
+fps_capture=9.81
+fps_landmark=1804.81
+landmark_ms_p50=0.49
+landmark_ms_p95=0.83
+landmark_ms_min=0.33
+landmark_ms_max=6.62
+capture_ms_p50=95.82
+hands_0=200 hands_1=0 hands_2=0
+```
+
+Run ulang (hangat, nilai yang sama sampai dua angka signifikan):
+
+```text
+=== RESULT
+frames=200 camera=yes
+fps_capture=9.75
+fps_landmark=1789.74
+landmark_ms_p50=0.48
+landmark_ms_p95=0.90
+landmark_ms_min=0.33
+landmark_ms_max=6.05
+capture_ms_p50=95.74
+hands_0=200 hands_1=0 hands_2=0
+```
+
+Cara baca hasilnya, penting supaya tidak salah tafsir:
+
+- `fps_landmark` dan `landmark_ms_*` **bukan waktu inferensi**. Berkas model `.task` tidak ada di paket ini, `HandLandmarker` gagal dibuat, dan setiap frame jatuh ke penanganan error. Angka itu hanya biaya `cvtColor` + bungkus `mp.Image`.
+- `fps_capture=9.81` dan `capture_ms_p50=95.82` adalah pembacaan nyata webcam pada backend DSHOW di mesin ini: sekitar 10 FPS. Ini **di bawah target 25 sampai 30 FPS** dan jadi temuan yang perlu ditangani di slice 1, bukan di slice 2.
+- `hands_0=200` bukan berarti tangan tidak terdeteksi: landmarker tidak pernah ada.
+
+Jadi kecepatan inferensi MediaPipe di CPU mesin ini **masih tidak dapat diverifikasi**. Prasyaratnya satu: berkas model `hand_landmarker.task` (dan setara untuk pose) harus tersedia lebih dulu. Temuan itu dicatat di bawah.
+
+### Berkas model MediaPipe yang dibundel
+
+Isi direktori paket `C:\Users\mfarr\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\mediapipe`:
+
+```text
+__init__.py
+__pycache__
+modules
+tasks
+```
+
+Direktori `modules` hanya punya satu subdirektori `hand_landmark`, dan isinya nol berkas. Direktori `tasks` berisi keluaran Python `tasks/python/...` dsb.
+
+Pencarian `*.task`, `*.tflite`, dan `*.binarypb` di seluruh direktori paket: **nol berkas**. Total isi paket 233 berkas dan semuanya `.py` atau `.pyc`. Pencarian di `C:\Users\mfarr` dan seluruh drive `D:` juga menghasilkan nol berkas `.task`.
+
+Kesimpulan: paket `mediapipe` 1.0.1 di lingkungan ini mengirim kode tanpa aset model. API yang tersedia adalah **Tasks API**, bukan `mp.solutions`:
+
+```text
+[a for a in dir(mp)] -> ['Image', 'ImageFormat', 'tasks', ...]
+mp.tasks.vision -> FaceDetector, FaceLandmarker, GestureRecognizer, HandLandmarker, HandLandmarkerOptions, HolisticLandmarker, HolisticLandmarkerOptions, ImageClassifier, ...
+```
+
+Catatan untuk config: `model_complexity` adalah argumen `mp.solutions.hands`, yang tidak ada di paket ini. Untuk Tasks API, padanan pengaturannya lewat `HandLandmarkerOptions` (`num_hands`, `min_hand_detection_confidence`, `min_hand_presence_confidence`, `min_tracking_confidence`) plus `model_asset_path`. Key `landmark.model_complexity` di `configs/app.yaml` perlu digantikan saat slice 2 membuat adapter.
+
+Error tepat saat model tidak ditemukan: `FileNotFoundError: Unable to open file at nope/hand_landmarker.task`.
