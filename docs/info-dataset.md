@@ -1,6 +1,4 @@
 # Info Dataset BISINDO untuk IsyaratKu Cam
-> Dokumen ini disuplai user ke repo, bukan hasil inspeksi agent; seluruh tautan harus dibuka dan diverifikasi satu per satu sebelum dipakai.
-> Lisensi dan jumlah kelas setiap entri belum diketahui; angka di dalamnya berasal dari metadata Kaggle, bukan dari isi dataset yang diunduh.
 
 Dokumen ini memuat 3 dataset Kaggle terpilih untuk masing-masing dari 7 kategori dataset BISINDO yang sudah disurvei, lengkap dengan alasan pilih, alasan tolak, dan catatan pipeline.
 
@@ -34,7 +32,7 @@ Tiga dataset inti untuk membangun produk (KATA lebih dulu, ANGKA, lalu HURUF):
 
 1. `glennleonali/wl-bisindo` — sumber utama isyarat KATA.
 2. `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` — sumber HURUF yang sudah tersedia sebagai landmark.
-3. `bonarsitorus/sign-language-bisindo` — HURUF sekaligus INTEGER tepercaya untuk ekstraksi `.npy` sendiri.
+3. `bonarsitorus/sign-language-bisindo` — HURUF sekaligus referensi terpercaya untuk ekstraksi `.npy` sendiri.
 
 Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammaddhiaulhaq/bahasa-isyarat-indonesia-statis`, 36 kelas A–Z + 0–9) dan kategori 1 (beberapa dataset gabungan huruf + angka).
 
@@ -42,7 +40,7 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 
 ### Terpilih
 
-| Ref | Ukuran | Lisensi | Buih terverifikasi | Alasan dipilih |
+| Ref | Ukuran | Lisensi | Isi terverifikasi | Alasan dipilih |
 | --- | --- | --- | --- | --- |
 | `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` | 29 MB | CC BY 4.0 | `landmarks_train.csv` dan `landmarks_val.csv`, 21 landmark MediaPipe 3D (x,y,z) per baris, label A–Z; versi 3 diperbarui 2026-05-26; 85 unduhan; usability 0.71 | Format sudah sama dengan pipeline proyek (landmark, bukan piksel), dapat langsung dievaluasi tanpa ekstraksi video. Ini kandidat HURUF tercepat untuk baseline. |
 | `bonarsitorus/sign-language-bisindo` | 257 MB | MIT | Folder gambar `A`/`B`/... berisi JPG dan folder `.npy` berisi numpy array landmark tangan; diperbarui 2024-12-13; 124 unduhan; usability 0.56 | Paling lengkap: gambar mentah plus landmark. Berguna dua arah: langsung pakai `.npy`, atau pakai gambar untuk menguji ulang ekstraktor MediaPipe sendiri dengan format `.npy` sesuai rencana `data/extracted/<signer>/<class>/<sample>.npy`. |
@@ -88,15 +86,15 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 
 | Ref | Ukuran | Lisensi | Isi terverifikasi | Alasan dipilih |
 | --- | --- | --- | --- | --- |
-| `muhammaddhiaulhaq/bahasa-isyarat-indonesia-statis` | 562 MB | MIT | 36 kelas A–Z + 0–9, satu kali gerakan tangan per sampel. | Satu-satunya sumber statis yang jumlah kelasnya lengkap dan deskripsi resmi sah. Titik paling masuk akal untuk ANGKA; lisensi MIT artinya boleh dipakai pada produk lomba tanpa pembatasan. |
-| `raihanazarina/bisindo-hand-gesture-dataset` | 2.83 GB | CC BY-SA 4.0 | Terdiri dari `dataset_gambar.zip` (kelas 1..26), `dataset_tangan.csv` (21 landmark + label), dan `bisindo_model.pkl` (Random Forest pretrained); akuisisi webcam; versi 1 (2026-06-26) | Paling mudah dibandingkan karena mencakup paket lengkap: landmark CSV yang formatnya sama dengan pipeline proyek, model pretrained, dan angka referensi proyek HTML. Syarat share-alike hanya berlaku untuk turunan dataset, bukan aplikasi penonton. |
-| `muhammaddhiaulhaq/bahasa-isyarat-indonesia-dinamis` | 85 MB | MIT | 5 kata: mahal, murah, pagi, senang, tenang. | Satu-satunya dataset video dinamis dengan MIT dan daftar label tertulis. Ukurannya kecil sehingga murah untuk pengujian sanity; menjadi perbandingan pembanding terhadap `muhammadrizkiramadan` yang justru kurang jelas. |
+| `muhammaddhiaulhaq/bahasa-isyarat-indonesia-statis` | 562 MB | MIT | 36 kelas A–Z + 0–9, satu kali gerakan tangan per sampel. | Satu-satunya sumber statis dengan 36 kelas A–Z + 0–9 yang deskripsinya berasal dari pengunggah secara resmi; jumlah kelas paling lengkap untuk kebutuhan HURUF + ANGKA. Lisensi MIT berarti boleh dipakai pada produk lomba tanpa syarat tambahan. Jumlah signer masih belum diinspeksi. |
+| `raihanazarina/bisindo-hand-gesture-dataset` | 2.83 GB | CC BY-SA 4.0 | Terdiri dari `dataset_gambar.zip` (kelas 1..26), `dataset_tangan.csv` (21 landmark + label), dan `bisindo_model.pkl` (Random Forest pretrained); akuisisi webcam; versi 1 (2026-06-26) | Kandidat paling cepat untuk diinspeksi karena paketnya lengkap: gambar, landmark CSV, dan model Random Forest pretrained. Model pretrained itu jangan langsung dipakai sebagai baseline produk; cuma jadi pembanding sanity lokal. Label kelas memakai angka 1..26, bukan huruf, jadi perlu pemetaan nama kelas sebelum masuk pipeline. Syarat share-alike hanya berlaku untuk turunan dataset, bukan aplikasi penonton. |
+| `muhammaddhiaulhaq/bahasa-isyarat-indonesia-dinamis` | 85 MB | MIT | 5 kata: mahal, murah, pagi, senang, tenang. | Satu-satunya dataset video dinamis dengan MIT dan daftar 5 kata tertulis di deskripsi resmi. 5 kata terlalu sedikit untuk produk, jadi fungsinya skala kecil untuk menguji pipeline urutan frame. `muhammadrizkiramadan/dataset-bahasa-isyarat-dinamis-bisindo` juga MIT dan juga 5 kata, bedanya deskripsinya menyebut proyek CNN-LSTM + Flask, bukan daftar kelas. |
 
 ### Ditolak
 
 | Ref | Ukuran | Lisensi | Alasan tolak |
 | --- | --- | --- | --- |
-| `muhammadrizkiramadan/dataset-bahasa-isyarat-dinamis-bisindo` | 107 MB | MIT | 5 kata dinamis yang sudutnya sudah tercakup `muhammaddhiaulhaq`, namun deskripsi_katanel menunjukkan merepotkan karena ukuran sama, dokumentasi lebih sedikit. |
+| `muhammadrizkiramadan/dataset-bahasa-isyarat-dinamis-bisindo` | 107 MB | MIT | 5 kata dinamis yang cakupannya sudah diwakili `muhammaddhiaulhaq/bahasa-isyarat-indonesia-dinamis`; deskripsinya berbicara soal proyek Flask, bukan isi berkasnya. |
 | `merdinabrori/hand-gesture-dataset` | 281 MB | CC0 | **Bukan BISINDO** — datanya SIBI (528 sampel 26 alfabet, koordinat MediaPipe dari 21 landmark [x,y], sumber video tutorial YouTube pmpk.kemdikbud). Berguna sebagai perbandingan SIBI saja. |
 | `alia2005/bisindo-hand-gesture-dataset-and-model` | 2.35 GB | CC BY-SA 4.0 | Tanpa deskripsi, 1 unduhan, tanpa model terverifikasi. |
 
@@ -107,8 +105,8 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 | Ref | Ukuran | Lisensi | Isi terverifikasi | Alasan dipilih |
 | --- | --- | --- | --- | --- |
 | `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` | 29 MB | CC BY 4.0 | Landmark train+val `.csv`, 21 titik MediaPipe 3D; usability 0.71 | Sudah terdaftar di Kategori 1. Dipandang paling akhir: satu jembatan pipa MediaPipe → fitur → model tanpa tahap ekstraksi video sama sekali. |
-| `bonarsitorus/sign-language-bisindo` | 257 MB | MIT | Folder gambar JPG + folder `.npy` landmark tangan | Terdaftar di Kategori 1. Floating format `.npy` proyek bisa disamakan dengan pola nama `data/extracted/<signer>/<class>/<sample>.npy` (plan), sehingga bisa dipakai sebagai gold-set kontrak ekstraksi. |
-| `padmavatitanuwijaya2/dataset-bisindo-mediapipe` | 149 MB | Unknown | Judul "2 NUMERIK ALFA BISINDO", 7 versi, tanpa deskripsi | Menyelesaikan celah ANGKA (kategori KATA+A) dalam ruang landmark; ukuran cukup kecil sehingga murah diunduh dan diinspeksi. Tanda berisiko: lisensi Unknown, isi belum diinspeksi. |
+| `bonarsitorus/sign-language-bisindo` | 257 MB | MIT | Folder gambar JPG + folder `.npy` landmark tangan | Terdaftar di Kategori 1. Format `.npy` dataset ini bisa disamakan dengan pola nama rencana `data/extracted/<signer>/<class>/<sample>.npy` (docs/dataset-notes.md baris 19), sehingga bisa dipakai sebagai contoh kontrak ekstraksi. Jumlah fitur dan urutan landmark di dalam `.npy` masih belum diinspeksi. |
+| `padmavatitanuwijaya2/dataset-bisindo-mediapipe` | 149 MB | Unknown | Judul "2 NUMERIK ALFA BISINDO", 7 versi, tanpa deskripsi | Satu-satunya kandidat landmark yang judulnya menyebut numerik dan alfa; ukuran 149 MB cukup kecil untuk diunduh lalu diinspeksi. Isi, struktur fitur, dan penamaan label masih belum diinspeksi, dan lisensinya Unknown. |
 
 ### Ditolak
 
@@ -125,9 +123,9 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 
 | Ref | Ukuran | Lisensi | Isi terverifikasi | Alasan dipilih |
 | --- | --- | --- | --- | --- |
-| `mfadhilahakbarr/bisindo-raw-annotated` | 1.95 GB | CC BY 4.0 | Turunan dari "A Multimodal BISINDO Corpus" (Nur Hayati Lilis et al., 2025, Mendeley Data V2, DOI 10.17632/235c78xbmk.2); metadata asal disebut lengkap satu-satunya dataset kategori ini yang deskripsi asli sah. | Satu-satunya dataset video mentah dengan asal dan lisensi yang jelas dan dapat diperiksa ulang via DOI. Kandidat ideal untuk penambahan variasi signer. |
-| `rizkyyangpalsu/bisindo-video-dataset` | 172 MB | Unknown | Subtitle: "Bahasa Isyarat Indonesia (Bisindo) dataset video for Action Classification"; struktur Train dan Testing dengan 26 direktori; sumber video YouTube; 489 unduhan; 6.025 dilihat; usability 0.125 | Ukuran kecil, tidak ada deskripsi, tetapi jumlah pakainya paling banyak di kategori ini dan struktur folder-nya rapi. Dipilih dengan penanda risiko karena tidak ada informasi lisensi, dan akan dicek lebih dulu di `docs/dataset-notes.md` sebelum masuk model production. |
-| `radityaaditama/raw-7-siaran-bisindo-tvri` | 11.12 GB | Apache 2.0 | Ringkasan video TVRI mentah; 27 unduhan; v1 2025-04-29. | Satu-satunya dataset TVRI dengan lisensi terverifikai dan cukup jelas. Berguna hanya untuk uji out-of-domain: model dilatih di studio/webcam lalu diuji pada footage TVRI dengan multiple signer dan close-up berbeda. Butuh segmentasi manual; bukan bahan primitif. |
+| `mfadhilahakbarr/bisindo-raw-annotated` | 1.95 GB | CC BY 4.0 | Turunan dari "A Multimodal BISINDO Corpus" (Nur Hayati Lilis et al., 2025) yang aslinya ada di Mendeley Data V2, DOI 10.17632/235c78xbmk.2. Deskripsi Kaggle hanya memuat atribusi; struktur berkas, anotasi, dan jumlah signer masih belum diinspeksi. | Satu-satunya dataset video mentah dengan asal dan lisensi yang jelas; asalnya bisa dilacak lewat DOI. Kandidat ideal untuk penambahan variasi signer. |
+| `rizkyyangpalsu/bisindo-video-dataset` | 172 MB | Unknown | Subtitle resmi: 'Bahasa Isyarat Indonesia (Bisindo) dataset video for Action Classification'. Sisa isi berkas, struktur direktori, resolusi, dan lisensi masih belum diinspeksi — deskripsi berkas di Kaggle kosong. | Ukuran kecil (172 MB) dan jumlah unduhannya paling banyak di kategori ini (489 unduhan, 6.025 dilihat), jadi murah diinspeksi lebih dulu. Dipilih dengan penanda risiko: lisensi Unknown dan deskripsi kosong. |
+| `radityaaditama/raw-7-siaran-bisindo-tvri` | 11.12 GB | Apache 2.0 | Ringkasan video TVRI mentah; 27 unduhan; v1 2025-04-29. Deskripsi di Kaggle kosong. | Satu-satunya dataset TVRI dengan lisensi terverifikasi dan cukup jelas. Berguna hanya untuk uji out-of-domain: model dilatih di studio/webcam lalu diuji pada footage TVRI dengan multiple signer dan close-up berbeda. Butuh segmentasi manual; bukan bahan primitif. |
 
 ### Ditolak
 
@@ -148,7 +146,7 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 | --- | --- | --- | --- | --- |
 | `mdaverofirmansyah/dataset-gestur-bisindo` | 19 MB | Unknown | Deskripsi resmi: "Mengandung gestur statis dan dinamis"; 6 unduhan; v1 2025-06-13. | Satu-satunya di kategori ini dengan deskripsi isi sah. Ukuran sangat kecil sehingga murah diinspeksi. Sumber tambahan untuk uji distribusi stalih (statis vs dinamis), bukan training utama. |
 | `chandragusta/dataset-skripsi` | 633 MB | Unknown | Judul "Gestur Tangan BISINDO"; 26 unduhan; 563 dilihat; usability 0.1875; 0 kernel. | Dataset skripsi dengan judul deskriptif dan ukuran moderat. Tanpa deskripsi → hanya untuk inspeksi tambahan. |
-| `victoriapalilingan19/isyaratku-bisindo-split` | 8.08 GB | Unknown | Nama sama dengan app ini; "sudah tersplit"; 2 unduhan; usability 0. | Nilainya bukan untuk dipakai langsung, tetapi repot: nama `isyaratku-bisindo-split` menunjukkan projek lain dengan nama yang sama. Perlu diinspeksi lebih dulu untuk mengetahui skema split-nya (apakah per signer?). Ukuran besar — hanya diunduh bila inspeksi metadata lebih dulu menunjukkan bagus. |
+| `victoriapalilingan19/isyaratku-bisindo-split` | 8.08 GB | Unknown | Nama slug mirip aplikasi ini; deskripsi Kaggle kosong sehingga apa isi "tersplit"-nya tidak terverifikasi; 2 unduhan; usability 0. | Dipakai sebagai alarm, bukan bahan training: proyek orang lain dengan nama sama menunjukkan pembagian split tertentu (apakah per signer atau acak) yang belum diketahui. Ukurannya besar, jadi hanya diunduh setelah metadata memperjelas isinya. |
 
 ### Ditolak
 
@@ -158,11 +156,11 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 | `kelsha/indonesian-hand-sign-language-bisindo-dataset` | 2.04 GB | Other (specified in description) | Deskripsi kosong padahal lisensi "lain (dijelaskan di deskripsi)" — tidak terverifikasi apa pun. |
 | `mahardikapratama/bisindo-native-dataset` | 8.19 GB | Apache 2.0 | Tanpa deskripsi, 2 unduhan. Lisensi bagus, isi nyata tak terverifikasi. |
 | `ayana7/bisindo-class` | 30 MB | Apache 2.0 | Tanpa deskripsi, 14 unduhan. |
-| `bonarsitorus/sign-language-bisindo` | 257 MB | MIT | Sudah dipindahkan ke Kategori 1 dan 4 (punya sumber landmark, maka cococploknya bukan kategori skripsi). |
+| `bonarsitorus/sign-language-bisindo` | 257 MB | MIT | Sudah dipindahkan ke Kategori 1 dan 4 (punya sumber landmark, jadi tempat yang cocok bukan kategori skripsi). |
 | `akhtarreyhansyach/merged-4-dataset` | 183 MB | Unknown | Judul "BISINDO-dataset" tanpa deskripsi; 146 unduhan. Sumber gabungan yang tidak didokumentasikan. |
 | `risdaaaa/final-bisindo-hand-detection-dataset` | 57 MB | Unknown | Fokus hand detection, bukan klasifikasi isyarat. |
 | `alieffadzliengineer/bisindo-videos-datasets-two-subjects` | 1.92 GB | Unknown | Dua subjek terlalu sedikit untuk split per signer; tanpa deskripsi; 0 visibilitas cluster. |
-| 27 dataset lain kategori 6 | — | — | Tanpa deskripsi, lisensi Unknown, atau tautan/data tidak perlu diverifikasi. |
+| Sisa entri kategori 6 (32 entri lain di survei lama) | — | — | Tanpa deskripsi, lisensi Unknown, atau hanya sekadar salinan. Tidak diverifikasi satu per satu; daftar lengkap sudah tidak dipertahankan di dokumen ini. |
 
 ## Kategori 7 — Gloss / NLP
 
@@ -170,8 +168,8 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 
 | Ref | Ukuran | Lisensi | Isi terverifikasi | Alasan dipilih |
 | --- | --- | --- | --- | --- |
-| `aytidar11/bisindo-gloss2ids` | 26 KB | Unknown | Milik Raditya Aditama (nama di metadata); v1 2025-09-16; 6 unduhan; usability 0.0625. | Ukuran sangat kecil, mahasiswa tepercaya, dan "gloss2ids" persis kebutuhan tiap akhir memetakan label model ke ID yang stabil — tidak perlu gabungan besar. |
-| `raditadit/gloss2ids` | 68 KB | Unknown | v2 "Update 2025-06-11"; 2 unduhan. | Versi lain pemetaan gloss→ID dari owner yang sama. Berguna untuk cross-check kesepakatan label: kalau dua sumber menyebut pemetaan berbeda, klaim siapapun tidak boleh dipakai. |
+| `aytidar11/bisindo-gloss2ids` | 26 KB | Unknown | Milik Raditya Aditama (nama di metadata); v1 2025-09-16; 6 unduhan; usability 0.0625. | Ukuran sangat kecil dan tujuannya persis: pemetaan label model ke ID yang stabil. Sumber "gloss2ids" lain dari owner yang sama bisa dipakai cross-check. Isi berkasnya belum diinspeksi. |
+| `raditadit/gloss2ids` | 68 KB | Unknown | v2 "Update 2025-06-11"; 2 unduhan. | Pemetaan gloss ke ID versi lain. Dipakai untuk cross-check: kalau dua pemetaan berbeda, jangan pakai salah satunya sampai asalnya jelas. |
 | `nano1410/prak-2-mma-all-vits` | 9.75 GB | MIT | Tanpa deskripsi; v2 2025-11-18; 7 unduhan. | Satu-satunya dataset dengan skala besar dan MIT di kategori ini; nama "all-vits" menandakan berkas TTS VITS. Masih perlu inspeksi: apabila memang audio + transkrip Bahasa Indonesia, ini kandidat big untuk jalur TTS offline alternatif `piper-tts`. |
 
 ### Ditolak
@@ -183,18 +181,18 @@ Nanti ANGKA memakai sumber yang sama dengan HURUF: dataset kategori 3 (`muhammad
 
 ## Catatan pipeline
 
-1. **Split per signer wajib.** Hanya `glennleonali/wl-bisindo` yang signer ID-nya tertulis di nama berkas (`[signerID]_[labelID]_[sampleID].mp4`), jadi hanya dataset itu yang bisa langsung membuktikan split SI tanpa kueri tambahan. `aridone` dan `salsabila` (5 subjek) turut perlu eksplisit dibuatnya pemetaan subjek → direktori.
+1. **Split per signer wajib.** Hanya `glennleonali/wl-bisindo` yang signer ID-nya tertulis di nama berkas (`[signerID]_[labelID]_[sampleID].mp4`), jadi hanya dataset itu yang bisa langsung membuktikan split SI tanpa kueri tambahan. `aridone` menyebut 5 subjek di deskripsi, jadi pemetaan subjek ke direktori perlu dibuat eksplisit dan disimpan di `docs/dataset-notes.md` sebelum split. `anggiyohanespardede/bisindo-40-kata-mp4` tidak punya informasi signer sama sekali.
 2. **Format target**. Semua pipeline awal hindari video mentah. Urutan yang paling murah:
    - `.csv` landmark A–Z (`suryaadji`) → langsung dimuat ke `data/extracted/<letter>/<sample>.npy`.
    - `.npy` landmark (`bonarsitorus`) → referensi format dan sanity-check ekstraktor sendiri.
-   - video (`wl-bisindo`, `aridone`, `anggiyohanespardede`) → ekstraksi MediaPipe Hands + Cage, lalu `.npy`.
+   - video (`wl-bisindo`, `aridone`, `anggiyohanespardede`) → ekstraksi MediaPipe Hands plus Pose (sesuai docs/tech-decisions.md), lalu `.npy`.
 3. **Konfigurasi yang disarankan** di `configs/app.toml` (belum dibuat):
    - `dataset.signer_split` — `true`.
    - `dataset.label_set` — `letters`, `numbers`, `words`.
    - `dataset.min_frames_per_video` — buang video tambahan pendek after inspeksi.
    - `dataset.mediapipe_model_complexity` — tetap terdaftar di `notes/dataset-notes.md`.
 4. **Field wajib di `docs/dataset-notes.md`**: nama persis Kaggle, URL, versi, jumlah kelas, jumlah sample, jumlah signer, dan status ekstraksi per kelas. Belum ada satu pun dari angka itu sebelum dataset benar-benar diunduh dan diperiksa.
-5. **Lisensi yang perlu dicatat besar di README akhir**: CC BY-NC 4.0 (WL-BISINDO — tidak komersial, cocok untuk lomba), CC BY 4.0 (`suryaadji`, `mfadhilahakbarr`), CC BY-SA 4.0 (`raihanazarina`), MIT (`bonarsitorus`, `muhammaddhiaulhaq`, `anggiyohanespardede`), Apache 2.0 (`radityaaditama`), Unknown (catat sebagai risiko, verifikasalagi sebelum dipublikasikan).
+5. **Lisensi yang perlu dicatat di README akhir**: CC BY-NC 4.0 (WL-BISINDO — tidak komersial, cocok untuk lomba), CC BY 4.0 (`suryaadji`, `mfadhilahakbarr`), CC BY-SA 4.0 (`raihanazarina`), MIT (`bonarsitorus`, `muhammaddhiaulhaq`, `anggiyohanespardede`), Apache 2.0 (`radityaaditama`), Unknown (catat sebagai risiko, diverifikasi batasannya sebelum dipublikasikan).
 6. **MedSign tetap dikecualikan** dan tidak masuk daftar mana pun, tetapi dicatat di kategori 4 untuk menghindari orang lain mengulang penemuan yang sama.
 
 ## Kesalahan pada dokumen survei lama
@@ -203,7 +201,7 @@ Supaya tidak terbawa ke dokumen final:
 
 - Klaim "64 tautan" salah — hitungan sebenarnya 87 entri (12 + 10 + 6 + 5 + 9 + 38 + 7).
 - Baris 131 (`nano1410/prak-2-mma`) adalah URL notebook, bukan dataset.
-- Kata salah kategori: `agungmrf/indonesian-sign-language-bisindo` adalah gambar abjad, bukan dataset video; `risdaaaa` adalah hand detection; `risnoa`/`sifaqeinstein` akan berubah posisi per kategori setelah deskripsi lengkap tersedia.
+- Salah kategori: `agungmrf/indonesian-sign-language-bisindo` adalah gambar abjad, bukan video, padahal dulu terdaftar sebagai raw video; `risdaaaa/final-bisindo-hand-detection-dataset` soal hand detection, bukan klasifikasi isyarat; `merdinabrori/hand-gesture-dataset` adalah SIBI, bukan BISINDO.
 
 ## Status inspeksi lokal
 
@@ -217,4 +215,4 @@ Supaya tidak terbawa ke dokumen final:
 | Varian BISINDO antar signer | belum diinspeksi |
 | Model pretrained tertaut | belum diinspeksi |
 
-Temuan lengkap ditulis di `docs/dataset-notes.md`, bagian "Temuan Inspeksi". Aturan keras tetap: tidak ada training sebelum seluruh item checklist di dokumen itu tercentang, dan tidak boleh ada angka literacy yang muncul di kode bila belum tercatat di sana.
+Temuan lengkap ditulis di `docs/dataset-notes.md`, bagian "Temuan Inspeksi". Aturan keras tetap: tidak ada training sebelum seluruh item checklist di dokumen itu tercentang, dan tidak boleh ada angka kelas, sample, signer, atau akurasi yang muncul di kode bila belum tercatat di sana.
