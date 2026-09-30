@@ -18,6 +18,18 @@
 #
 # Path alternatif: set environment variable ISYARATKU_CONFIG.
 #
+# Hasil ukur (mesin ini), dipakai memilih default di kode:
+#   Kamera USB2.0 HD UVC WebCam, 640x480, 300 frame.
+#     CAP_DSHOW: fps_capture 8.80, capture_ms_p50 110.58 -> di bawah target 25-30 FPS.
+#     CAP_MSMF : fps_capture 28.56, capture_ms_p50 ~2.0 -> memenuhi target.
+#     CAP_ANY  : fps_capture 28.57 (MSMF terpilih).
+#   Karena itu src/adapters/camera.py memakai CAMERA_BACKEND = cv2.CAP_MSMF.
+#
+#   Jalur headless dengan FakeVirtualCameraSink (tanpa time.sleep, tanpa
+#   hardware): FPS terkirim 1655.60, 5023 frame dibaca / 4966 dikirim / 57
+#   dibuang dalam 3.00 s. Angka itu lingkungan beban CPU, BUKAN patokan kamera.
+#
 # Contoh menimpa satu nilai:
 # [camera]
 # device_index = 1
+
