@@ -8,6 +8,7 @@ Dokumen ini berisi fakta lingkungan development hasil rekon slice 0 pada commit 
 | --- | --- |
 | Runtime | ✅ Terkonfirmasi: `python`, `python3`, dan `py` semuanya resolve ke Python 3.14.6; pip 26.1.2; modul `venv` tersedia; git 2.56.0.windows.1 |
 | Paket Python | ✅ Terkonfirmasi via `python -m pip list`: mediapipe 1.0.1, opencv-python 5.0.0.93, numpy 2.5.3, torch 2.14.0+cpu, pyvirtualcam 0.15.0, pyttsx3 2.99, sounddevice 0.5.6 sudah terpasang; tensorflow tidak terpasang |
+| GUI | ⚠️ Terkonfirmasi: customtkinter tidak terpasang; PySide6 6.11.2 dan PySide6-Fluent-Widgets 1.11.3 terpasang. |
 | Audio dan VB-Cabel | ✅ Terkonfirmasi: VB-Cabel terpasang dan muncul di `sounddevice.query_devices()`. Nama perangkat aktual: `CABLE Output (2- VB-Audio Virtual Cable)` dan `CABLE In 16 Ch (2- VB-Audio Virtual Cable)`; string "CABLE Input" tidak muncul persis |
 | SAPI voice | ⚠️ Terkonfirmasi: hanya 2 suara Windows, keduanya Inggris; tidak ada voice Indonesia |
 | Virtual camera | ✅ Terkonfirmasi: UnityCapture terdaftar sebagai DirectShow device `Unity Video Capture`; DLL ada di `D:\tools\UnityCapture-master\Install\UnityCaptureFilter64.dll`, bukan di `C:\Windows\System32` |

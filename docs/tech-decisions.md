@@ -13,22 +13,24 @@ Setiap baris sudah ditutup. Alasan satu baris.
 | Model MLP kecil per frame untuk isyarat statis | Angka dan huruf adalah pose diam, tidak perlu sequence model. |
 | UnityCapture sebagai virtual camera, dipakai dari Python lewat pyvirtualcam | Satu-satunya jalur gratis yang sudah terbukti terdaftar di Zoom dan Meet di Windows. |
 | TTS offline, bukan TTS cloud | Demo lomba tidak boleh bergantung pada koneksi internet. |
-| Audio TTS dikirim ke VB-Cable "CABLE Input" memakai sounddevice dengan device eksplisit | Aplikasi meeting menangkap perangkat virtual, bukan speaker default. |
+| Audio TTS dikirim ke endpoint VB-Cabel "CABLE Output" memakai sounddevice dengan device eksplisit | Aplikasi meeting menangkap "CABLE In 16 Ch" sebagai mikrofon, bukan speaker default. |
 | Audio dibuat lebih dulu dan di-cache per kata | Pemutaran tanpa jeda antar kata saat demo. |
 | Arsitektur modular ui -> core <- adapters | Core bisa diuji tanpa hardware dan tanpa GUI. |
 | Seluruh angka tuning di configs/ | Parameter bisa diubah tanpa mengubah kode, dan mudah dibaca juri. |
 | Model sequence baseline lebih dulu | Baseline sederhana memberi angka pembanding sebelum model besar. |
 | Setiap adapter punya versi fake | Pipeline dan test bisa jalan di komputer tanpa webcam. |
-| Framework GUI: CustomTkinter | Dasbor satu jendela cukup dengan frame dan grid; PySide6 butuh waktu lebih lama. Ditandai asumsi sampai dikonfirmasi user. |
+| Framework GUI: PySide6 | customtkinter tidak terpasang, PySide6 6.11.2 sudah ada dan grid/QtSignal cukup untuk dasbor; CustomTkinter jadi cadangan bila butuh styling cepat. |
 | Landmark hilang: zero-fill plus flag kehadiran | Deterministik dan teruji; interpolasi menambah state tersembunyi. |
 | Arah produk hanya isyarat menjadi teks dan suara | Menjaga satu pipeline tetap stabil, bukan dua arah yang setengah jadi. |
+| Cek UnityCapture lewat registry DirectShow, bukan buka-buka device | Menghindari handle terkunci; registry memuat FriendlyName 'Unity Video Capture'. |
+| Tidak pakai virtual environment di mesin ini | Seluruh paket sudah terpasang di Python 3.14.6 global; venv ditambah baru bila butuh isolasi. |
 
 ## Belum diputuskan / pertanyaan terbuka
 
 | Pertanyaan | Catatan |
 | --- | --- |
-| Konfirmasi user atas pilihan CustomTkinter | Asumsi: CustomTkinter cukup. Ganti ke PySide6 bila layout dashboard membatasi. |
-| Mesin TTS: pyttsx3 atau Piper | Suara bahasa Indonesia yang tersedia belum dicek. Kalau tidak tersedia, dukungan bahasa Indonesia menjadi blocker pipeline slice 5. |
+| Konfirmasi user atas pilihan PySide6 | Dipilih karena sudah terpasang, tidak butuh instalasi. CustomTkinter cadangan. |
+| Mesin TTS offline: piper-tts atau pyttsx3 | pyttsx3 hanya punya voice Inggris di mesin ini, jadi jalur Indonesia kemungkinan lewat piper-tts 1.8.0 (suara Indonesia belum diuji). Blocker slice 5 bila tidak ada suara Indonesia. |
 | Apakah Holistic pernah dibutuhkan | Dipakai hanya kalau pose dari Hands + Pose terbukti tidak cukup. Untuk sekarang jangan dipakai. |
 | Identitas dataset: nama, URL, versi, lisensi | Belum diinspeksi. Lihat docs/dataset-notes.md. |
 | Daftar kata minimum untuk v1 | Usulan awal 20 sampai 30 kata relevan meeting, tapi daftar pastinya belum diputuskan. Asumsi: daftar awal belum ada, jadi belum bisa dijadikan label model. |
@@ -44,6 +46,6 @@ Setiap baris sudah ditutup. Alasan satu baris.
 
 Asumsi adalah penalaran sementara. Setiap asumsi harus diganti keputusan user setelah diverifikasi.
 
-- Pilihan CustomTkinter dipakai sampai user konfirmasi; PySide6 adalah cadangan.
+- Pilihan PySide6 dipakai karena sudah terpasang; customtkinter cadangan.
 - Cloud TTS tidak dipakai sama sekali karena syarat offline.
 - Daftar kata awal akan diambil dari kelas dataset, bukan ditulis manual lebih dulu.

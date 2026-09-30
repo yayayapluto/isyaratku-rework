@@ -39,9 +39,11 @@ Nama key adalah kontrak. Kode memakai nama ini persis.
 | `smoothing.vote_count` | int | 3 | smoothing |
 | `smoothing.cooldown_seconds` | float | 1.5 | smoothing |
 | `queue.max_size` | int | 4 | threading |
-| `tts.device_name` | str | "CABLE Input" | speech sink |
+| `tts.device_name` | str | "CABLE Output" | speech sink |
 | `tts.rate` | int | 160 | speech sink |
 | `virtual_camera.backend` | str | "unitycapture" | virtual camera sink |
+
+Pencocokan device TTS memakai substring, bukan persis: string 'CABLE Input' tidak ada di sounddevice; default 'CABLE Output' menunjuk endpoint tempat aplikasi menulis, dan aplikasi meeting memakai 'CABLE In 16 Ch' sebagai mikrofon. Bila beberapa endpoint cocok, pilih yang WASAPI.
 
 ## Alur pipeline
 

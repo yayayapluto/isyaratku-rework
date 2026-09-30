@@ -16,7 +16,7 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
   - [ ] Frame yang keluar hanya berasal dari pipeline, bukan dari perangkat lain.
   - [ ] FPS yang diukur tercatat di configs/ sebagai nilai awal, bukan diset sembarangan di kode.
   - [ ] Tidak ada angka ajaib di kode: semua parameter masuk configs/ sesuai kontrak di docs/architecture.md.
-  - [ ] Mode ready-to-use dibangun dengan CustomTkinter dan aplikasi jalan dari entry point tanpa GUI langsung crash (smoke run headless dengan fake adapter).
+  - [ ] Mode ready-to-use dibangun dengan PySide6 dan aplikasi jalan dari entry point tanpa GUI langsung crash (smoke run headless dengan fake adapter).
   - [ ] GUI ready-to-use dan dashboard debug berada di mode yang berbeda, bukan percabangan if di satu view.
 
 ## Slice 2 — MediaPipe dan visualisasi landmark
