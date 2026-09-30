@@ -39,6 +39,8 @@ Nama key adalah kontrak. Kode memakai nama ini persis.
 | `smoothing.vote_count` | int | 3 | smoothing |
 | `smoothing.cooldown_seconds` | float | 1.5 | smoothing |
 | `queue.max_size` | int | 4 | threading |
+| `pipeline.stop_timeout_seconds` | float | 2.0 | pipeline stop |
+| `pipeline.stats_window` | int | 240 | statistik FPS |
 | `tts.device_name` | str | "CABLE Output" | speech sink |
 | `tts.rate` | int | 160 | speech sink |
 | `virtual_camera.backend` | str | "unitycapture" | virtual camera sink |
