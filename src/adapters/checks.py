@@ -1,8 +1,10 @@
-"""Pemeriksaan awal: kamera, UnityCapture, VB-Cable.
+"""Pemeriksaan awal: kamera, UnityCapture, VB-Cabel.
 
 Setiap pemeriksaan murah dan tidak menyimpan handle perangkat setelah kembali.
 Hasil: daftar tuple (nama, ok, pesan) dengan pesan Bahasa Indonesia yang bisa
-langsung ditindaklanjuti.
+langsung ditindaklanjuti. Ejaan pesan memakai "VB-Cabel" (sebutan sehari-hari
+yang sama seperti di docs/), sementara nama produk asli tetap muncul apa adanya
+dalam teks status, mis. "CABLE Output".
 """
 
 from __future__ import annotations
@@ -17,24 +19,24 @@ from .camera import CAMERA_BACKEND
 UNITYCAPTURE_CLSID = "{860BB310-5D01-11d0-BD3B-00A0C911CE86}"
 
 
-def run_checks() -> list[tuple[str, bool, str]]:
-    """Jalankan ketiga pemeriksaan startup, urut: kamera, UnityCapture, VB-Cable."""
+def run_checks(device_index: int = 0) -> list[tuple[str, bool, str]]:
+    """Jalankan ketiga pemeriksaan startup, urut: kamera, UnityCapture, VB-Cabel."""
     return [
-        _check_camera(),
+        _check_camera(device_index),
         _check_unity_capture(),
         _check_vb_cable(),
     ]
 
 
-def _check_camera() -> tuple[str, bool, str]:
-    capture = cv2.VideoCapture(0, CAMERA_BACKEND)
+def _check_camera(device_index: int) -> tuple[str, bool, str]:
+    capture = cv2.VideoCapture(device_index, CAMERA_BACKEND)
     try:
         if not capture.isOpened():
             return (
                 "Kamera",
                 False,
-                "Kamera tidak terbaca. Cek koneksi kamera atau ubah "
-                "camera.device_index di configs.",
+                f"Kamera tidak terbaca di indeks {device_index}. Cek koneksi atau "
+                "ubah camera.device_index di configs.",
             )
         ok, frame = capture.read()
         if not ok:
@@ -116,21 +118,28 @@ def _friendly_names_of(handle: int, subkey: str) -> set[str]:
         winreg.CloseKey(child)
     return names
 
+
 def _check_vb_cable() -> tuple[str, bool, str]:
+    # Label baris pertama "VB-Cabel"; nama produk asli (mis. "CABLE Output")
+    # tetap tampil di dalam pesan supaya cocok dengan sebutan di docs/ dan UI.
     try:
         devices = sounddevice.query_devices()
     except Exception as exc:  # audio backend tidak terinisialisasi
         return (
-            "VB-Cable",
+            "VB-Cabel",
             False,
             f"VB-Cabel tidak bisa diperiksa ({exc}). Aplikasi meeting tidak akan "
             "menerima audio.",
         )
     for device in devices:
         if "cable" in device["name"].lower():
-            return ("VB-Cable", True, f"VB-Cabel terpasang ({device['name']}).")
+            return (
+                "VB-Cabel",
+                True,
+                f"VB-Cabel terpasang ({device['name']}).",
+            )
     return (
-        "VB-Cable",
+        "VB-Cabel",
         False,
         "VB-Cabel belum terpasang. Aplikasi meeting tidak akan menerima audio.",
     )

@@ -63,6 +63,15 @@ class OpenCvCameraSource:
             self._capture.release()
 
 
+# Nilai di bawah konstanta fixture, bukan tunable yang diminta pengguna; lihat
+# catatan fake di configs/app.toml. Menjadi nyata pada slice 2 (landmark) dan
+# slice 4 (model); fake sengaja tanpa time.sleep supaya angka FPS headless apa
+# adanya, tidak palsu 30 FPS.
+FAKE_SPEED = 4.0
+FAKE_SIDE = 40
+FAKE_ROW_RATIO = 0.6
+
+
 class FakeCameraSource:
     """Frame sintetis BGR: gradien latar plus kotak bergerak.
 
@@ -98,8 +107,8 @@ class FakeCameraSource:
         image[:, :, 0] = np.minimum(column, 255).astype(np.uint8)
         image[:, :, 1] = np.minimum(column // 2, 255).astype(np.uint8)
         image[:, :, 2] = np.minimum(255 - column, 255).astype(np.uint8)
-        side = 40
+        side = FAKE_SIDE
         x = int((self.steps * self.speed) % max(1, width - side))
-        y = int(image.shape[0] * 0.6)
+        y = int(image.shape[0] * FAKE_ROW_RATIO)
         image[y:y + side, x:x + side] = (30, 220, 30)
         return image.copy()

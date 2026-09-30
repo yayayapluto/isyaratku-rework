@@ -65,9 +65,5 @@ class FakeVirtualCameraSink:
         return None
 
     @property
-    def frames(self) -> list[np.ndarray]:
-        return list(self._frames)
-
-    @property
     def last_frame(self) -> np.ndarray | None:
         return self._frames[-1] if self._frames else None
