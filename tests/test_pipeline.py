@@ -75,13 +75,14 @@ def run_for(seconds: float, pipeline: Pipeline) -> None:
 def test_pipeline_runs_sends_frames_and_stops_cleanly() -> None:
     cfg = config()
     sink = FakeVirtualCameraSink(cfg)
-    run_for(1.0, Pipeline(FakeCameraSource(cfg), sink, cfg))
+    pipeline = Pipeline(FakeCameraSource(cfg), sink, cfg)
+    run_for(1.0, pipeline)
 
-    assert not pipeline_running()
-    stats = sink_stats(sink, cfg)
-    assert stats["sent"] > 0
-    assert stats["captured"] >= stats["sent"]
-    assert sink.sends == stats["sent"]
+    assert not pipeline.running()
+    stats = pipeline.stats()
+    assert stats.frames_sent > 0
+    assert stats.frames_captured >= stats.frames_sent
+    assert sink.sends == stats.frames_sent
     assert sink.last_shape == (cfg.camera_height, cfg.camera_width, 3)
 
 
@@ -244,9 +245,83 @@ def test_stop_completes_even_when_sink_is_slow() -> None:
     assert time.monotonic() - started < 3.0
 
 
-def pipeline_running() -> bool:
-    return False
+# -- kegagalan tidak didiamkan -------------------------------------------------
+class ExplodingSink(FakeVirtualCameraSink):
+    """Sink yang melempar galat saat send; melambangkan UnityCapture hilang."""
+
+    def send(self, frame: Frame) -> None:
+        raise RuntimeError("sink mati")
 
 
-def sink_stats(sink, cfg) -> dict:
-    return {"sent": sink.sends, "captured": sink.sends + 0}
+class ExplodingCamera(FakeCameraSource):
+    """Kamera yang melempar galat saat read; melambangkan kabel tercabut."""
+
+    def read(self) -> Frame | None:
+        raise OSError("kamera tercabut")
+
+
+def test_sink_failure_stops_both_threads_and_sets_error() -> None:
+    frames: list[Frame] = []
+    stats: list = []
+    cfg = fast_config(queue_max_size=4)
+    pipeline = Pipeline(
+        FakeCameraSource(cfg, speed=400.0),
+        ExplodingSink(cfg),
+        cfg,
+        on_frame=frames.append,
+        on_stats=stats.append,
+    )
+    pipeline.start()
+    deadline = time.monotonic() + 3.0
+    while pipeline.running() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    pipeline.stop()
+
+    error = pipeline.error
+    assert isinstance(error, RuntimeError)
+    assert "sink mati" in str(error)
+    assert pipeline.stats().frames_captured < 2000, "capture masih berputar"
+    assert frames == [], "callback on_frame masih menyala setelah galat"
+    assert stats == [], "callback on_stats masih menyala setelah galat"
+
+
+def test_camera_read_error_sets_error_and_stops() -> None:
+    cfg = fast_config()
+    pipeline = Pipeline(
+        ExplodingCamera(cfg),
+        FakeVirtualCameraSink(cfg),
+        cfg,
+    )
+    pipeline.start()
+    deadline = time.monotonic() + 3.0
+    while pipeline.running() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    pipeline.stop()
+
+    assert isinstance(pipeline.error, OSError)
+    assert "kamera tercabut" in str(pipeline.error)
+    assert pipeline.stats().frames_sent == 0
+
+
+def test_camera_returning_none_sets_error_with_clear_message() -> None:
+    cfg = fast_config()
+    camera = LimitedCamera(5)
+    pipeline = Pipeline(camera, FakeVirtualCameraSink(cfg), cfg)
+    pipeline.start()
+    deadline = time.monotonic() + 3.0
+    while pipeline.running() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    pipeline.stop()
+
+    error = pipeline.error
+    assert isinstance(error, RuntimeError)
+    assert "read() None" in str(error)
+    assert pipeline.stats().frames_captured == 5
+
+
+def test_clean_stop_leaves_error_unset() -> None:
+    cfg = fast_config()
+    pipeline = Pipeline(FakeCameraSource(cfg), FakeVirtualCameraSink(cfg), cfg)
+    run_for(0.3, pipeline)
+    assert pipeline.error is None
+    assert pipeline.stats().frames_sent > 0
