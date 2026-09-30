@@ -1,4 +1,6 @@
 # Info Dataset BISINDO untuk IsyaratKu Cam
+> Dokumen ini disuplai user ke repo, bukan hasil inspeksi agent; seluruh tautan harus dibuka dan diverifikasi satu per satu sebelum dipakai.
+> Lisensi dan jumlah kelas setiap entri belum diketahui; angka di dalamnya berasal dari metadata Kaggle, bukan dari isi dataset yang diunduh.
 
 Dokumen ini memuat 3 dataset Kaggle terpilih untuk masing-masing dari 7 kategori dataset BISINDO yang sudah disurvei, lengkap dengan alasan pilih, alasan tolak, dan catatan pipeline.
 

@@ -34,6 +34,24 @@ Dokumen ini hanya merekam apa yang sudah diketahui dan apa yang belum diperiksa.
 | Porsi gambar statis versus video per class | belum diinspeksi |
 | Ada atau tidak ada pretrained model di paket dataset | belum diinspeksi |
 | Format anotasi, bila ada | belum diinspeksi |
+| Dataset mana yang dipilih dari docs/info-dataset.md | belum diputuskan |
+
+## Kandidat dataset
+
+Referensi: docs/info-dataset.md (disuplai user, 87 entri Kaggle terbagi 7 kategori).
+
+Dokumen itu adalah DAFTAR KANDIDAT, bukan pilihan. Setiap entri berstatus "belum diinspeksi": tautan, isi berkas, jumlah kelas, jumlah sample, jumlah signer, resolusi, dan FPS belum dibuka dan belum diverifikasi. Tidak ada satu pun dataset yang sudah dipilih. Angka di docs/info-dataset.md berasal dari metadata Kaggle, bukan dari isi dataset yang sudah diunduh.
+
+Kandidat yang paling mungkin untuk scope KATA (isyarat video terisolasi, beberapa signer, 20+ kata), diambil dari kategori Kata/isolated sign dan kategori Dinamis di dokumen itu:
+
+| Kandidat | Catatan |
+| --- | --- |
+| `glennleonali/wl-bisindo` | Signer ID di nama berkas, ada skrip split per signer; lisensi CC BY-NC 4.0. |
+| `aridone/dataset-bisindo-40-kata-5-subjek` | 5 subjek, 50 video per subjek per kata; lisensi Unknown. |
+| `anggiyohanespardede/bisindo-40-kata-mp4` | Pelengkap jumlah sampel setelah `aridone`; lisensi MIT. |
+| `muhammaddhiaulhaq/bahasa-isyarat-indonesia-dinamis` | Video dinamis, baru 5 kata, lisensi MIT — hanya pendukung, jauh di bawah 20+ kata. |
+
+Kandidat di atas BUKAN keputusan. Lisensi dan isi keempatnya masih harus diperiksa satu per satu lewat checklist inspeksi sebelum ada yang dipakai, dan kandidat bisa berubah setelah inspeksi.
 
 ## Checklist inspeksi
 

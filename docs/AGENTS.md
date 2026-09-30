@@ -73,3 +73,4 @@ Tooling sudah terpasang di lingkungan ini: `python` (Python 3.14.6), `pip` (26.1
 - docs/dataset-notes.md — apa yang diketahui dan belum diketahui soal dataset.
 - docs/implementation-plan.md — urutan slice dan kriteria selesai per slice.
 - docs/environment.md — fakta lingkungan terverifikasi (Python, paket, VB-Cabel, UnityCapture, webcam).
+- docs/info-dataset.md — kandidat dataset Kaggle per kategori (pilihan awal, belum inspeksi).
