@@ -1,0 +1,100 @@
+"""Entry point aplikasi: pilih mode, atau jalur headless dengan fake adapter."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+
+from .debug_view import build_debug_view
+from .ready_view import build_ready_view
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    if args.headless:
+        return _run_headless(args.seconds)
+    return _run_gui(args.mode)
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="src.ui.app")
+    parser.add_argument(
+        "--mode",
+        choices=["ready", "debug"],
+        default="ready",
+        help="Mode tampilan (default: ready).",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Jalankan pipeline dengan fake adapter, tanpa GUI dan tanpa hardware.",
+    )
+    parser.add_argument(
+        "--seconds",
+        type=float,
+        default=5.0,
+        help="Durasi jalur headless (default: 5).",
+    )
+    return parser.parse_args(argv)
+
+
+def _run_gui(mode: str) -> int:
+    import PySide6.QtWidgets as qw
+
+    app = qw.QApplication.instance() or qw.QApplication(sys.argv)
+    view = build_debug_view() if mode == "debug" else build_ready_view()
+    view.show()
+    return app.exec()
+
+
+def _run_headless(seconds: float) -> int:
+    """Pipeline lengkap dengan fake kamera dan fake virtual camera."""
+    from ..adapters.camera import FakeCameraSource
+    from ..adapters.checks import run_checks
+    from ..adapters.virtual_camera import FakeVirtualCameraSink
+    from ..core.config import load_config
+    from ..core.pipeline import Pipeline
+    from .render import draw_overlay
+
+    config = load_config()
+    print(f"Konfigurasi dimuat: {config.virtual_camera_backend} "
+          f"{config.camera_width}x{config.camera_height}@{config.camera_fps}")
+
+    print("\nPemeriksaan awal:")
+    for name, ok, message in run_checks():
+        print(f"  [{'OK' if ok else 'GAGAL'}] {name}: {message}")
+
+    sink = FakeVirtualCameraSink(config)
+    camera = FakeCameraSource(config)
+    pipeline = Pipeline(
+        camera=camera,
+        sink=sink,
+        config=config,
+        renderer=lambda frame: draw_overlay(frame, "Smoke test headless."),
+    )
+    pipeline.start()
+    time.sleep(seconds)
+    pipeline.stop()
+
+    stats = pipeline.stats()
+    print("\nStatistik pipeline (fake adapter):")
+    print(f"  FPS terkirim        : {stats.fps:.2f}")
+    print(f"  Frame dibaca        : {stats.frames_captured}")
+    print(f"  Frame dikirim       : {stats.frames_sent}")
+    print(f"  Frame dibuang       : {stats.frames_dropped}")
+    print(f"  Durasi frame terkirim: {stats.elapsed_seconds:.2f} s")
+
+    assert sink.sends > 0, "tidak ada frame yang terkirim ke sink"
+    assert sink.last_shape == (
+        config.camera_height,
+        config.camera_width,
+        3,
+    ), f"shape sink salah: {sink.last_shape}"
+    print(f"  Shape frame terakhir: {sink.last_shape}")
+    print("\nHeadless smoke: LOLOS")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

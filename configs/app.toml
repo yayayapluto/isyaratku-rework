@@ -1,0 +1,23 @@
+# Konfigurasi IsyaratKu Cam.
+#
+# Berkas ini opsional: setiap key punya default, aplikasi jalan tanpa berkas ini.
+# Hanya tulis key yang nilainya BERBEDA dari default. Key tak dikenal akan
+# memicu peringatan di stderr dan diabaikan. Tipe salah atau nilai tidak valid
+# menggagal startup dengan pesan yang menyebut nama key.
+#
+# Default (kontrak, lihat docs/architecture.md):
+#   camera.device_index = 0
+#   camera.width = 640, camera.height = 480, camera.fps = 30
+#   landmark.max_num_hands = 2, landmark.model_complexity = 0
+#   window.frame_count = 30, window.stride = 5
+#   smoothing.confidence_threshold = 0.7, smoothing.vote_count = 3,
+#   smoothing.cooldown_seconds = 1.5
+#   queue.max_size = 4
+#   tts.device_name = "CABLE Output", tts.rate = 160
+#   virtual_camera.backend = "unitycapture"
+#
+# Path alternatif: set environment variable ISYARATKU_CONFIG.
+#
+# Contoh menimpa satu nilai:
+# [camera]
+# device_index = 1
