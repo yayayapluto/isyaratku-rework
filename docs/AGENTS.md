@@ -60,10 +60,10 @@ Prosa dokumen dan issue memakai Bahasa Indonesia. Nama teknikal, path file, nama
 
 ## Perintah
 
-- Menjalankan aplikasi: belum ada entry point. Placeholder: `python -m src.ui.app` (belum ada).
-- Menjalankan test: `python -m pytest` (akan ditentukan).
+- Menjalankan aplikasi: `python -m src.ui.app` (mode: `--mode ready` default, `--mode debug`), headless smoke: `python -m src.ui.app --headless --seconds 5`
+- Menjalankan test: `python -m pytest -q`
 
-Tooling sudah terpasang di lingkungan ini: `python` (Python 3.14.6), `pip` (26.1.2), `git`. Paket relevan yang sudah terpasang: pytest 9.1.1, opencv-python, mediapipe, numpy, pyvirtualcam, pyttsx3, sounddevice. Lingkungan virtual belum dibuat; instruksi venv menunggu keputusan di slice berikutnya.
+Tooling sudah terpasang di lingkungan ini: `python` (Python 3.14.6), `pip` (26.1.2), `git`. Paket relevan yang sudah terpasang: pytest 9.1.1, opencv-python, mediapipe, numpy, pyvirtualcam, pyttsx3, sounddevice. Tidak ada virtual environment di mesin ini; seluruh paket dipakai dari Python global.
 
 ## Dokumen lain
 

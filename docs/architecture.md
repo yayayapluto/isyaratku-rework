@@ -18,7 +18,7 @@ Dokumen ini menjelaskan susun direktori, alur pipeline, dua mode aplikasi, strat
 
 Aturan proyek: tidak ada angka ajaib di kode. Kontrak ini menentukan cara konfigurasi dimuat dan dibaca.
 
-- Penyimpanan: satu berkas YAML di `configs/app.yaml`, dimuat sekali saat startup oleh loader di `src/core/config.py`.
+- Penyimpanan: satu berkas TOML di `configs/app.toml`, dimuat sekali saat startup oleh loader di `src/core/config.py` memakai `tomllib` (stdlib; PyYAML tidak terpasang di lingkungan ini).
 - Aturan: `src/core/` membaca konfigurasi sebagai dataclass bertipe (mis. `AppConfig`) — tanpa framework, tanpa mutasi global. Loader adalah fungsi murni dari path berkas.
 - Pembaca: adapter membaca dari objek config yang diterima constructor-nya. Fungsi core menerima field yang dibutuhkan sebagai parameter. UI tidak pernah membaca config untuk nilai pemrosesan.
 - Default: setiap key WAJIB punya default supaya aplikasi jalan tanpa berkas konfigurasi; berkas hanya menimpa.
