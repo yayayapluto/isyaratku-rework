@@ -10,7 +10,7 @@ import PySide6.QtWidgets as qw
 from ..core.config import AppConfig, load_config
 from ..core.pipeline import Frame, Pipeline, Stats
 from .check_task import finish_checks, start_checks
-from .render import draw_overlay
+from .render import draw_landmarks, draw_overlay
 
 PREVIEW_INTERVAL_MS = 40
 STATUS_IDLE = ("berhenti", "color: #475569;")
@@ -85,12 +85,13 @@ class ReadyView(qw.QMainWindow):
 
     def _on_checks_done(self, results) -> None:
         """Dipanggil di GUI thread saat pemeriksaan selesai."""
-        camera = finish_checks(
-            self,
-            results,
-            self._details,
-            lambda frame: draw_overlay(frame, "Belum ada prediksi."),
-        )
+
+        def render(frame):
+            draw_overlay(frame, "Belum ada prediksi.")
+            draw_landmarks(frame, frame.landmarks)
+            return frame
+
+        camera = finish_checks(self, results, self._details, render)
         if camera is not None:
             self._details.setText(
                 f"Kamera {camera.backend} {self._config.camera_width}x"

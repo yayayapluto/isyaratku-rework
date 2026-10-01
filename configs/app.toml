@@ -8,7 +8,11 @@
 # Default (kontrak, lihat docs/architecture.md):
 #   camera.device_index = 0
 #   camera.width = 640, camera.height = 480, camera.fps = 30
-#   landmark.max_num_hands = 2, landmark.model_complexity = 0
+#   landmark.max_num_hands = 2,
+#   landmark.model_complexity = 0 (tidak dipakai — API Tasks MediaPipe tidak
+#     punya padanannya; key disimpan agar kontrak lama tetap utuh),
+#   landmark.hand_model_path = "models/mediapipe/hand_landmarker.task",
+#   landmark.pose_model_path = "models/mediapipe/pose_landmarker_lite.task"
 #   window.frame_count = 30, window.stride = 5
 #   smoothing.confidence_threshold = 0.7, smoothing.vote_count = 3,
 #   smoothing.cooldown_seconds = 1.5

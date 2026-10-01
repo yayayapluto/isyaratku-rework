@@ -51,11 +51,12 @@ def _run_gui(mode: str) -> int:
 def _run_headless(seconds: float) -> int:
     """Pipeline lengkap dengan fake kamera dan fake virtual camera."""
     from ..adapters.camera import FakeCameraSource
+    from ..adapters.landmark import FakeLandmarkExtractor
     from ..adapters.checks import run_checks
     from ..adapters.virtual_camera import FakeVirtualCameraSink
     from ..core.config import load_config
     from ..core.pipeline import Pipeline
-    from .render import draw_overlay
+    from .render import draw_overlay, draw_landmarks
 
     config = load_config()
     print(
@@ -69,11 +70,19 @@ def _run_headless(seconds: float) -> int:
 
     sink = FakeVirtualCameraSink(config)
     camera = FakeCameraSource(config)
+
+    def render(frame):
+        draw_overlay(frame, "Smoke test headless.")
+        draw_landmarks(frame, frame.landmarks)
+        return frame
+
     pipeline = Pipeline(
         camera=camera,
         sink=sink,
         config=config,
-        renderer=lambda frame: draw_overlay(frame, "Smoke test headless."),
+        renderer=render,
+        # Extractor ikut supaya jalur ekstraksi ikut teruji di smoke headless.
+        extractor=FakeLandmarkExtractor(config),
     )
     pipeline.start()
     time.sleep(seconds)

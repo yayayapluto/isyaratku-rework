@@ -83,3 +83,30 @@ def incomplete_percentage(frames: list[LandmarkFrame] | tuple[LandmarkFrame, ...
         return 0.0
     incomplete = sum(1 for frame in frames if not frame.complete)
     return 100.0 * incomplete / len(frames)
+
+
+class IncompleteTracker:
+    """Penghitung jalan berpersen frame tidak lengkap, tanpa menyimpan history.
+
+    Dua angka cukup: total frame yang lewat dan berapa yang tidak lengkap.
+    Jendela geser tidak ada di sini — yang ditampilkan adalah angka sejak
+    pipeline start, yang lebih mudah dipahami di panel debug.
+    """
+
+    def __init__(self) -> None:
+        self._frames = 0
+        self._incomplete = 0
+
+    def add(self, landmarks) -> None:
+        """Catat satu frame; frame tanpa hasil ekstraksi tidak dihitung."""
+        if landmarks is None:
+            return
+        self._frames += 1
+        if not landmarks.complete:
+            self._incomplete += 1
+
+    def percentage(self) -> float:
+        """Persen frame tidak lengkap sejak tracker lahir; 0.0 bila belum ada."""
+        if self._frames == 0:
+            return 0.0
+        return 100.0 * self._incomplete / self._frames

@@ -25,14 +25,16 @@ Aturan proyek: tidak ada angka ajaib di kode. Kontrak ini menentukan cara konfig
 - Validasi saat load: tipe salah atau key wajib tidak ada = gagal cepat dengan pesan jelas yang menyebut nama key. Key tak dikenal = peringatan lalu diabaikan, tidak pernah diterima diam-diam.
 - Environment: variabel `ISYARATKU_CONFIG` boleh menunjuk path konfigurasi alternatif, untuk jalankan debug.
 
-Nama key adalah kontrak. Kode memakai nama ini persis. Tabel di bawah punya 15 baris untuk 17 key karena `camera.width`, `camera.height`, dan `camera.fps` berbagi satu baris.
+Nama key adalah kontrak. Kode memakai nama ini persis. Tabel di bawah punya 16 baris untuk 19 key karena `camera.width`, `camera.height`, dan `camera.fps` berbagi satu baris.
 
 | Key | Tipe | Default awal | Dipakai di |
 | --- | --- | --- | --- |
 | `camera.device_index` | int | 0 | camera adapter |
 | `camera.width` / `camera.height` / `camera.fps` | int | 640 / 480 / 30 | camera + virtual camera |
 | `landmark.max_num_hands` | int | 2 | mediapipe adapter |
-| `landmark.model_complexity` | int | 0 | mediapipe adapter |
+| `landmark.model_complexity` | int | 0 | tidak dipakai — API Tasks MediaPipe 1.0.1 tidak punya padanannya (dulu argumen `mp.solutions.hands`); key disimpan agar kontrak lama tetap utuh dan tidak memutus test kontrak |
+| `landmark.hand_model_path` | str | "models/mediapipe/hand_landmarker.task" | landmark extractor |
+| `landmark.pose_model_path` | str | "models/mediapipe/pose_landmarker_lite.task" | landmark extractor |
 | `window.frame_count` | int | 30 | windowing |
 | `window.stride` | int | 5 | windowing |
 | `smoothing.confidence_threshold` | float | 0.7 | smoothing |

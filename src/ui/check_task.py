@@ -16,6 +16,8 @@ from ..adapters.checks import run_checks
 from ..adapters.camera import OpenCvCameraSource
 from ..adapters.virtual_camera import UnityVirtualCameraSink
 from ..core.pipeline import Frame, Pipeline
+from ..adapters.landmark import MediaPipeLandmarkExtractor
+from .render import draw_landmarks
 
 # Sinyal yang masih hidup; dibuang setelah hasil diungkapkan atau setelah
 # penerima ditutup, supaya slot view tidak memanggil objek yang sudah musnah.
@@ -106,6 +108,7 @@ def finish_checks(view, results, details, renderer) -> object | None:
     if any(not ok for _, ok, _ in results):
         _report_failure(view, results, details)
         return None
+    pipeline = None
     try:
         camera = OpenCvCameraSource(view._config)
         sink = UnityVirtualCameraSink(
@@ -114,19 +117,24 @@ def finish_checks(view, results, details, renderer) -> object | None:
             view._config.camera_height,
             view._config.camera_fps,
         )
+        # Extractornya dibuat sebelum pipeline jalan: kegagalan baca model harus
+        # muncul sebagai galat pemeriksaan di sini, bukan thread mati sepinya.
+        extractor = MediaPipeLandmarkExtractor(view._config)
+        pipeline = Pipeline(
+            camera=camera,
+            sink=sink,
+            config=view._config,
+            renderer=renderer,
+            on_frame=view._on_frame,
+            on_stats=view._on_stats,
+            extractor=extractor,
+        )
     except Exception as exc:
         view._set_status(*view.STATUS_ERROR)
         if details is not None:
             details.setText(f"Pipeline gagal start: {exc}")
         return None
-    view._pipeline = Pipeline(
-        camera=camera,
-        sink=sink,
-        config=view._config,
-        renderer=renderer,
-        on_frame=view._on_frame,
-        on_stats=view._on_stats,
-    )
+    view._pipeline = pipeline
     view._pipeline.start()
     view._timer.start()
     view._set_status(*view.STATUS_RUNNING)
@@ -144,15 +152,20 @@ def _report_failure(view, results, details) -> None:
 
 
 def make_renderer(text: str, raw_sink, draw: Callable[[Frame, str], Frame]):
-    """Renderer yang menyimpan salinan piksel mentah SEBELUM overlay ditulis.
+    """Renderer: salinan piksel mentah, lalu overlay teks, lalu landmark.
 
     Pipeline memanggil renderer lebih dulu, baru ``on_frame``. Salinan di
     ``on_frame`` karena itu selalu terlambat: overlay sudah menimpa ``frame.image``
     in place. Salinannya harus terjadi di depan, di jalur renderer.
+
+    Landmark digambar paling akhir supaya titik tetap terlihat; frame tanpa
+    hasil ekstraksi dilewati tanpa galat.
     """
 
     def renderer(frame: Frame) -> Frame:
         raw_sink(frame.image.copy())
-        return draw(frame, text)
+        draw(frame, text)
+        draw_landmarks(frame, frame.landmarks)
+        return frame
 
     return renderer
