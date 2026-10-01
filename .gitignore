@@ -11,6 +11,10 @@ _ds_read*
 _err_*
 
 
+# fps measurement scratch + worker extraction log
+_fps_*
+_par2.log
+
 # throwaway driver/log slice 4a
 _par_extract.py
 _extract_full.log
