@@ -76,8 +76,17 @@ class ExplodingPredictor(DummyPredictor):
         raise RuntimeError("model sengaja gagal")
 
 
-def build_pipeline(cfg, total_frames, predictor, on_frame=None, seconds=4.0):
-    """Jalankan pipeline fake lalu hentikan; kembalikan (pipeline, sink, texts)."""
+def build_pipeline(cfg, total_frames, predictor, on_frame=None, seconds=4.0, unbounded=False):
+    """Jalankan pipeline fake lalu hentikan; kembalikan (pipeline, sink, texts).
+
+    ``unbounded=True`` dipakai test yang perlu melihat SETIAP frame yang
+    dikirim worker output: queue dibuat tanpa batas supaya kebijakan
+    buang-frame-terbaru tidak berlaku, dan pipeline dihentikan tepat ketika
+    kamera skrip sudah mengeluarkan ``total_frames`` frame sehingga seluruh
+    frame tersisa sempat dikuras worker output. Hasilnya deterministik:
+    observasi tidak lagi balapan dengan kebijakan drop queue (yang memang
+    disengaja), tapi tetap menguji jalur nyata kamera -> worker -> on_frame.
+    """
     sink = FakeVirtualCameraSink(cfg)
     camera = ScriptedCamera(
         cfg, total_frames, (cfg.camera_height, cfg.camera_width)
@@ -93,10 +102,14 @@ def build_pipeline(cfg, total_frames, predictor, on_frame=None, seconds=4.0):
     kwargs["on_frame"] = on_frame
     if predictor is not None:
         kwargs["predictor"] = predictor
+    if unbounded:
+        object.__setattr__(cfg, "queue_max_size", 0)  # 0 = queue tak berbatas
     pipeline = Pipeline(**kwargs)
-    deadline = time.monotonic() + seconds
     pipeline.start()
+    deadline = time.monotonic() + seconds
     while pipeline.running() and time.monotonic() < deadline:
+        if unbounded and pipeline.stats().frames_captured >= total_frames:
+            break
         time.sleep(0.02)
     pipeline.stop()
     return pipeline, sink, texts
@@ -143,11 +156,14 @@ def test_pipeline_with_predictor_sets_text_from_full_window() -> None:
     """Window lengkap membuat teks muncul; jumlah frame terprediksi > 0."""
     cfg = config(queue_max_size=8)
     predictor = FakePredictor(["satu", "satu", "satu", "satu"])
-    pipeline, sink, texts = build_pipeline(cfg, 40, predictor)
+    # Queue tanpa batas + berhenti saat budget frame tercapai: rata-rata
+    # frame yang menempel teks tidak lagi bergantung pada kebijakan
+    # buang-frame-terbaru, tetapi seluruh frame ikut dilihat worker output.
+    pipeline, sink, texts = build_pipeline(cfg, 40, predictor, unbounded=True)
 
     assert pipeline.error is None, f"pipeline tidak boleh berhenti: {pipeline.error}"
     assert sink.sends > 0
-    assert any(text != "" for text in texts), "setidaknya satu frame harus punya teks"
+    assert any(text == "satu" for text in texts), "setidaknya satu frame harus punya teks"
     assert predictor is not None
 
 
