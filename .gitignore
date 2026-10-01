@@ -9,3 +9,8 @@ _probe_*
 _pub_*
 _ds_read*
 _err_*
+
+
+# throwaway driver/log slice 4a
+_par_extract.py
+_extract_full.log
