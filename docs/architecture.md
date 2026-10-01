@@ -25,7 +25,7 @@ Aturan proyek: tidak ada angka ajaib di kode. Kontrak ini menentukan cara konfig
 - Validasi saat load: tipe salah atau key wajib tidak ada = gagal cepat dengan pesan jelas yang menyebut nama key. Key tak dikenal = peringatan lalu diabaikan, tidak pernah diterima diam-diam.
 - Environment: variabel `ISYARATKU_CONFIG` boleh menunjuk path konfigurasi alternatif, untuk jalankan debug.
 
-Nama key adalah kontrak. Kode memakai nama ini persis. Tabel di bawah punya 16 baris untuk 19 key karena `camera.width`, `camera.height`, dan `camera.fps` berbagi satu baris.
+Nama key adalah kontrak. Kode memakai nama ini persis. Tabel di bawah punya 19 baris untuk 21 key karena `camera.width`, `camera.height`, dan `camera.fps` berbagi satu baris.
 
 | Key | Tipe | Default awal | Dipakai di |
 | --- | --- | --- | --- |
@@ -45,6 +45,8 @@ Nama key adalah kontrak. Kode memakai nama ini persis. Tabel di bawah punya 16 b
 | `pipeline.stats_window` | int | 240 | statistik FPS |
 | `tts.device_name` | str | "CABLE Output" | speech sink |
 | `tts.rate` | int | 160 | speech sink |
+| `tts.enabled` | bool | true | pemilih sink di UI: false memakai FakeTTS, video tetap jalan tanpa suara |
+| `tts.speak_cooldown_seconds` | float | 2.5 | cooldown per label di speech sink: mencegah ucapan menumpuk saat audio lebih panjang dari jeda label (beda dari `smoothing.cooldown_seconds` yang menentukan kapan label boleh keluar) |
 | `virtual_camera.backend` | str | "obs" | virtual camera sink (OBS Virtual Camera) |
 
 Pencocokan device TTS memakai substring, bukan persis: string 'CABLE Input' tidak ada di sounddevice; default 'CABLE Output' menunjuk endpoint tempat aplikasi menulis, dan aplikasi meeting memakai 'CABLE In 16 Ch' sebagai mikrofon. Bila beberapa endpoint cocok, pilih yang WASAPI.
