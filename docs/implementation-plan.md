@@ -59,6 +59,7 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
   - [x] Confusion matrix dilaporkan.
   - [ ] Kata yang sering tertukar dihapus atau diganti sebelum daftar dikunci. Terukur 2026-10-01: 6 gloss ditumpuk diprediksi "Sore" (Ingat 27, Berangkat 27, Maaf 23, Makan 17, Belajar 17, Mengapa 16) dan 5 diprediksi "Bagaimana" (Siapa 33, Motor 28, Merah 26, Apa 21, Cari 19), tanpa satu pun kebalikannya — pola penyerapan satu arah dari bias signer, bukan kata mirip. "Lagi" punya 0 window bertangan di test sehingga tidak bisa dievaluasi; 9 gloss dukungannya <=10. Usulan versi ini: hapus "Lagi" dan "Sore" (test gloss naik 0.0856 -> 0.1111 pada 31 gloss), LATIH ULANG "Bagaimana" dengan signer tambahan karena menyerap 5 kata. Rinciannya di docs/tech-decisions.md bagian diagnosa slice 4b. Keputusan akhir tetap milik pemilik repo.
   - [x] Kelas "tidak ada isyarat" benar-benar dilatih, bukan hanya ada di label set. (`NO_SIGN_ID` = 32 dari window bertangan tanpa tangan; `training/train.py` menu `mode="semua"`; `TrainedPredictor` menolak model yang belum punya kelas itu. Seksinya karena 4b membuktikan kode hanya mengaku punya kelas tanpa dilatihnya.)
+  - [ ] Label set v1 untuk demo dan ambang percaya diri: DITOLAK dengan angka, bukan dikunci. Terukur 2026-10-01 (`training/diagnose_demo_v1.py`): val signer4 hanya 137 window bertangan dari 1850 tersebar di 14 dari 32 gloss, jadi val tidak bisa menjadi dasar memilih gloss. Usulan 10 gloss terbaik di val (val gloss 0.7564, +0.1433 dari patokan 0.6131) jatuh ke 0.0970 di test signer3 dengan 5 dari 10 gloss ber-recall 0.00, gerbang dua arah karena itu gagal dan `models/demo_v1_set.npz`/`.json` tidak ditulis. Ambang `min_confidence=0.80` terpilih dari val hanya membuat demo lebih sering diam (test coverage gloss 0.6814) tanpa jadi lebih benar (akurasi jawaban gloss test 0.0739); `min_margin` tidak menolong karena setiap margin > 0 justru menurunkan akurasi jawaban gloss di test. Rinciannya di docs/tech-decisions.md bagian slice 4.
 
 ## Slice 5 — Smoothing dan TTS offline
 
@@ -71,7 +72,7 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
   - [ ] Cooldown mencegah kata sama terucap berulang dalam satu tahanan isyarat.
   - [ ] Suara offline terdengar ketika aplikasi meeting menangkap perangkat yang dipilih.
   - [ ] Audio per kata dibuat lebih dulu saat aplikasi mulai, sehingga pemutaran tidak bolong.
-  - [ ] Tidak ada TTS cloud dalam jalur runtime.
+  - [x] Tidak ada TTS cloud dalam jalur runtime. (piper-tts memuat `.onnx` dari disk; `src/adapters/tts.py` tidak punya panggilan jaringan sama sekali, dan UNDUH voice hanya setup sekali `python -m training.setup_voice`, bukan jalur runtime.)
   - [ ] Latensi prediksi terukur (p50 dan p95) dan nilainya dicatat di docs/, bukan hanya diklaim.
 
 ## Slice 6 — Penyelesaian mode ready-to-use dan dasbor debug
