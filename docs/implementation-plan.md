@@ -58,7 +58,7 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
   - [x] Model awal baseline sederhana selesai dilatih dan dievaluasi.
   - [x] Confusion matrix dilaporkan.
   - [ ] Kata yang sering tertukar dihapus atau diganti sebelum daftar dikunci.
-  - [x] Kelas "tidak ada isyarat" ada di label set. (slot pertama `DummyPredictor.LABELS`)
+  - [x] Kelas "tidak ada isyarat" benar-benar dilatih, bukan hanya ada di label set. (`NO_SIGN_ID` = 32 dari window bertangan tanpa tangan; `training/train.py` menu `mode="semua"`; `TrainedPredictor` menolak model yang belum punya kelas itu. Seksinya karena 4b membuktikan kode hanya mengaku punya kelas tanpa dilatihnya.)
 
 ## Slice 5 — Smoothing dan TTS offline
 

@@ -17,11 +17,13 @@ from training.dataset import (
     DEFAULT_EXTRACTED_DIR,
     GLOSSES,
     LABEL_NAMES,
+    NO_SIGN_ID,
     NO_SIGN_LABEL,
     Dataset,
     DatasetError,
     SignerSplit,
     default_split,
+    hand_of,
     iter_npz,
     parse_label,
     parse_signer,
@@ -78,28 +80,58 @@ def test_semua_label_train_tidak_kosong(extracted: Path) -> None:
 
 
 def test_loader_bentuk_dan_label_nyata(extracted: Path) -> None:
-    """Beberapa .npz nyata: bentuk (30,456) dan label cocok nama berkas."""
+    """Beberapa .npz nyata: bentuk (30,456) dan label cocok batas gloss."""
     dataset = Dataset((3,), extracted, name="test")
     contoh = 0
-    for window, label in dataset.iter_examples(skip_handless=True):
+    for window, label in dataset.iter_examples(mode="bertangan", limit=25):
         assert window.shape == (30, 456)
         assert window.dtype == np.float32
         assert 0 <= label < len(GLOSSES)
         contoh += 1
-        if contoh >= 25:
-            break
     assert contoh > 0, "Dataset test tidak menghasilkan window bertangan."
 
 
-def test_loader_melewati_window_tanpa_tangan(extracted: Path) -> None:
-    """skip_handless=True membuang window tanpa tangan; False tidak."""
+def test_mode_tanpa_isyarat_berlabel_no_sign(extracted: Path) -> None:
+    """Mode tanpa_isyarat hanya memuat window tangan tidak terdeteksi."""
+    dataset = Dataset((3,), extracted, name="test")
+    contoh = 0
+    for window, label in dataset.iter_examples(mode="tanpa_isyarat", limit=25):
+        assert not hand_of(window)
+        assert label == NO_SIGN_ID
+        contoh += 1
+    assert contoh > 0
+
+
+def test_mode_memecah_total_dengan_tepat(extracted: Path) -> None:
+    """Mode bernama: bertangan + tanpa_isyarat = semua window."""
     dataset = Dataset((3,), extracted, name="test")
     total = dataset.total_windows
-    bertangan = sum(1 for _ in dataset.iter_examples(skip_handless=True))
-    tanpa_tangan = sum(1 for _ in dataset.iter_examples(skip_handless=False)) - bertangan
-    assert tanpa_tangan > 0, "Dataset signer3 ternyata tidak punya window tanpa tangan sama sekali."
-    assert bertangan < total
+    bertangan = sum(1 for _ in dataset.iter_examples(mode="bertangan"))
+    tanpa_tangan = sum(1 for _ in dataset.iter_examples(mode="tanpa_isyarat"))
+    assert tanpa_tangan > 0, "Dataset signer3 ternyata tidak punya window tanpa tangan."
+    assert bertangan > 0
     assert bertangan + tanpa_tangan == total
+
+
+def test_mode_semua_menutup_setiap_window(extracted: Path) -> None:
+    """Mode 'semua' menelusuri tepat total_windows kali, tanpa celah."""
+    dataset = Dataset((3,), extracted, name="test")
+    hitung = 0
+    tanpa_isyarat = 0
+    for _window, label in dataset.iter_examples(mode="semua"):
+        hitung += 1
+        if label == NO_SIGN_ID:
+            tanpa_isyarat += 1
+    assert hitung == dataset.total_windows
+    assert 0 < tanpa_isyarat < hitung
+
+
+def test_mode_tidak_dikenal_ditolak(extracted: Path) -> None:
+    """Nama mode salah: galat jelas, bukan default diam-diam."""
+    dataset = Dataset((3,), extracted, name="test")
+    with pytest.raises(DatasetError):
+        for _ in dataset.iter_examples(mode="acak"):
+            pass
 
 
 def test_label_set_lengkap(extracted: Path) -> None:

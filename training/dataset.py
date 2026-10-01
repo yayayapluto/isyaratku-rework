@@ -17,9 +17,9 @@ menentukan bentuk modul ini:
   panjang video saja, jadi loader harus per-video, bukan per-array tetap.
 - 6.926 dari 12.117 window (57%) tidak punya tangan terdeteksi sama sekali:
   flag tangan kiri/kanan keduanya 0. Ini konsekuensi deteksi MediaPipe di
-  dalam video, bukan bug ekstraksi. Modul ini melaporkan angkanya supaya
-  pemilih kelas bisa memutuskan, dan secara default MEMBUANG window tanpa
-  tangan (alasan di docstring ``Dataset``).
+  dalam video, bukan bug ekstraksi. Modul ini menelusurinya menjadi kelas
+  tersendiri (``NO_SIGN_ID``) lewat mode --- bukan dibuang (lihat
+  docstring ``Dataset`` dan ``docs/tech-decisions.md``).
 
 Split default (``default_split``): train = signer0, signer1, signer2; val =
 signer4; test = signer3. Dipilih dengan alasan terukur, bukan selera:
@@ -46,17 +46,22 @@ from typing import Iterator
 
 import numpy as np
 
+from src.core.config import _CONTRACT  # noqa: E402
+
 DEFAULT_EXTRACTED_DIR = Path("data/extracted")
 
-#: Jumlah fitur satu baris window; angka dari kontrak fitur, bukan magic.
-FEATURE_COLUMNS = 456
+#: Konstanta bentuk window diambil dari kontrak fitur (src/core/features.py)
+#: supaya angka 456 dan offset flag tidak pernah ditulis dua kali; angka 30
+#: diambil dari kontrak config (window.frame_count). Training tidak boleh
+#: mendefinisikan sendiri arti angka-angka itu.
+from src.core.features import FEATURE_COUNT, NORM_COUNT  # noqa: E402
 
-#: Jumlah frame satu window (catat juga di config sebagai window.frame_count).
-WINDOW_FRAMES = 30
-
-#: Offset flag kehadiran kiri/kanan/pose di akhir setiap baris fitur.
-LEFT_FLAG = 225
-RIGHT_FLAG = 226
+FEATURE_COLUMNS = FEATURE_COUNT
+WINDOW_FRAMES = next(
+    default for sec, key, _, default in _CONTRACT if key == "frame_count"
+)
+LEFT_FLAG = NORM_COUNT - 3
+RIGHT_FLAG = NORM_COUNT - 2
 
 #: Label gloss dataset wl-bisindo: 0..31 sesuai tabel Kaggle di
 #: docs/dataset-notes.md. Indeks = angka label, nilai = gloss.
@@ -237,13 +242,12 @@ class Dataset:
     ``iter_examples`` (pemuatan per file), dan ``arrays()`` menolak jalan
     supaya tidak ada OOM diam-diam.
 
-    Pilihan kelas default ``NO_SIGN_ID``: window yang tidak punya tangan
-    terdeteksi TIDAK dipakai sebagai contoh apa pun, karena tandanya bukan
-    "tidak ada isyarat" melainkan "kamera menghindari tangan signer pada
-    frame ini". Memakainya sebagai kelas tanpa isyarat membuat model asal
-    menang (terukur: akurasi test 97% yang ternyata 93% dari tebakan
-    "tidak ada tangan"), jadi angkanya bohong. Tandanya sebagai galat
-    deteksi lewat ``hand_presence`` yang dihitung di ``report``.
+    Pilihan kelas ``NO_SIGN_ID``: window yang tidak punya tangan
+    terdeteksi (kedua flag tangan 0) dipakai sebagai contoh kelas
+    "tidak ada isyarat", karena inilah bentuk yang dilihat runtime saat
+    operator tidak sedang mengeja. Arah ini dipilih dengan sengaja;
+    rincian dan konsekuensi angkanya ada di ``docs/tech-decisions.md``.
+
     """
 
     #: Batas memori untuk pola "load semua" (~2 GB). Terukur pada mesin ini
@@ -314,31 +318,60 @@ class Dataset:
         return self.total_windows * WINDOW_FRAMES * FEATURE_COLUMNS * 4
 
     # -- akses ----------------------------------------------------------
-    def iter_examples(self, skip_handless: bool = True) -> Iterator[tuple[np.ndarray, int]]:
+    def iter_examples(
+        self,
+        mode: str = "bertangan",
+        limit: int = 0,
+    ) -> Iterator[tuple[np.ndarray, int]]:
         """Keluarkan satu window dan labelnya, per-batch kecil.
 
-        ``skip_handless=True`` membuang window tanpa tangan terdeteksi;
-        ``hand_presence`` menghitungnya. Kalau ``skip_handless=False``,
-        window tanpa tangan tetap keluar supaya pemisahan bisa dilaporkan.
+        ``mode`` mengatur window mana yang keluar dan dengan label apa:
+
+        - ``"bertangan"``: hanya window dengan tangan terdeteksi, label
+          sesuai berkasnya (gloss 0-31).
+        - ``"tanpa_isyarat"``: hanya window TANPA tangan, diberi label
+          ``NO_SIGN_ID``. Ini data kelas "tidak ada isyarat".
+        - ``"semua"``: keduanya; window tanpa tangan tetap berlabel
+          ``NO_SIGN_ID``, window bertangan berlabel gloss.
+
+        Dari awal rencana, kelas tanpa-isyarat tidak dilatih dan hanya
+        diklaim ada. Itu tidak jujur: pipeline runtime tidak akan pernah
+        mengeluarkan "tidak ada isyarat", dan frame tanpa tangan dipaksa
+        masuk kelas gloss. Karena itu kelas ini sekarang benar-benar
+        dilatih dari window tanpa tangan yang diukur sebagai galat deteksi.
+
+        ``limit`` membatasi jumlah window (0 = semua), dipakai tes.
         """
+        valid = ("bertangan", "tanpa_isyarat", "semua")
+        if mode not in valid:
+            raise DatasetError(f"Mode tidak dikenal: {mode!r}. Pilihan: {valid}")
+        terpakai = 0
         for path, _, _ in self.index:
+            if limit and terpakai >= limit:
+                break
             data = np.load(path, allow_pickle=False)
             windows = np.asarray(data["windows"], dtype=np.float32)
             label_value = int(data["label"])
             hands = windows[:, :, LEFT_FLAG : RIGHT_FLAG + 1].max(axis=(1, 2))
             for offset in range(int(windows.shape[0])):
                 window = windows[offset]
-                if skip_handless and not hands[offset]:
+                punya_tangan = bool(hands[offset])
+                if mode == "bertangan" and not punya_tangan:
                     continue
-                yield window, label_value
+                if mode == "tanpa_isyarat" and punya_tangan:
+                    continue
+                yield window, (label_value if punya_tangan else NO_SIGN_ID)
+                terpakai += 1
+                if limit and terpakai >= limit:
+                    break
 
-    def arrays(self, skip_handless: bool = True) -> tuple[np.ndarray, np.ndarray]:
+    def arrays(self, mode: str = "bertangan", limit: int = 0) -> tuple[np.ndarray, np.ndarray]:
         """Seluruh window dan label sebagai satu array; hanya untuk data kecil.
 
         Menolak berjalan kalau ukurannya melewati ``MAX_IN_MEMORY_BYTES``
-        supaya kegagalan langsung terlihat, bukan OEM di tengah training.
+        supaya kegagalan langsung terlihat, bukan OOM di tengah training.
         """
-        if not skip_handless and self.total_bytes > self.MAX_IN_MEMORY_BYTES:
+        if mode != "bertangan" and self.total_bytes > self.MAX_IN_MEMORY_BYTES:
             raise DatasetError(
                 f"Pemuatan semua window butuh {self.total_bytes / 2**30:.2f} GB, "
                 f"di atas batas {self.MAX_IN_MEMORY_BYTES / 2**30:.0f} GB. "
@@ -346,14 +379,14 @@ class Dataset:
             )
         pieces: list[np.ndarray] = []
         labels: list[int] = []
-        for window, label in self.iter_examples(skip_handless=skip_handless):
+        for window, label in self.iter_examples(mode=mode, limit=limit):
             pieces.append(window)
             labels.append(label)
         if not pieces:
             raise DatasetError(
-                f"Tidak ada window dengan tangan terdeteksi di signer {self.signers}. "
-                f"Cek data/extracted/; dataset sepenuhnya tanpa tangan akan membuat "
-                f"model tidak punya contoh."
+                f"Tidak ada window memenuhi mode '{mode}' di signer {self.signers}. "
+                f"Cek data/extracted/; dataset kosong akan membuat model "
+                f"tidak punya contoh."
             )
         return np.stack(pieces), np.asarray(labels, dtype=np.int64)
 
@@ -363,7 +396,7 @@ class Dataset:
         per_label: dict[int, int] = defaultdict(int)
         total = 0
         handless = 0
-        for window, label in self.iter_examples(skip_handless=False):
+        for window, label in self.iter_examples(mode="semua"):
             total += 1
             if not hand_of(window):
                 handless += 1

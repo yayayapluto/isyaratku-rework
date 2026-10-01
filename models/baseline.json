@@ -71,6 +71,8 @@
     "Sore",
     "Malam"
   ],
+  "no_sign_label": "tidak ada isyarat",
+  "no_sign_id": 32,
   "kelas_model": [
     0,
     1,
@@ -103,8 +105,10 @@
     28,
     29,
     30,
-    31
+    31,
+    32
   ],
+  "jumlah_kelas_dilatih": 33,
   "split": {
     "train": [
       0,
@@ -119,12 +123,17 @@
     ]
   },
   "jumlah_window": {
-    "train": 4260,
-    "val": 137,
-    "test": 794
+    "train": 8549,
+    "val": 1850,
+    "test": 1718,
+    "train_tanpa_isyarat": 4289,
+    "train_gloss": 4260,
+    "test_tanpa_isyarat": 924,
+    "test_gloss": 794
   },
-  "akurasi_val": 0.6204379562043796,
-  "akurasi_test": 0.10579345088161209,
-  "durasi_fit_detik": 0.66,
-  "dilatih": "2026-10-01 14:51:15"
+  "akurasi_val": 0.9713513513513513,
+  "akurasi_test": 0.5745052386495926,
+  "akurasi_gloss_saja": 0.08564231738035265,
+  "durasi_fit_detik": 0.97,
+  "dilatih": "2026-10-01 15:06:47"
 }

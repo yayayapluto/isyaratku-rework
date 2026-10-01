@@ -15,9 +15,15 @@ Menjalankan:
 
     python -m training.train
 
-Boleh dibatasi jumlah file untuk percobaan cepat dengan ``--limit-file``;
-nilai 0 berarti seluruh dataset. Skrip ini tidak pernah menulis atau
-menghapus apa pun di ``data/extracted/``.
+Boleh dibatasi jumlah window untuk percobaan cepat dengan
+``--limit-window``; nilai 0 berarti seluruh dataset.
+
+Kelas dilatih: 32 gloss + kelas tanpa isyarat (``NO_SIGN_ID``), jadi 33
+kelas. Akurasi dilaporkan dua angka: menyeluruh dan gloss saja
+(``acc_gloss``), supaya angka tidak disamarkan oleh kelas yang paling
+banyak datanya.
+
+Skrip ini tidak pernah menulis atau menghapus apa pun di ``data/extracted/``.
 """
 
 from __future__ import annotations
@@ -27,7 +33,6 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Iterator
 
 import joblib
 import numpy as np
@@ -35,17 +40,17 @@ import numpy as np
 from training.dataset import (
     GLOSSES,
     LABEL_NAMES,
+    NO_SIGN_ID,
     NO_SIGN_LABEL,
     Dataset,
     DatasetError,
     SignerSplit,
     default_split,
-    iter_npz,
-    parse_signer,
 )
 
 #: Pilihan model; satu-satunya tempat yang menentukan model baseline.
 MODEL_NAME = "logreg-ringkas-v1"
+
 
 #: Direktori artifact model; di-git-track sesuai docs/architecture.md.
 MODEL_DIR = Path("models")
@@ -74,47 +79,32 @@ def fitur_batch(windows: np.ndarray) -> np.ndarray:
     return np.stack([fitur_ringkas(w) for w in windows], axis=0)
 
 
-def iter_dataset(
-    dataset: Dataset, limit_files: int = 0, skip_handless: bool = True
-) -> Iterator[tuple[np.ndarray, int]]:
-    """Window bertangan + label dari dataset, dengan batas jumlah file.
-
-    ``limit_files`` memakai N file pertama (terurut nama) supaya bisa
-    diuji berulang kali sebelum worker validasi berkas lain selesai.
-    """
-    used = 0
-    for path, _, _ in dataset.index:
-        if limit_files and used >= limit_files:
-            break
-        used += 1
-        data = np.load(path, allow_pickle=False)
-        windows = np.asarray(data["windows"], dtype=np.float32)
-        label = int(data["label"])
-        hands = windows[:, :, 225:227].max(axis=(1, 2))
-        for offset in range(int(windows.shape[0])):
-            if skip_handless and not hands[offset]:
-                continue
-            yield windows[offset], label
-
-
 def muat_XY(
-    dataset: Dataset, limit_files: int = 0, skip_handless: bool = True
+    dataset: Dataset, limit_files: int = 0, mode: str = "semua"
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Muat (X ringkas, y) dari dataset."""
-    X = []
-    y = []
-    for window, label in iter_dataset(dataset, limit_files, skip_handless):
+    """Muat (X ringkas, y) dari dataset.
+
+    Default ``mode="semua"``: window bertangan berlabel gloss, window
+    tanpa tangan berlabel ``NO_SIGN_ID``. Jadi kelas "tidak ada isyarat"
+    benar-benar dilatih, bukan hanya diklaim.
+
+    ``limit_windows`` membatasi jumlah window supaya percobaan cepat
+    tidak perlu memuat 1.600 berkas; 0 = semua.
+    """
+    X: list[np.ndarray] = []
+    y: list[int] = []
+    for window, label in dataset.iter_examples(mode=mode, limit=limit_files * 100):
         X.append(fitur_ringkas(window))
         y.append(label)
     if not X:
         raise DatasetError(
-            f"Tidak ada window bertangan di {dataset.name} (signer {dataset.signers}). "
+            f"Tidak ada window di {dataset.name} (signer {dataset.signers}). "
             f"Cek limit-file dan data/extracted/."
         )
     return np.stack(X, axis=0), np.asarray(y, dtype=np.int64)
 
 
-def latih(split: SignerSplit, extracted_dir: Path, limit_files: int) -> dict[str, object]:
+def latih(split: SignerSplit, extracted_dir: Path, limit_windows: int = 0) -> dict[str, object]:
     """Latih model baseline, evaluasi di test set, dan balikkan laporan angka."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import accuracy_score, confusion_matrix
@@ -126,9 +116,9 @@ def latih(split: SignerSplit, extracted_dir: Path, limit_files: int) -> dict[str
     val = Dataset(split.val, extracted_dir, name="val")
     test = Dataset(split.test, extracted_dir, name="test")
 
-    X_train, y_train = muat_XY(train, limit_files)
-    X_val, y_val = muat_XY(val, limit_files)
-    X_test, y_test = muat_XY(test, limit_files)
+    X_train, y_train = muat_XY(train, limit_windows)
+    X_val, y_val = muat_XY(val, limit_windows)
+    X_test, y_test = muat_XY(test, limit_windows)
 
     t_fit = time.time()
     model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000, C=1.0))
@@ -136,25 +126,36 @@ def latih(split: SignerSplit, extracted_dir: Path, limit_files: int) -> dict[str
     durasi_fit = time.time() - t_fit
 
     classes = np.asarray(model.classes_)
+    kelas_dipilih = list(range(len(LABEL_NAMES)))
     proba_val = np.asarray(model.predict_proba(X_val))
     proba_test = np.asarray(model.predict_proba(X_test))
     pred_val = classes[proba_val.argmax(axis=1)]
     pred_test = classes[proba_test.argmax(axis=1)]
+    conf = confusion_matrix(y_test, pred_test, labels=kelas_dipilih)
 
-    semua_label = list(range(len(GLOSSES)))
     return {
         "model": model,
         "classes": classes,
         "proba_test": proba_test,
         "acc_val": float(accuracy_score(y_val, pred_val)),
         "acc_test": float(accuracy_score(y_test, pred_test)),
-        "conf": confusion_matrix(y_test, pred_test, labels=semua_label),
-        "akurasi_per_kelas": conf_per_kelas(
-            confusion_matrix(y_test, pred_test, labels=semua_label)
-        ),
+        "acc_gloss": float(accuracy_score(
+            y_test[y_test != NO_SIGN_ID], pred_test[y_test != NO_SIGN_ID]
+        )) if np.any(y_test != NO_SIGN_ID) else 0.0,
+        "conf": conf,
+        "akurasi_per_kelas": conf_per_kelas(conf),
         "durasi_fit": durasi_fit,
         "durasi_total": time.time() - mulai,
-        "jumlah": {"train": int(len(X_train)), "val": int(len(X_val)), "test": int(len(y_test))},
+        "jumlah": {
+            "train": int(len(X_train)),
+            "val": int(len(X_val)),
+            "test": int(len(y_test)),
+            "train_tanpa_isyarat": int(np.sum(y_train == NO_SIGN_ID)),
+            "train_gloss": int(np.sum(y_train != NO_SIGN_ID)),
+            "test_tanpa_isyarat": int(np.sum(y_test == NO_SIGN_ID)),
+            "test_gloss": int(np.sum(y_test != NO_SIGN_ID)),
+        },
+        "kelas_dipakai": [int(c) for c in kelas_dipilih if c < len(GLOSSES) or c == NO_SIGN_ID],
         "split": {
             "train": list(split.train),
             "val": list(split.val),
@@ -202,11 +203,15 @@ def simpan_artifact(hasil: dict[str, object], dir_model: Path) -> None:
         "butuh_torch_runtime": False,
         "label": list(LABEL_NAMES),
         "gloss_dataset": list(GLOSSES),
+        "no_sign_label": NO_SIGN_LABEL,
+        "no_sign_id": NO_SIGN_ID,
         "kelas_model": [int(c) for c in hasil["classes"]],
+        "jumlah_kelas_dilatih": int(len(hasil["classes"])),
         "split": hasil["split"],
         "jumlah_window": hasil["jumlah"],
         "akurasi_val": hasil["acc_val"],
         "akurasi_test": hasil["acc_test"],
+        "akurasi_gloss_saja": hasil["acc_gloss"],
         "durasi_fit_detik": round(float(hasil["durasi_fit"]), 2),
         "dilatih": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -214,37 +219,50 @@ def simpan_artifact(hasil: dict[str, object], dir_model: Path) -> None:
         json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
-
 def cetak_laporan(hasil: dict[str, object]) -> None:
     """Tampilkan angka yang wajib muncul di laporan akhir."""
     nama = LABEL_NAMES
     conf = np.asarray(hasil["conf"])
+    jumlah = hasil["jumlah"]
+    split = hasil["split"]
     print(f"Model: {MODEL_NAME} (joblib, tanpa torch di runtime)")
-    print(f"Split: train signer{hasil['split']['train']}, val signer{hasil['split']['val']}, test signer{hasil['split']['test']}")
-    print(f"Window: {hasil['jumlah']}")
+    print(
+        f"Split: train signer{split['train']}, val signer{split['val']}, "
+        f"test signer{split['test']}"
+    )
+    print(
+        f"Window: train {jumlah['train']} ({jumlah['train_gloss']} gloss + "
+        f"{jumlah['train_tanpa_isyarat']} tanpa isyarat), "
+        f"val {jumlah['val']}, test {jumlah['test']}"
+    )
     print(f"Durasi fit: {hasil['durasi_fit']:.1f}s, total {hasil['durasi_total']:.1f}s")
     print(f"Akurasi val : {hasil['acc_val']:.3f}")
     print(f"Akurasi test: {hasil['acc_test']:.3f}")
+    print(f"Akurasi gloss saja: {hasil['acc_gloss']:.3f} (kelas tanpa isyarat tak dilebur)")
+    print(f"Kelas dilatih: {len(hasil['classes'])} dari {len(LABEL_NAMES)}")
     per_kelas = np.asarray(hasil["akurasi_per_kelas"])
     total = conf.sum(axis=1)
     print()
     print("Akurasi per kelas (10 terburuk):")
     for posisi in np.argsort(per_kelas)[:10]:
-        jumlah = int(total[posisi])
-        if not jumlah:
+        jumlah_baris = int(total[posisi])
+        if not jumlah_baris:
             print(f"  {nama[posisi]:>15}: (tidak ada data test)")
             continue
-        print(f"  {nama[posisi]:>15}: {per_kelas[posisi]:.2f} ({int(conf[posisi, posisi])}/{jumlah})")
+        print(
+            f"  {nama[posisi]:>15}: {per_kelas[posisi]:.2f} "
+            f"({int(conf[posisi, posisi])}/{jumlah_baris})"
+        )
     print()
     print("Pasangan paling sering tertukar:")
-    for asli, prediksi, jumlah in top_tertukar(conf, nama):
-        print(f"  {asli} -> {prediksi}: {jumlah} window")
+    for asli, prediksi, jumlah_pair in top_tertukar(conf, nama):
+        print(f"  {asli} -> {prediksi}: {jumlah_pair} window")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--extracted", default="data/extracted")
-    parser.add_argument("--limit-file", type=int, default=0, help="batasi jumlah file (0 = semua)")
+    parser.add_argument("--limit-window", type=int, default=0, help="batasi jumlah window (0 = semua)")
     parser.add_argument("--skip-save", action="store_true", help="jangan tulis artifact model")
     args = parser.parse_args(argv)
 
@@ -256,12 +274,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Galat: {exc}")
         return 1
 
-    hasil = latih(split, extracted, args.limit_file)
+    hasil = latih(split, extracted, args.limit_window)
     cetak_laporan(hasil)
 
     if not args.skip_save:
         simpan_artifact(hasil, MODEL_DIR)
-        simpan_csv_confusion(np.asarray(hasil["conf"]), GLOSSES, Path("docs/confusion-baseline.csv"))
+        simpan_csv_confusion(
+            np.asarray(hasil["conf"]), LABEL_NAMES, Path("docs/confusion-baseline.csv")
+        )
         print(f"\nArtifact: {MODEL_DIR}/{MODEL_STEM}.joblib + .json")
         print("Confusion: docs/confusion-baseline.csv")
     return 0
@@ -269,3 +289,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+

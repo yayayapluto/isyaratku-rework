@@ -19,8 +19,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
-
-from training.dataset import LABEL_NAMES
+from training.dataset import LABEL_NAMES, NO_SIGN_ID
 from training.train import MODEL_DIR, MODEL_STEM, fitur_ringkas
 
 
@@ -31,7 +30,7 @@ def ekspor(bobot: np.ndarray, bias: np.ndarray, classes, label: tuple[str, ...],
         target,
         bobot=np.asarray(bobot, dtype=np.float64),
         bias=np.asarray(bias, dtype=np.float64),
-        kelas=np.asarray(list(classes), dtype=np.int64),
+        classes=np.asarray(list(classes), dtype=np.int64),
         label_json=np.asarray(json.dumps(list(label), ensure_ascii=False)),
     )
 
@@ -62,9 +61,17 @@ def main(argv: list[str] | None = None) -> int:
     bobot = coef / scale[None, :]
     bias = np.asarray(classifier.intercept_, dtype=np.float64) - (coef * mean / scale).sum(axis=1)
 
-
     classes = np.asarray(classifier.classes_, dtype=np.int64)
     label = tuple(LABEL_NAMES[int(c)] for c in classes)
+    # Kelas NO_SIGN_ID wajib benar-benar dilatih: kalau tidak, runtime akan
+    # mengklaim label yang tidak bisa diprediksi (bug kontrak yang tertangkap).
+    if int(NO_SIGN_ID) not in set(int(c) for c in classes):
+        print(
+            f"Galat: model tidak punya kelas NO_SIGN_ID ({int(NO_SIGN_ID)}); "
+            f"kelasnya {sorted(int(c) for c in classes)}. Latih ulang dengan "
+            f"muat_XY(mode='semua') supaya kelas tanpa isyarat ada datanya."
+        )
+        return 1
     ekspor(bobot, bias, classes, label, Path(args.out))
     print(f"Ekspor selesai: {args.out} ({len(label)} kelas, bobot {bobot.shape})")
     return 0

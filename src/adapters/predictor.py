@@ -29,8 +29,8 @@ from src.core.predictor import (
 #: Panjang rangkuman fitur (rata-rata + std) — sama dengan training/train.py.
 RINGKAS_PANJANG = 912
 
-#: Nama berkas artifact default.
-DEFAULT_MODEL = "models/baseline.npz"
+#: Nama berkas artifact default. Nama kedua dipakai tes dan dokumentasi.
+DEFAULT_MODEL = MODEL_PATH_DEFAULT = "models/baseline.npz"
 
 #: Berapa kelas teratas yang dilaporkan di ``ranked``.
 TOP_K = 5
@@ -42,6 +42,11 @@ class TrainedPredictor:
     Bila berkas model tidak ada, konstruktor gagal dengan galat jelas --
     tidak ada fallback diam-diam ke predictor lain supaya operator tahu
     runtime sedang jalan tanpa model.
+
+    Model yang sah WAJIB memuat kelas NO_SIGN_LABEL sebagai kelas yang
+    benar-benar dilatih (lihat training/train.py, mode "semua"). Tanpa itu,
+    pipeline tidak akan pernah mengeluarkan "tidak ada isyarat" dan frame
+    tanpa tangan dipaksa masuk kelas gloss.
     """
 
     def __init__(self, config: AppConfig, model_path: str | Path = DEFAULT_MODEL) -> None:
@@ -62,12 +67,23 @@ class TrainedPredictor:
                 f"Model {self._path} tidak konsisten: bobot {bobot.shape}, "
                 f"label {len(self._labels)}."
             )
+        if NO_SIGN_LABEL not in self._labels:
+            raise ValueError(
+                f"Model {self._path} tidak punya kelas {NO_SIGN_LABEL!r} "
+                f"({self._labels}). Latih ulang dengan mode 'semua' supaya "
+                f"kelas tanpa isyarat benar-benar dilatih, bukan hanya diklaim."
+            )
         self._bobot = bobot
         self._bias = bias
 
     @property
+    def model_path(self) -> Path:
+        """Lokasi artifact yang dipakai runtime."""
+        return self._path
+
+    @property
     def labels(self) -> tuple[str, ...]:
-        """Daftar label model; NO_SIGN_LABEL ada di dalamnya."""
+        """Daftar label model; NO_SIGN_LABEL selalu di dalamnya."""
         return self._labels
 
     def predict(self, features: np.ndarray) -> Prediction:
@@ -139,6 +155,7 @@ def save_synthetic_model(path: Path, seed: int = 0) -> Path:
         path,
         bobot=bobot.astype(np.float64),
         bias=bias.astype(np.float64),
+        classes=np.arange(kelas, dtype=np.int64),
         label_json=np.asarray(json.dumps(labels, ensure_ascii=False)),
     )
     return path
