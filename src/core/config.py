@@ -42,7 +42,7 @@ _CONTRACT: tuple[tuple[str, str, str, Any], ...] = (
     ("pipeline", "stop_timeout_seconds", "float", 2.0),
     ("tts", "device_name", "str", "CABLE Output"),
     ("tts", "rate", "int", 160),
-    ("virtual_camera", "backend", "str", "unitycapture"),
+    ("virtual_camera", "backend", "str", "obs"),
 )
 
 #: Nama key persis seperti di kontrak, urut sesuai tabel.

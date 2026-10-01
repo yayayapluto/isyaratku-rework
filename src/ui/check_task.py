@@ -14,7 +14,7 @@ import PySide6.QtCore as qc
 
 from ..adapters.checks import run_checks
 from ..adapters.camera import OpenCvCameraSource
-from ..adapters.virtual_camera import UnityVirtualCameraSink
+from ..adapters.virtual_camera import VirtualCameraSink
 from ..core.pipeline import Frame, Pipeline
 from ..adapters.landmark import MediaPipeLandmarkExtractor
 from .render import draw_landmarks
@@ -88,7 +88,7 @@ def start_checks(view, details) -> bool:
     view._set_status(*view.STATUS_CHECKING)
     view._start_button.setEnabled(False)
     if details is not None:
-        details.setText("Memeriksa kamera, UnityCapture, dan VB-Cabel...")
+        details.setText("Memeriksa kamera, virtual camera, dan VB-Cabel...")
     # Runner disimpan supaya QRunnable tidak di-GC selama jalan.
     view._check_task = run_checks_async(
         view._config.camera_device_index, view._on_checks_done
@@ -111,7 +111,7 @@ def finish_checks(view, results, details, renderer) -> object | None:
     pipeline = None
     try:
         camera = OpenCvCameraSource(view._config)
-        sink = UnityVirtualCameraSink(
+        sink = VirtualCameraSink(
             view._config,
             view._config.camera_width,
             view._config.camera_height,

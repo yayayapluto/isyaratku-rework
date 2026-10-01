@@ -22,7 +22,10 @@
 #     (240 default ~4 s pada 60 fps); pipeline.stop_timeout_seconds = batas tunggu
 #     join thread saat stop.
 #   tts.device_name = "CABLE Output", tts.rate = 160
-#   virtual_camera.backend = "unitycapture"
+#   virtual_camera.backend = "obs"  (backend virtual camera OBS; jalur
+#     kirim-saja yang dulu dipakai tidak dipakai lagi: filter penerimanya tidak
+#     pernah load di mesin ini sehingga tak ada consumer yang bisa membaca
+#     frame. OBS Virtual Camera sudah terverifikasi round trip dua proses.)
 #
 # Path alternatif: set environment variable ISYARATKU_CONFIG.
 #

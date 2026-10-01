@@ -8,12 +8,12 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
 
 - Tujuan: video webcam tampil di jendela aplikasi dan muncul sebagai perangkat virtual camera di Zoom atau Meet.
 - Dependensi: -
-- Fake-first: FakeCameraSource dan FakeVirtualCameraSink dipakai di test pipeline. Uji coba nyata UnityCapture jalankan terakhir.
+- Fake-first: FakeCameraSource dan FakeVirtualCameraSink dipakai di test pipeline. Uji coba nyata virtual camera OBS jalankan terakhir.
 - Kriteria selesai:
   - [ ] Frame dari kamera asli tampil di UI.
-  - [ ] UnityCapture muncul daftar perangkat kamera di Zoom atau Meet.
-  - [ ] Peserta meeting lain melihat video, bukan layar hitam.
-  - [ ] Frame yang keluar hanya berasal dari pipeline, bukan dari perangkat lain.
+  - [ ] OBS Virtual Camera muncul daftar perangkat kamera di Zoom atau Meet. Belum terbukti: Zoom/Meet tidak pernah dijalankan bersama feed kita; pembuktiannya di docs/tech-decisions.md bagian "Status slice 1: yang belum terbukti".
+  - [ ] Peserta meeting lain melihat video, bukan layar hitam. Belum terbukti dengan alasan yang sama.
+  - [ ] Frame yang keluar hanya berasal dari pipeline, bukan dari perangkat lain. Belum terbukti dengan alasan yang sama.
   - [ ] FPS yang diukur tercatat di configs/ sebagai nilai awal, bukan diset sembarangan di kode.
   - [ ] Tidak ada angka ajaib di kode: semua parameter masuk configs/ sesuai kontrak di docs/architecture.md.
   - [ ] Mode ready-to-use dibangun dengan PySide6 dan aplikasi jalan dari entry point tanpa GUI langsung crash (smoke run headless dengan fake adapter).
@@ -81,8 +81,8 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
 - Fake-first: mode debug tidak boleh jalan di pipeline terpisah. Uji dasbor memakai pipeline dengan fake adapter sebelum pakai hardware.
 - Kriteria selesai:
   - [ ] Mode ready-to-use hanya punya tombol Start dan Stop, tanpa pemilihan perangkat.
-  - [ ] Pemeriksaan otomatis saat Start mengecek kamera, UnityCapture, dan VB-Cable.
-  - [ ] Pesan error jelas dan actionable, misalnya "UnityCapture belum terdeteksi".
+  - [ ] Pemeriksaan otomatis saat Start mengecek kamera, virtual camera OBS, dan VB-Cable.
+  - [ ] Pesan error jelas dan actionable, misalnya "Virtual camera OBS belum terdaftar di DirectShow".
   - [ ] Indikator status: berjalan, berhenti, error.
   - [ ] Dasbor debug satu jendela dengan semua panel yang disebut di docs/architecture.md.
   - [ ] FPS dan latensi terukur di mode ready-to-use, karena mode debug menambah beban render.

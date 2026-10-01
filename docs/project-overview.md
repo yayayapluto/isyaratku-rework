@@ -34,7 +34,7 @@ Di luar scope, jangan dikerjakan sekarang:
 Setiap item harus punya bukti terlihat sebelum aplikasi dinyatakan selesai:
 
 - [ ] Kamera terbaca dan video tampil di jendela aplikasi.
-- [ ] Virtual camera UnityCapture muncul daftar perangkat di Zoom atau Google Meet dan peserta lain melihat videonya.
+- [ ] Virtual camera OBS muncul daftar perangkat di Zoom atau Google Meet dan peserta lain melihat videonya.
 - [ ] MediaPipe menghasilkan landmark tangan dan pose di mode debug.
 - [ ] Prediksi isyarat kata muncul sebagai teks di atas video.
 - [ ] Suara TTS offline terdengar keluar melalui perangkat audio yang dipilih aplikasi meeting.
@@ -42,7 +42,7 @@ Setiap item harus punya bukti terlihat sebelum aplikasi dinyatakan selesai:
 - [ ] Voting antar prediksi berurutan dan cooldown mencegah satu isyarat terucap berulang.
 - [ ] Kelas "tidak ada isyarat" tidak tertulis dan tidak terucap saat tidak ada isyarat.
 - [ ] Demo bisa dijalankan dari tombol Start sampai Stop tanpa langkah manual tersembunyi.
-- [ ] Pemeriksaan otomatis saat Start memberi pesan jelas bila UnityCapture atau VB-Cable belum terpasang.
+- [ ] Pemeriksaan otomatis saat Start memberi pesan jelas bila OBS Virtual Camera atau VB-Cable belum terpasang.
 
 ## Target performa
 

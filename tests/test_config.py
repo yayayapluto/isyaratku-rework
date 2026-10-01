@@ -32,7 +32,7 @@ def test_defaults_load_without_file(tmp_path) -> None:
     assert config.queue_max_size == 4
     assert config.tts_device_name == "CABLE Output"
     assert config.tts_rate == 160
-    assert config.virtual_camera_backend == "unitycapture"
+    assert config.virtual_camera_backend == "obs"
 
 
 def test_default_path_exists_in_repo() -> None:

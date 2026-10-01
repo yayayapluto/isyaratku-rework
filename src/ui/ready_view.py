@@ -95,7 +95,7 @@ class ReadyView(qw.QMainWindow):
         if camera is not None:
             self._details.setText(
                 f"Kamera {camera.backend} {self._config.camera_width}x"
-                f"{self._config.camera_height} -> UnityCapture."
+                f"{self._config.camera_height} -> OBS Virtual Camera."
             )
 
     def _message_warning(self, title: str, text: str) -> None:

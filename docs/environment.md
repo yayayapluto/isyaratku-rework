@@ -11,7 +11,7 @@ Dokumen ini berisi fakta lingkungan development hasil rekon slice 0 pada commit 
 | GUI | ⚠️ Terkonfirmasi: customtkinter tidak terpasang; PySide6 6.11.2 dan PySide6-Fluent-Widgets 1.11.3 terpasang. |
 | Audio dan VB-Cabel | ✅ Terkonfirmasi: VB-Cabel terpasang dan muncul di `sounddevice.query_devices()`. Nama perangkat aktual: `CABLE Output (2- VB-Audio Virtual Cable)` dan `CABLE In 16 Ch (2- VB-Audio Virtual Cable)`; string "CABLE Input" tidak muncul persis |
 | SAPI voice | ⚠️ Terkonfirmasi: hanya 2 suara Windows, keduanya Inggris; tidak ada voice Indonesia |
-| Virtual camera | ✅ Terkonfirmasi: UnityCapture terdaftar sebagai DirectShow device `Unity Video Capture`; DLL ada di `D:\tools\UnityCapture-master\Install\UnityCaptureFilter64.dll`, bukan di `C:\Windows\System32` |
+| Virtual camera | ✅ Terkonfirmasi dan dipakai aplikasi: `OBS Virtual Camera` terdaftar sebagai DirectShow device, modul `C:\Program Files\obs-studio\data\obs-plugins\win-dshow\obs-virtualcam-module64.dll` (OBS Studio 32.2.1), round trip dua proses terverifikasi. Jalur kirim-tanpa-penerima lain (`Unity Video Capture`) hanya terdaftar di registry dan TIDAK bisa dipakai: filter penerimanya tidak pernah load (objek kernel `Mutx0`/`Want0`/`Sent0`/`Data0` tidak pernah ada), jadi tidak ada consumer yang bisa membaca satu frame pun |
 | Webcam | ✅ Terkonfirmasi: satu webcam fisik `USB2.0 HD UVC WebCam` terbaca di index 0 dan 2 backend DSHOW; perangkat virtual `OBS Virtual Camera` juga terdaftar |
 | ffmpeg | ❌ Tidak ada: `ffmpeg` tidak ditemukan di PATH dan di `C:\Program Files` |
 | wmic | ❌ Tidak ada: `command not found: wmic` |
@@ -149,26 +149,17 @@ Jadi: **tidak ada voice bahasa Indonesia** di SAPI mesin ini. Kecepatan/format a
 
 ## Virtual Camera
 
-UnityCapture terpasang, tetapi tidak di lokasi standar `C:\Windows\System32`.
+OBS Virtual Camera adalah perangkat virtual camera yang dipakai aplikasi ini.
 
-| Perintah | Hasil |
+| Item | Nilai |
 | --- | --- |
-| `find /c/Windows/System32 /c/Program Files /c/Program Files (x86) -iname "*unitycapture*"` | tidak ada hasil (`rc=1`) |
-| `find /c -maxdepth 4 -iname "UnityCapture*"` | `/c/Users/mfarr/Downloads/UnityCapture-master.zip` |
-| registry `HKLM\SOFTWARE\Classes\CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance` | `'Unity Video Capture'` -> `{5C2CD55C-92AD-4999-8666-912BD3E70010}` |
-| registry `...\{5C2CD55C-92AD-4999-8666-912BD3E70010}\InprocServer32` | `D:\tools\UnityCapture-master\Install\UnityCaptureFilter64.dll` |
+| FriendlyName | `OBS Virtual Camera` |
+| CLSID instance | `{A3FCE0F5-3493-419F-958A-ABA1250EC20B}` |
+| InprocServer32 | `C:\Program Files\obs-studio\data\obs-plugins\win-dshow\obs-virtualcam-module64.dll` |
+| Sumber | OBS Studio 32.2.1 terpasang; filter in-proc terdaftar permanen, tidak butuh proses OBS berjalan |
+| Round trip | Terverifikasi dua proses terpisah: kirim RGB(0,0,255) terbaca consumer cv2 sebagai BGR (253,0,0); kirim hijau terbaca mean BGR (1,255,0) |
 
-Isi folder persis:
-
-```
-$ ls -la "/d/tools/UnityCapture-master/Install"
--rwxrwxrwx 1 somebody somegroup     827 Sep 29 19:40 Install.bat
--rwxrwxrwx 1 somebody somegroup    1075 Sep 29 19:40 InstallCustomName.bat
--rwxrwxrwx 1 somebody somegroup    1048 Sep 29 19:40 InstallMultipleDevices.bat
--rwxrwxrwx 1 somebody somegroup     833 Sep 29 19:40 Uninstall.bat
--rwxrwxrwx 1 somebody somegroup  168448 Sep 29 19:40 UnityCaptureFilter32.dll
--rwxrwxrwx 1 somebody somegroup  157696 Sep 29 19:40 UnityCaptureFilter64.dll
-```
+Perangkat lain (`Unity Video Capture`) tetap terdaftar di registry yang sama, namun **tidak bisa dipakai**: filter penerimanya tidak pernah load dan objek kernel `UnityCapture_Mutx0`/`Want0`/`Sent0`/`Data0` tidak pernah ada. pyvirtualcam tetap mengirim tanpa galat, tetapi tidak satu frame pun bisa dibaca kembali consumer. Registry terdaftar BUKAN bukti perangkatnya berfungsi.
 
 Daftar perangkat DirectShow video (registry `CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance`, key `FriendlyName`):
 
@@ -179,7 +170,7 @@ Daftar perangkat DirectShow video (registry `CLSID\{860BB310-5D01-11d0-BD3B-00A0
 
 ffmpeg tidak ada di PATH. `ffmpeg -version` menghasilkan `command not found: ffmpeg`, `where ffmpeg` menghasilkan `INFO: Could not find files for the given pattern(s).`, dan direktori `C:\Program Files\ffmpeg` tidak ada. Jadi enumeraasi DirectShow lewat `ffmpeg -list_devices true -f dshow -i dummy` **tidak dapat diverifikasi** — ffmpeg belum terpasang.
 
-pyvirtualcam 0.15.0 terpasang. `dir(pyvirtualcam)` mengembalikan `['Backend', 'Camera', 'PixelFormat', 'camera', 'register_backend', 'util']`; atribut `BACKENDS` tidak ada di versi ini (`AttributeError: module 'pyvirtualcam' has no attribute 'BACKENDS'`). Belum ada smoke run menulis frame ke Unity Capture.
+pyvirtualcam 0.15.0 terpasang. `dir(pyvirtualcam)` mengembalikan `['Backend', 'Camera', 'PixelFormat', 'camera', 'register_backend', 'util']`; atribut `BACKENDS` tidak ada di versi ini (`AttributeError: module 'pyvirtualcam' has no attribute 'BACKENDS'`). Smoke run menulis frame sudah dilakukan lewat `backend='obs'` dan berhasil dua proses.
 
 ## Webcam
 

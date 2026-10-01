@@ -45,7 +45,7 @@ Nama key adalah kontrak. Kode memakai nama ini persis. Tabel di bawah punya 16 b
 | `pipeline.stats_window` | int | 240 | statistik FPS |
 | `tts.device_name` | str | "CABLE Output" | speech sink |
 | `tts.rate` | int | 160 | speech sink |
-| `virtual_camera.backend` | str | "unitycapture" | virtual camera sink |
+| `virtual_camera.backend` | str | "obs" | virtual camera sink (OBS Virtual Camera) |
 
 Pencocokan device TTS memakai substring, bukan persis: string 'CABLE Input' tidak ada di sounddevice; default 'CABLE Output' menunjuk endpoint tempat aplikasi menulis, dan aplikasi meeting memakai 'CABLE In 16 Ch' sebagai mikrofon. Bila beberapa endpoint cocok, pilih yang WASAPI.
 
@@ -80,8 +80,8 @@ Satu codebase dan satu pipeline, dua view berbeda.
 **Mode ready-to-use**
 - UI minimal dengan tombol Start dan Stop.
 - Tidak ada pemilihan perangkat kamera atau audio. Pemilihan perangkat terjadi di Zoom atau Meet.
-- Saat Start, aplikasi menjalankan pemeriksaan otomatis: kamera, UnityCapture, VB-Cable.
-- Kegagalan pemeriksaan menampilkan pesan jelas, misalnya "UnityCapture belum terdeteksi".
+- Saat Start, aplikasi menjalankan pemeriksaan otomatis: kamera, virtual camera OBS, VB-Cabel.
+- Kegagalan pemeriksaan menampilkan pesan jelas, misalnya "Virtual camera OBS belum terdaftar di DirectShow".
 - Ada indikator status kecil: berjalan, berhenti, atau error.
 
 **Mode debug**

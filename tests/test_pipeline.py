@@ -247,7 +247,7 @@ def test_stop_completes_even_when_sink_is_slow() -> None:
 
 # -- kegagalan tidak didiamkan -------------------------------------------------
 class ExplodingSink(FakeVirtualCameraSink):
-    """Sink yang melempar galat saat send; melambangkan UnityCapture hilang."""
+    """Sink yang melempar galat saat send; melambangkan virtual camera hilang."""
 
     def send(self, frame: Frame) -> None:
         raise RuntimeError("sink mati")

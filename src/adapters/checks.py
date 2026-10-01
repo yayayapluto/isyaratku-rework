@@ -1,4 +1,4 @@
-"""Pemeriksaan awal: kamera, UnityCapture, VB-Cabel.
+"""Pemeriksaan awal: kamera, virtual camera OBS, VB-Cabel.
 
 Setiap pemeriksaan murah dan tidak menyimpan handle perangkat setelah kembali.
 Hasil: daftar tuple (nama, ok, pesan) dengan pesan Bahasa Indonesia yang bisa
@@ -9,6 +9,7 @@ dalam teks status, mis. "CABLE Output".
 
 from __future__ import annotations
 
+import os
 import winreg
 
 import cv2
@@ -16,14 +17,20 @@ import sounddevice
 
 from .camera import CAMERA_BACKEND
 
-UNITYCAPTURE_CLSID = "{860BB310-5D01-11d0-BD3B-00A0C911CE86}"
+#: Kategori DirectShow video input: filter video DirectShow terdaftar di
+#: bawah key CLSID ini, termasuk OBS Virtual Camera.
+DIRECT_SHOW_CATEGORY = "{860BB310-5D01-11d0-BD3B-00A0C911CE86}"
+#: Instance GUID OBS Virtual Camera (OBS Studio 32.2.1, mesin ini).
+OBS_VIRTUAL_CAMERA_CLSID = "{A3FCE0F5-3493-419F-958A-ABA1250EC20B}"
+#: FriendlyName yang wajib ada di registry; mesin ini memakai persis ini.
+OBS_FRIENDLY_NAME = "OBS Virtual Camera"
 
 
 def run_checks(device_index: int = 0) -> list[tuple[str, bool, str]]:
-    """Jalankan ketiga pemeriksaan startup, urut: kamera, UnityCapture, VB-Cabel."""
+    """Jalankan ketiga pemeriksaan startup, urut: kamera, virtual camera, VB-Cabel."""
     return [
         _check_camera(device_index),
-        _check_unity_capture(),
+        _check_obs_virtual_camera(),
         _check_vb_cable(),
     ]
 
@@ -56,19 +63,31 @@ def _check_camera(device_index: int) -> tuple[str, bool, str]:
         capture.release()
 
 
-def _check_unity_capture() -> tuple[str, bool, str]:
+def _check_obs_virtual_camera() -> tuple[str, bool, str]:
+    # Tidak ada Camera() dibuka-ditutup di sini: itu mencuri device dan
+    # membuat uji nyata di Start gagal. Registry saja, dan Start yang buka
+    # sink sungguhan adalah pembuktinya.
     names = _direct_show_friendly_names()
-    if "Unity Video Capture" not in names:
+    if OBS_FRIENDLY_NAME not in names:
         return (
-            "UnityCapture",
+            "Virtual Camera",
             False,
-            "UnityCapture belum terdeteksi. Jalankan Install.bat dari folder "
-            "UnityCapture sebagai Administrator.",
+            "Virtual camera OBS belum terdaftar di DirectShow. Jalankan "
+            "OBS Studio sekali dan hidupkan Start Virtual Camera, atau "
+            "pasang ulang OBS Studio.",
+        )
+    module = _obs_module_path(OBS_VIRTUAL_CAMERA_CLSID)
+    if module is None:
+        return (
+            "Virtual Camera",
+            False,
+            f"{OBS_FRIENDLY_NAME} terdaftar tapi InprocServer32 tidak "
+            "menunjuk berkas yang ada. Pasang ulang OBS Studio.",
         )
     return (
-        "UnityCapture",
+        "Virtual Camera",
         True,
-        "UnityCapture terpasang (Unity Video Capture).",
+        f"{OBS_FRIENDLY_NAME} terdaftar, modul {module}.",
     )
 
 
@@ -78,7 +97,7 @@ def _direct_show_friendly_names() -> set[str]:
     Perangkat terdaftar sebagai subkey GUID di bawah key ``Instance``; nama
     ramah tinggal di setiap subkey itu, bukan di key induk.
     """
-    path = rf"SOFTWARE\Classes\CLSID\{UNITYCAPTURE_CLSID}\Instance"
+    path = rf"SOFTWARE\Classes\CLSID\{DIRECT_SHOW_CATEGORY}\Instance"
     try:
         root = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path)
     except OSError:
@@ -117,6 +136,26 @@ def _friendly_names_of(handle: int, subkey: str) -> set[str]:
     finally:
         winreg.CloseKey(child)
     return names
+
+
+def _obs_module_path(clsid: str) -> str | None:
+    """Path InprocServer32 milik CLSID, hanya bila berkasnya benar-benar ada.
+
+    Instance OBS di key ``Instance`` tidak punya ``InprocServer32`` sendiri;
+    warisan DirectShow resolusinya dari ``InprocServer32`` induk CLSID, jadi
+    di situ dicari. Berkas di lokasi lain atau tidak ada berarti device rusak,
+    bukan cuma tidak terdaftar.
+    """
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            rf"SOFTWARE\Classes\CLSID\{clsid}\InprocServer32",
+        ) as key:
+            module, _ = winreg.QueryValueEx(key, "")
+    except OSError:
+        return None
+    module = str(module)
+    return module if os.path.isfile(module) else None
 
 
 def _check_vb_cable() -> tuple[str, bool, str]:

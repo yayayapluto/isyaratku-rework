@@ -1,11 +1,28 @@
-"""Sink virtual camera: UnityCapture lewat pyvirtualcam, fake untuk test.
+"""Sink virtual camera: OBS Virtual Camera lewat pyvirtualcam, fake untuk test.
+
+Backend dipakai ``obs``: filter DirectShow in-proc OBS Virtual Camera
+(CLSID ``{A3FCE0F5-3493-419F-958A-ABA1250EC20B}``, modul
+``obs-virtualcam-module64.dll`` di instalasi OBS Studio 32.2.1). Jalur
+kirim-saja yang dulu dipakai dibuang setelah terukur tidak bisa diandalkan di
+mesin ini: filter penerimanya tidak pernah load dan objek kernel berbaginya
+(``Mutx0``/``Want0``/``Sent0``/``Data0``) tidak pernah ada, sehingga pyvirtualcam
+tetap "mengirim" tapi tidak satu frame pun bisa dibaca kembali oleh consumer.
+
+Dua risiko driver OBS yang disebutkan dan BUKAN bug aplikasi ini:
+
+- R1: setelah producer keluar, consumer masih mengenumerasi ``OBS Virtual
+  Camera`` tetapi menerima frame noise beku non-uniform (terukur mean BGR
+  (80.9, 43.4, 36.5), 1729 piksel unik), bukan layar hitam. Aplikasi harus
+  tetap jalan selama meeting masih memakai feed.
+- R2: producer harus tetap hidup dengan Camera terbuka; mengirim N frame lalu
+  keluar tidak mengirim apa pun ke consumer.
 
 Ukuran API pyvirtualcam 0.15.0 (diperiksa empiris lewat
 ``inspect.signature(pyvirtualcam.Camera.__init__)``): konstruktornya
 ``Camera(width, height, fps, *, fmt=PixelFormat.RGB, device=None,
 backend=None, print_fps=False, **kw)``. Backend dipilih lewat argumen keyword
-``backend=`` memakai nama string (mis. ``"unitycapture"``); atribut modul
-``BACKENDS`` sudah tidak ada, maksudnya fungsi ``register_backend``.
+``backend=`` memakai nama string (``"obs"``); atribut modul ``BACKENDS`` sudah
+tidak ada, maksudnya fungsi ``register_backend``.
 
 Konversi format: pipeline ini memakai frame BGR (as OpenCV), jadi frame
 dikonversi ``cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)`` dan Camera dibuka dengan
@@ -27,8 +44,8 @@ from ..core.config import AppConfig
 from ..core.pipeline import Frame
 
 
-class UnityVirtualCameraSink:
-    """Frame masuk (BGR) dikirim ke perangkat virtual camera UnityCapture."""
+class VirtualCameraSink:
+    """Frame masuk (BGR) dikirim ke perangkat virtual camera OBS."""
 
     def __init__(self, config: AppConfig, width: int, height: int, fps: float) -> None:
         self._config = config
@@ -39,6 +56,11 @@ class UnityVirtualCameraSink:
             fmt=pyvirtualcam.PixelFormat.RGB,
             backend=config.virtual_camera_backend,
         )
+
+    # ponytail: umur Camera diikat umur proses producer; consumer hanya
+    # mendapat frame selama producer masih hidup dan Camera masih terbuka
+    # (R2). Upgrade path kalau feed harus hidup setelah aplikasi ditutup:
+    # producer daemon terpisah, bukan refcounting di sini.
 
     def send(self, frame: Frame) -> None:
         rgb = cv2.cvtColor(frame.image, cv2.COLOR_BGR2RGB)
