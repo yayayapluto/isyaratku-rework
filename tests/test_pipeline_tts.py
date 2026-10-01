@@ -11,11 +11,12 @@ atau sounddevice — core hanya memanggil callback yang disuntikkan.
 
 from __future__ import annotations
 
+import inspect
 import time
 
 from src.adapters.tts import SpeechSink, TtsUnavailableError, ucapkan
 from src.core.pipeline import Pipeline
-from src.core.predictor import FakePredictor
+from src.core.predictor import NO_SIGN_LABEL, FakePredictor
 from tests.test_pipeline_predictor import (
     LandmarkFeeder,
     ScriptedCamera,
@@ -211,6 +212,189 @@ def test_label_listener_exception_is_recorded_not_fatal() -> None:
     assert pipeline.error is None, "exception listener tidak boleh fatal"
     assert isinstance(pipeline.label_error, RuntimeError)
     assert pipeline.stats().frames_sent > 0
+
+
+# -- BUG 1: cooldown ucapan praktis mati di runtime nyata -------------------
+# Cooldown hanya ada di FakeTTS.play(at=...), sedangkan jalur nyata
+# (PiperTts.play(label)) tidak menerima at. Akibatnya ucapan menumpuk:
+# label sama berulang tepat setelah smoothing cooldown lewat. Guard harus
+# duduk di SpeechSink dan tetap aktif untuk adapter kontrak polos.
+class JamPalsu:
+    """Jam suntikan: cooldown diuji tanpa sleep, pola test_smoothing.py."""
+
+    def __init__(self, start: float = 1000.0) -> None:
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def maju(self, detik: float) -> None:
+        self.now += detik
+
+
+class PlayKontrakPolos:
+    """Adapter duras sinkan play(label) — tidak menerima at, seperti PiperTts."""
+
+    def __init__(self) -> None:
+        self.spoken: list[str] = []
+        self.played: list[str] = []
+
+    @property
+    def voice_model_available(self) -> bool:
+        return True
+
+    def speak(self, label: str):
+        self.spoken.append(label)
+        return None
+
+    def play(self, label: str) -> float:
+        self.played.append(label)
+        return 0.0
+
+
+def _tunggu_thread_play(speech, batas: float = 1.0) -> None:
+    """Tunggu thread daemon pemutaran selesai (uji cooldown perlu pasti)."""
+    batas_waktu = time.monotonic() + batas
+    dibuat = getattr(speech, "_threads", None)
+    if dibuat is None:
+        # Fallback: tidak semua adapter punya penanda thread.
+        time.sleep(0.2)
+        return
+    while any(t.is_alive() for t in dibuat) and time.monotonic() < batas_waktu:
+        time.sleep(0.01)
+
+
+def test_label_sama_cepat_berturut_diblok_cooldown_sink() -> None:
+    """Label sama di bawah cooldown: TIDAK bicara lagi. Bug yang user lihat."""
+    jam = JamPalsu()
+    tts = PlayKontrakPolos()
+    speech = SpeechSink(tts, cooldown_seconds=2.5, clock=jam)
+
+    speech.feed("terima kasih")
+    _tunggu_thread_play(speech)
+    jam.maju(0.1)  # 0.1 s kemudian: jelas di dalam jeda 2.5 s
+    speech.feed("terima kasih")
+    _tunggu_thread_play(speech)
+
+    assert tts.spoken == ["terima kasih"], (
+        f"ucapan kedua harus ditahan cooldown, dapat {tts.spoken}"
+    )
+    assert tts.played == ["terima kasih"]
+    assert speech.sent == ["terima kasih"]
+
+
+def test_label_beda_cepat_tidak_saling_menahan() -> None:
+    """Cooldown per label, bukan global: "satu" tak boleh blok "dua"."""
+    jam = JamPalsu()
+    tts = PlayKontrakPolos()
+    speech = SpeechSink(tts, cooldown_seconds=10.0, clock=jam)
+
+    speech.feed("satu")
+    jam.maju(0.1)
+    speech.feed("dua")
+    _tunggu_thread_play(speech)
+
+    assert tts.spoken == ["satu", "dua"], (
+        f"cooldown label A menahan label B: {tts.spoken}"
+    )
+
+
+def test_cooldown_lewat_label_boleh_keluar_lagi() -> None:
+    """Setelah cooldown lewat, label sama boleh terucap ulang."""
+    jam = JamPalsu()
+    tts = PlayKontrakPolos()
+    speech = SpeechSink(tts, cooldown_seconds=2.5, clock=jam)
+
+    speech.feed("apa kabar")
+    _tunggu_thread_play(speech)
+    jam.maju(2.6)  # lewat jeda 2.5 s
+    speech.feed("apa kabar")
+    _tunggu_thread_play(speech)
+
+    assert tts.spoken == ["apa kabar", "apa kabar"]
+    assert speech.sent == ["apa kabar", "apa kabar"]
+
+
+def test_cooldown_aktif_untuk_adapter_kontrak_polos() -> None:
+    """Guard aktif pada adapter yang play()-nya TIDAK menerima at."""
+    jam = JamPalsu()
+    tts = PlayKontrakPolos()
+    speech = SpeechSink(tts, cooldown_seconds=2.5, clock=jam)
+
+    # PlayKontrakPolos.play(label) tanpa at — persis PiperTts.
+    assert "at" not in inspect.signature(tts.play).parameters
+
+    speech.feed("selamat pagi")
+    _tunggu_thread_play(speech)
+    jam.maju(0.5)
+    speech.feed("selamat pagi")
+    _tunggu_thread_play(speech)
+
+    assert tts.played == ["selamat pagi"], (
+        f"cooldown harus berlaku tanpa at: {tts.played}"
+    )
+
+
+def test_cooldown_dari_config_dipakai_sink() -> None:
+    """SpeechSink(tts, config=cfg) memakai tts.speak_cooldown_seconds."""
+    cfg = config(tts_speak_cooldown_seconds=3.0)
+    jam = JamPalsu()
+    tts = PlayKontrakPolos()
+    speech = SpeechSink(tts, config=cfg, clock=jam)
+
+    speech.feed("terima kasih")
+    _tunggu_thread_play(speech)
+    jam.maju(2.9)
+    speech.feed("terima kasih")
+    _tunggu_thread_play(speech)
+
+    assert tts.spoken == ["terima kasih"], "config 3.0s harus menahan 2.9s"
+    jam.maju(0.2)
+    speech.feed("terima kasih")
+    _tunggu_thread_play(speech)
+    assert tts.spoken == ["terima kasih", "terima kasih"]
+    tts.reset if False else None  # tidak ada reset pada adapter polos
+
+
+# -- BUG 2: "tidak ada isyarat" tidak boleh diucapkan -----------------------
+def test_label_tanpa_isyarat_tidak_pernah_diucapkan() -> None:
+    """Pengguna diam 2 detik: aplikasi TIDAK boleh berbunyi "tidak ada isyarat"."""
+    jam = JamPalsu()
+    tts = PlayKontrakPolos()
+    speech = SpeechSink(tts, cooldown_seconds=0.0, clock=jam)
+
+    for _ in range(3):
+        speech.feed(NO_SIGN_LABEL)
+        jam.maju(2.0)
+    _tunggu_thread_play(speech)
+
+    assert tts.spoken == [] and tts.played == []
+    assert speech.sent == [], (
+        "label tanpa isyarat tidak masuk catatan ucapan; overlay urus sendiri"
+    )
+    assert speech.last_error is None
+
+
+def test_label_normal_tetap_bicara_di_samping_guard_tanpa_isyarat() -> None:
+    """Guard NO_SIGN_LABEL tidak mematikan gloss sungguhan."""
+    jam = JamPalsu()
+    tts = PlayKontrakPolos()
+    speech = SpeechSink(tts, cooldown_seconds=0.0, clock=jam)
+
+    speech.feed(NO_SIGN_LABEL)
+    speech.feed("terima kasih")
+    speech.feed(NO_SIGN_LABEL)
+    speech.feed("apa kabar")
+    jam.maju(5.0)
+    speech.feed("terima kasih")
+    _tunggu_thread_play(speech)
+
+    assert tts.spoken == ["terima kasih", "apa kabar", "terima kasih"]
+
+
+def test_ucapkan_tanpa_isyarat_tetap_ada_untuk_overlay() -> None:
+    """ucapkan() TIDAK disaring: overlay/log debug boleh menampilkannya."""
+    assert ucapkan(NO_SIGN_LABEL) == NO_SIGN_LABEL
 
 
 # -- fungsi pengucapan ------------------------------------------------------

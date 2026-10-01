@@ -188,8 +188,8 @@ def _build_speech(config) -> object:
     from ..adapters.tts import FakeTTS, PiperTts, SpeechSink
 
     if not config.tts_enabled:
-        return SpeechSink(FakeTTS(config), enabled=False)
+        return SpeechSink(FakeTTS(config), enabled=False, config=config)
     tts = PiperTts(config)
     if not tts.voice_model_available:
         tts = FakeTTS(config)
-    return SpeechSink(tts)
+    return SpeechSink(tts, config=config)

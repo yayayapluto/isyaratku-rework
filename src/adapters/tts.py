@@ -25,12 +25,15 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 import wave
+from collections.abc import Callable
 from pathlib import Path
 
 from piper import PiperVoice
 
 from src.core.config import AppConfig
+from src.core.predictor import NO_SIGN_LABEL
 
 #: Artifact voice Indonesia: piper-voices rhasspy, 1 speaker, 22050 Hz.
 DEFAULT_VOICE = "models/tts/id_ID-news_tts-medium.onnx"
@@ -218,30 +221,68 @@ class FakeTTS:
         return self.calls[-1] if self.calls else None
 
 
+class _Jam:
+    """Sumber waktu; test menyuntik angka supaya cooldown tak perlu sleep."""
+
+    def __call__(self) -> float:
+        return time.monotonic()
+
+
 class SpeechSink:
-    """Jembatan label stabil -> pre-generate WAV -> pemutaran.
+    """Jembatan label stabil -> pra-sintesis WAV -> pemutaran.
 
     ``feed(label)`` aman dipanggil dari callback pipeline: sintesis
-    dijalankan lebih dulu (cache deterministik adapter), lalu pemutaran
+    dijalankan lebih dulu (adapter me-cache per label), lalu pemutaran
     dikirim ke thread terpisah supaya pemanggil TIDAK terhenti menunggu
-    audio 1 detik. Kegagalan tidak didiamkan: ``last_error`` menyimpan
-    galat terakhir, dan TtsUnavailableError ditandai khusus supaya UI
-    bisa meminta setup voice.
+    audio lebih dari satu detik. Kegagalan tidak didiamkan:
+    ``last_error`` menyimpan galat terakhir dan streaming tetap jalan.
+
+    Kebijakan duduk di sini, bukan di adapter:
+
+    - **Cooldown** (``tts.speak_cooldown_seconds``, per label) mencegah
+      ucapan menumpuk ketika audio lebih panjang dari jeda label.
+      Dihitung di sink supaya ``PiperTts.play(label)`` tetap kontrak
+      polos tanpa parameter cooldown.
+    - **Senyap untuk "tidak ada isyarat"**: label sah untuk overlay dan
+      log debug, tapi tidak untuk didengar. Guard di sink, bukan di
+      ``ucapkan()``, supaya teks overlay tidak ikut berubah.
     """
 
-    def __init__(self, tts: object, enabled: bool = True) -> None:
+    def __init__(
+        self,
+        tts: object,
+        enabled: bool = True,
+        config: AppConfig | None = None,
+        cooldown_seconds: float | None = None,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         self._tts = tts
         self.enabled = enabled
         self.sent: list[str] = []
         self.last_error: Exception | None = None
+        if cooldown_seconds is not None:
+            self._cooldown = max(0.0, cooldown_seconds)
+        elif config is not None:
+            self._cooldown = max(0.0, config.tts_speak_cooldown_seconds)
+        else:
+            self._cooldown = 0.0
+        self._clock = clock if clock is not None else _Jam()
         self._lock = threading.Lock()
+        self._spoken_at: dict[str, float] = {}
 
     def feed(self, label: str) -> None:
         """Satu label stabil masuk. Return cepat; audio jalan di thread lain."""
         if not self.enabled:
             return
+        if label == NO_SIGN_LABEL:
+            return
         spoken = ucapkan(label)
+        now = self._clock()
         with self._lock:
+            last = self._spoken_at.get(spoken)
+            if last is not None and now - last < self._cooldown:
+                return
+            self._spoken_at[spoken] = now
             self.sent.append(label)
         try:
             self._tts.speak(spoken)
@@ -251,6 +292,11 @@ class SpeechSink:
         threading.Thread(
             target=self._play, args=(spoken,), daemon=True
         ).start()
+
+    def reset(self) -> None:
+        """Buang catatan cooldown; pipeline start ulang memakainya."""
+        with self._lock:
+            self._spoken_at.clear()
 
     def _play(self, label: str) -> None:
         try:
@@ -265,4 +311,3 @@ class SpeechSink:
     @property
     def voice_available(self) -> bool:
         return bool(getattr(self._tts, "voice_model_available", True))
-        return None
