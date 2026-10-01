@@ -37,12 +37,12 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
 - Dependensi: slice 2.
 - Fake-first: seluruh test slice ini di src/tests/ atau tests/ pakai landmark sintetis. Tidak ada webcam.
 - Kriteria selesai:
-  - [ ] Landmark dinormalisasi terhadap titik acuan dan diskala lebar bahu.
-  - [ ] Fitur gerak antar frame dihitung.
-  - [ ] Window 30 frame dan stride 5 mengeluarkan beberapa window per detik.
-  - [ ] Landmark hilang mengikuti satu kebijakan tetap. Kebijakannya tercatat di docs/tech-decisions.md setelah diputuskan.
-  - [ ] Unit test lulus untuk kasus: pose berbeda tapi isyarat sama, tangan hilang sebagian, panjang window kurang, dan urutan nyaris statis.
-  - [ ] Tidak ada berkas di src/core/ yang mengimpor library GUI, hardware, atau model.
+  - [x] Landmark dinormalisasi terhadap titik acuan dan diskala lebar bahu.
+  - [x] Fitur gerak antar frame dihitung.
+  - [x] Window 30 frame dan stride 5 mengeluarkan beberapa window per detik.
+  - [x] Landmark hilang mengikuti satu kebijakan tetap. Kebijakannya tercatat di docs/tech-decisions.md setelah diputuskan.
+  - [x] Unit test lulus untuk kasus: pose berbeda tapi isyarat sama, tangan hilang sebagian, panjang window kurang, dan urutan nyaris statis.
+  - [x] Tidak ada berkas di src/core/ yang mengimpor library GUI, hardware, atau model.
 
 ## Slice 4 — Classifier
 

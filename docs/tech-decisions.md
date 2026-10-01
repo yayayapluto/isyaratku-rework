@@ -21,6 +21,9 @@ Setiap baris sudah ditutup. Alasan satu baris.
 | Setiap adapter punya versi fake | Pipeline dan test bisa jalan di komputer tanpa webcam. |
 | Framework GUI: PySide6 | customtkinter tidak terpasang, PySide6 6.11.2 sudah ada dan grid/QtSignal cukup untuk dasbor; CustomTkinter jadi cadangan bila butuh styling cepat. |
 | Landmark hilang: zero-fill plus flag kehadiran | Deterministik dan teruji; interpolasi menambah state tersembunyi. |
+| Titik acuan normalisasi: tengah kedua bahu, skala lebar bahu | Invarian terhadap posisi dan jarak orang ke kamera, dua faktor yang mengubah pose absolut tanpa mengubah isyarat. Pergelangan tangan tidak dipakai karena posisi absolutnya ikut berubah per isyarat. |
+| Fitur gerak = selisih baris fitur terhadap frame sebelumnya (bukan turunan koordinat) | Satu baris terbang (FEATURE_COUNT) sudah membawa seluruh pose yang ternormalisasi, jadi delta-nya satu operasi array; frame pertama memakai bagian delta 0.0, konsisten dengan zero-fill. |
+| Data hilang di level window: window tidak boleh kurang panjang | Window pendek (kadar berbeda) memaksa model belajar bentuk input tak tetap dan mengubah makna satu baris; lebih murni menunggu 30 frame, dan pipeline tetap mengirim video tanpa model. Deteksi tidak muncul sama sekali tetap menghasilkan frame lengkap 0.0 lewat zero-fill. |
 | Arah produk hanya isyarat menjadi teks dan suara | Menjaga satu pipeline tetap stabil, bukan dua arah yang setengah jadi. |
 | Cek virtual camera OBS lewat registry DirectShow + keberadaan berkas InprocServer32, bukan buka-buka device | Pemeriksaan registry murah dan tidak menyimpan handle; cek registry bersih lolos sampai device mengantar noise beku, jadi tidak wajib, dan Start yang membuka sink sungguhan adalah uji nyatanya. |
 | Tidak pakai virtual environment di mesin ini | Seluruh paket sudah terpasang di Python 3.14.6 global; venv ditambah baru bila butuh isolasi. |
@@ -90,7 +93,7 @@ gambar bergerak dari pipeline bukan layar hitam atau noise beku R1, dan
 | Lisensi dataset untuk lomba | Sebagian besar aman (MIT, CC BY 4.0, CC0, Apache 2.0); `glennleonali/wl-bisindo` CC BY-NC 4.0 (non-komersial), dan beberapa kandidat lisensi Unknown yang harus diverifikasi sebelum dipublikasikan. |
 | Daftar kata minimum untuk v1 | Usulan awal 20 sampai 30 kata relevan meeting, tapi daftar pastinya belum diputuskan. Asumsi: daftar awal belum ada, jadi belum bisa dijadikan label model. |
 | Arsitektur model untuk isyarat kata: GRU atau 1D-CNN | Keduanya kandidat. Dilihat dari hasil evaluasi, bukan pilihan awal. |
-| Titik acuan normalisasi: pergelangan tangan atau tengah bahu | Belum diuji mana yang lebih stabil; keduanya kandidat, keputusan setelah slice 3. |
+| Titik acuan normalisasi: DIPUTUSKAN tengah bahu | Sudah ditutup di tabel keputusan final; dicatat lewat test invariansi translasi+skala di tests/test_features.py. |
 | Ukuran label set output model | Bergantung hasil inspeksi dataset dan daftar kata v1. Belum diputuskan. |
 | Inference realtime di CPU atau butuh GPU | Bergantung ukuran model. Angka target 25 hingga 30 FPS harus diuji di CPU dulu; keperluan GPU diperiksa pada slice 4. |
 | Bahasa GUI | Asumsi: Bahasa Indonesia, belum dikonfirmasi user. |
