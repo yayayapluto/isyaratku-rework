@@ -120,6 +120,10 @@ def finish_checks(view, results, details, renderer) -> object | None:
         # Extractornya dibuat sebelum pipeline jalan: kegagalan baca model harus
         # muncul sebagai galat pemeriksaan di sini, bukan thread mati sepinya.
         extractor = MediaPipeLandmarkExtractor(view._config)
+        # TTS: speech sink dibuat lebih dulu supaya VoiceModel hilang
+        # muncul sebagai galat pemeriksaan, bukan thread yang mati
+        # sepinya di tengah demo. PiperTts ganti FakeTTS bila voice ada.
+        speech = _build_speech(view._config)
         pipeline = Pipeline(
             camera=camera,
             sink=sink,
@@ -130,6 +134,7 @@ def finish_checks(view, results, details, renderer) -> object | None:
             extractor=extractor,
             # Tracker landmark hidup di view (punya labelnya), diisi per frame.
             on_landmarks=getattr(view, "_on_landmarks", None),
+            on_label=speech.feed,
         )
     except Exception as exc:
         view._set_status(*view.STATUS_ERROR)
@@ -171,3 +176,20 @@ def make_renderer(text: str, raw_sink, draw: Callable[[Frame, str], Frame]):
         return frame
 
     return renderer
+
+
+def _build_speech(config) -> object:
+    """Speech sink sesuai config: PiperTts bila voice ada, FakeTTS bila tidak.
+
+    Voice tidak ada bukan alasan gagal start: pipeline tetap jalan tanpa
+    suara dan UI melaporkan lewat pemeriksaan awal. ``tts.enabled = false``
+    memakai FakeTTS apa adanya — video tetap jalan, audio tidak.
+    """
+    from ..adapters.tts import FakeTTS, PiperTts, SpeechSink
+
+    if not config.tts_enabled:
+        return SpeechSink(FakeTTS(config), enabled=False)
+    tts = PiperTts(config)
+    if not tts.voice_model_available:
+        tts = FakeTTS(config)
+    return SpeechSink(tts)

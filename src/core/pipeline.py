@@ -79,6 +79,10 @@ class Pipeline:
     #: dijalankan lewat predictor lalu Smoother, dan label yang lolos
     #: ditulis ke Frame.text. Default None: perilaku teks lama tak berubah.
     predictor: object | None = None
+    #: Dipanggil dengan label STABIL yang baru lolos smoothing — bukan tiap
+    #: frame. Enum label suara (TTS) dan log UI memakai jalur ini; core
+    #: tidak tahu apa-apa soal audio, hanya memanggil fungsinya.
+    on_label: Callable[[str], None] | None = None
 
     def __post_init__(self) -> None:
         self._frames: queue.Queue[Frame] = queue.Queue(
@@ -104,6 +108,7 @@ class Pipeline:
         self._windower = None
         self._smoother = None
         self._last_prediction_error: Exception | None = None
+        self._last_label_error: Exception | None = None
         self._predicted_frames = 0
 
     # -- kontrol -----------------------------------------------------------------
@@ -196,6 +201,7 @@ class Pipeline:
                     frame.text = label
                     with self._lock:
                         self._predicted_frames += 1
+                    self._emit_label(label)
         except Exception as exc:
             # Galat predict dicatat tanpa mematikan capture; frame tetap jalan
             # dengan teks apa adanya (biasanya kosong).
@@ -203,6 +209,24 @@ class Pipeline:
                 if self._last_prediction_error is None:
                     self._last_prediction_error = exc
             print(f"Galat predictor diabaikan: {exc!r}", file=sys.stderr)
+
+    def _emit_label(self, label: str) -> None:
+        """Beritahu subscriber label stabil; kegagalannya tidak fatal.
+
+        Sikap sama dengan predictor: exception listener dicatat ke
+        ``label_error`` dan streaming lanjut. Listener yang lambat tetap
+        menghambat thread capture — jalur TTS memindahkan pemutaran ke
+        thread sendiri, lihat ``src/adapters/tts.py``.
+        """
+        if self.on_label is None:
+            return
+        try:
+            self.on_label(label)
+        except Exception as exc:
+            with self._lock:
+                if self._last_label_error is None:
+                    self._last_label_error = exc
+            print(f"Galat listener label diabaikan: {exc!r}", file=sys.stderr)
 
     def _build_prediction_stage(self) -> None:
         """Bangun extractor fitur, window, dan smoother dari config."""
@@ -227,6 +251,12 @@ class Pipeline:
         """Galat predictor terakhir yang tidak fatal; None bila bersih."""
         with self._lock:
             return self._last_prediction_error
+
+    @property
+    def label_error(self) -> Exception | None:
+        """Galat terakhir dari listener label (non-fatal); None bila bersih."""
+        with self._lock:
+            return self._last_label_error
 
     def _output_loop(self) -> None:
         while not (self._stop.is_set() and self._frames.empty()):
