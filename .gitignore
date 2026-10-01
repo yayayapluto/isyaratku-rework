@@ -3,3 +3,8 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# throwaway measurement/probe scripts
+_probe_*
+_pub_*
+_ds_read*
