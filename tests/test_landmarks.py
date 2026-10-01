@@ -193,3 +193,28 @@ def test_pipeline_without_extractor_leaves_landmarks_none() -> None:
         pipeline.stop()
     assert pipeline.error is None
     assert all(landmark is None for landmark in sink.landmarks)
+
+
+def test_on_landmarks_hook_fires_for_every_extracted_frame() -> None:
+    """Hook landmark dipanggil sekali per frame, dengan hasil ekstraksi."""
+    seen = []
+    cfg = config(queue_max_size=8)
+    pipeline = Pipeline(
+        RecordingCamera(cfg),
+        CountingSink(cfg),
+        cfg,
+        extractor=FakeLandmarkExtractor(cfg),
+        on_landmarks=seen.append,
+    )
+    pipeline.start()
+    try:
+        deadline = time.monotonic() + 2.0
+        while len(seen) < 5 and time.monotonic() < deadline:
+            time.sleep(0.01)
+    finally:
+        pipeline.stop()
+    assert len(seen) >= 5
+    assert all(landmark is not None for landmark in seen)
+    assert incomplete_percentage(seen) == pytest.approx(
+        100.0 * sum(1 for lm in seen if not lm.complete) / len(seen)
+    )

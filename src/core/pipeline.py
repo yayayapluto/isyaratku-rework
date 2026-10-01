@@ -68,6 +68,7 @@ class Pipeline:
     text: str = ""
     on_frame: Callable[[Frame], None] | None = None
     on_stats: Callable[[Stats], None] | None = None
+    on_landmarks: Callable[[object | None], None] | None = None
     #: Ekstraksi landmark dijalankan di thread capture, jadi hasilnya sudah
     #: menempel di Frame ketika sampai ke worker output. Default None:
     #: pipeline tanpa landmark berjalan persis seperti sebelumnya.
@@ -183,6 +184,8 @@ class Pipeline:
                 self.on_frame(frame)
             if self.on_stats is not None:
                 self.on_stats(self.stats())
+            if self.on_landmarks is not None:
+                self.on_landmarks(frame.landmarks)
 
     def queue_depth(self) -> int:
         """Jumlah frame yang menunggu diworker output; batasnya config."""

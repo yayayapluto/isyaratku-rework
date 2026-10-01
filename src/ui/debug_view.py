@@ -12,6 +12,7 @@ import PySide6.QtCore as qc
 import PySide6.QtWidgets as qw
 
 from ..core.config import AppConfig, load_config
+from ..core.landmarks import IncompleteTracker
 from ..core.pipeline import Frame, Pipeline, Stats
 from .check_task import finish_checks, make_renderer, start_checks
 from .ready_view import (
@@ -42,6 +43,7 @@ class DebugView(qw.QMainWindow):
         self._check_task = None
         self._newest_frame: Frame | None = None
         self._raw_image: np.ndarray | None = None
+        self._incomplete = IncompleteTracker()
 
         self.setWindowTitle("IsyaratKu Cam — Mode Debug")
         self.resize(1180, 780)
@@ -109,8 +111,7 @@ class DebugView(qw.QMainWindow):
         )
         self._voting = qw.QLabel("Status voting dan cooldown: belum aktif.")
         self._landmarks = qw.QLabel(
-            "Persentase landmark hilang: belum ada, ekstraksi landmark slice 2 "
-            "belum dibuat."
+            "Persentase frame landmark tidak lengkap: 0.0% (ekstraksi landmark slice 2 aktif.)"
         )
         self._spoken_words = qw.QListWidget()
         self._spoken_words.addItem("Log kata yang diucapkan: kosong (TTS slice 5).")
@@ -119,6 +120,7 @@ class DebugView(qw.QMainWindow):
         layout = qw.QVBoxLayout()
         layout.addWidget(self._predictions)
         layout.addWidget(self._voting)
+        layout.addWidget(self._landmarks)
         layout.addWidget(self._spoken_words)
         layout.addStretch(1)
         return layout
@@ -131,6 +133,7 @@ class DebugView(qw.QMainWindow):
         """Dipanggil di GUI thread saat pemeriksaan selesai."""
         self._newest_frame = None
         self._raw_image = None
+        self._incomplete = IncompleteTracker()
         finish_checks(
             self,
             results,
@@ -170,6 +173,19 @@ class DebugView(qw.QMainWindow):
         self._dropped_label.setText(f"Frame dibuang: {stats.frames_dropped}")
         self._window_label.setText(
             f"Jendela FPS: {stats.elapsed_seconds:5.1f} s"
+        )
+
+
+    def _on_landmarks(self, landmarks) -> None:
+        """Catat persentase frame tidak lengkap untuk panel model.
+
+        Angkanya dihitung oleh IncompleteTracker, bukan di sini, supaya logika
+        pengukuran bisa diuji tanpa GUI.
+        """
+        self._incomplete.add(landmarks)
+        self._landmarks.setText(
+            "Persentase frame landmark tidak lengkap: "
+            f"{self._incomplete.percentage():5.1f}%"
         )
 
     def _set_status(self, state: str, style: str) -> None:

@@ -128,6 +128,8 @@ def finish_checks(view, results, details, renderer) -> object | None:
             on_frame=view._on_frame,
             on_stats=view._on_stats,
             extractor=extractor,
+            # Tracker landmark hidup di view (punya labelnya), diisi per frame.
+            on_landmarks=getattr(view, "_on_landmarks", None),
         )
     except Exception as exc:
         view._set_status(*view.STATUS_ERROR)
