@@ -32,13 +32,13 @@ Setiap baris sudah ditutup. Alasan satu baris.
 
 Kedua fakta di bawah diperoleh dari percobaan langsung, bukan asumsi.
 
-**1. Jalur kirim-sama yang dulu dipakai rusak di level kernel.** Objek kernel
-`UnityCapture_Mutx0`/`UnityCapture_Want0`/`UnityCapture_Sent0`/
-`UnityCapture_Data0` tidak pernah ada dan filter penerima
-`UnityCaptureFilter64.dll` tidak pernah load. pyvirtualcam mengirim tanpa
-galat (semua backend terdaftar "sukses"), tetapi tidak satu frame pun bisa
-dibaca kembali oleh consumer manapun. Kesimpulan: registry terdaftar itu
-tidak membuktikan perangkatnya bisa dipakai.
+**1. Jalur kelas kirim-sama yang dulu menjadi kandidat tidak bisa dipakai.**
+Object kernel berbaginya (`Mutx0`/`Want0`/`Sent0`/`Data0`) tidak pernah ada dan
+filter penerima `...Filter64.dll` dari paket yang sama tidak pernah load. Karena itu,
+meski pyvirtualcam panggilan berjalan ("mengirim") dan semua backend
+melaporkan sukses, tidak satu frame pun terbaca oleh consumer manapun.
+Kesimpulan: device yang terdaftar registry BUKAN bukti perangkatnya bisa
+dipakai.
 
 **2. OBS Virtual Camera bekerja end-to-end.** Filter DirectShow in-proc
 permanen, tidak butuh proses OBS berjalan dan tanpa service kernel:

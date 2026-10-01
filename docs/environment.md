@@ -11,7 +11,7 @@ Dokumen ini berisi fakta lingkungan development hasil rekon slice 0 pada commit 
 | GUI | ⚠️ Terkonfirmasi: customtkinter tidak terpasang; PySide6 6.11.2 dan PySide6-Fluent-Widgets 1.11.3 terpasang. |
 | Audio dan VB-Cabel | ✅ Terkonfirmasi: VB-Cabel terpasang dan muncul di `sounddevice.query_devices()`. Nama perangkat aktual: `CABLE Output (2- VB-Audio Virtual Cable)` dan `CABLE In 16 Ch (2- VB-Audio Virtual Cable)`; string "CABLE Input" tidak muncul persis |
 | SAPI voice | ⚠️ Terkonfirmasi: hanya 2 suara Windows, keduanya Inggris; tidak ada voice Indonesia |
-| Virtual camera | ✅ Terkonfirmasi dan dipakai aplikasi: `OBS Virtual Camera` terdaftar sebagai DirectShow device, modul `C:\Program Files\obs-studio\data\obs-plugins\win-dshow\obs-virtualcam-module64.dll` (OBS Studio 32.2.1), round trip dua proses terverifikasi. Jalur kirim-tanpa-penerima lain (`Unity Video Capture`) hanya terdaftar di registry dan TIDAK bisa dipakai: filter penerimanya tidak pernah load (objek kernel `Mutx0`/`Want0`/`Sent0`/`Data0` tidak pernah ada), jadi tidak ada consumer yang bisa membaca satu frame pun |
+| Virtual camera | ✅ Terkonfirmasi dan dipakai aplikasi: `OBS Virtual Camera` terdaftar sebagai DirectShow device, modul `C:\Program Files\obs-studio\data\obs-plugins\win-dshow\obs-virtualcam-module64.dll` (OBS Studio 32.2.1), round trip dua proses terverifikasi. Satu DirectShow video instance juga terdaftar tapi **tidak bisa dipakai**: filter penerimanya tidak pernah load (objek kernel `Mutx0`/`Want0`/`Sent0`/`Data0` tidak pernah ada), jadi tak ada consumer yang bisa membaca satu frame pun |
 | Webcam | ✅ Terkonfirmasi: satu webcam fisik `USB2.0 HD UVC WebCam` terbaca di index 0 dan 2 backend DSHOW; perangkat virtual `OBS Virtual Camera` juga terdaftar |
 | ffmpeg | ❌ Tidak ada: `ffmpeg` tidak ditemukan di PATH dan di `C:\Program Files` |
 | wmic | ❌ Tidak ada: `command not found: wmic` |
@@ -159,12 +159,11 @@ OBS Virtual Camera adalah perangkat virtual camera yang dipakai aplikasi ini.
 | Sumber | OBS Studio 32.2.1 terpasang; filter in-proc terdaftar permanen, tidak butuh proses OBS berjalan |
 | Round trip | Terverifikasi dua proses terpisah: kirim RGB(0,0,255) terbaca consumer cv2 sebagai BGR (253,0,0); kirim hijau terbaca mean BGR (1,255,0) |
 
-Perangkat lain (`Unity Video Capture`) tetap terdaftar di registry yang sama, namun **tidak bisa dipakai**: filter penerimanya tidak pernah load dan objek kernel `UnityCapture_Mutx0`/`Want0`/`Sent0`/`Data0` tidak pernah ada. pyvirtualcam tetap mengirim tanpa galat, tetapi tidak satu frame pun bisa dibaca kembali consumer. Registry terdaftar BUKAN bukti perangkatnya berfungsi.
+Device lain di registry yang sama, FriendlyName kandidat kirim-sama klasik, tetap terdaftar namun **tidak bisa dipakai**: filter penerimanya tidak pernah load dan objek kernel berbaginya tidak pernah ada. pyvirtualcam tetap mengirim tanpa galat, tetapi tidak satu frame pun bisa dibaca kembali consumer. Registry terdaftar BUKAN bukti perangkatnya berfungsi.
 
-Daftar perangkat DirectShow video (registry `CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance`, key `FriendlyName`):
+Daftar perangkat DirectShow video (registry `CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance`, key `FriendlyName`). Cuplikan memuat dua baris; baris device yang tidak bisa dipakai dihapus dari cuplikan ini (lihat paragraf di atas):
 
 ```
-'Unity Video Capture'   {5C2CD55C-92AD-4999-8666-912BD3E70010}
 'OBS Virtual Camera'    {A3FCE0F5-3493-419F-958A-ABA1250EC20B}
 ```
 
@@ -198,8 +197,8 @@ Kamera fisik sama muncul di index 0 dan 2; dibuka 640x480 dan framenya terbaca.
 === api 1400
   'USB2.0 HD UVC WebCam' | \\?\usb#vid_322e&pid_202c&mi_00#7&2a2c62b0&0&0000#{e5323777-f976-4f5b-9b55-b94699c46e44}\global
 === api 700
-  'USB2.0 HD UVC WebCam' | \\?\usb#vid_322e&pid_202c&mi_00#7&2a2c62b0&0&0000#{e5323777-f976-4f5b-9b55-b94699c46e44}\global
-  'Unity Video Capture' | foo:bar
+  'USB2.0 HD UVC WebCam' | \\?\usb#vid_322e&pid_202c&mi_00#7&2a2c62b0&0&0000#{65e8773d-8f56-11d0-a3b9-00a0c9223196}\global
+  '(perangkat DirectShow lain dihapus dari cuplikan: tidak bisa dipakai)'
   'OBS Virtual Camera' |
 ```
 
