@@ -11,6 +11,7 @@ import numpy as np
 import PySide6.QtCore as qc
 import PySide6.QtWidgets as qw
 
+from ..core.config import AppConfig, load_config
 from ..core.pipeline import Frame, Pipeline, Stats
 from .check_task import finish_checks, make_renderer, start_checks
 from .ready_view import (
