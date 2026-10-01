@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import collections
 import queue
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -73,6 +74,11 @@ class Pipeline:
     #: menempel di Frame ketika sampai ke worker output. Default None:
     #: pipeline tanpa landmark berjalan persis seperti sebelumnya.
     extractor: object | None = None
+    #: Predictor hanya dipasang bila diberikan. Bila diisi, jalur capture
+    #: membangun extractor fitur + window dari config; setiap window penuh
+    #: dijalankan lewat predictor lalu Smoother, dan label yang lolos
+    #: ditulis ke Frame.text. Default None: perilaku teks lama tak berubah.
+    predictor: object | None = None
 
     def __post_init__(self) -> None:
         self._frames: queue.Queue[Frame] = queue.Queue(
@@ -91,6 +97,14 @@ class Pipeline:
         )
         self._lock = threading.RLock()
         self._fatal: Exception | None = None
+        # Jalur predictor dibangun lazily di thread capture, bukan di sini:
+        # __post_init__ tidak boleh membawa import feature stack saat
+        # predictor tidak dipakai (pipeline lama tetap sama).
+        self._feature_extractor = None
+        self._windower = None
+        self._smoother = None
+        self._last_prediction_error: Exception | None = None
+        self._predicted_frames = 0
 
     # -- kontrol -----------------------------------------------------------------
     def start(self) -> None:
@@ -156,6 +170,11 @@ class Pipeline:
                 except Exception as exc:
                     self._fail(exc)
                     break
+            # Predictor jalan di thread capture supaya teks sudah menempel
+            # ketika frame sampai ke worker output. Kegagalan predict tidak
+            # mematikan pipeline: dicatat, teks dibiarkan kosong.
+            if self.predictor is not None:
+                self._run_predictor(frame)
             with self._lock:
                 self._captured += 1
             try:
@@ -164,6 +183,51 @@ class Pipeline:
                 with self._lock:
                     self._dropped += 1
 
+    def _run_predictor(self, frame: Frame) -> None:
+        """Feed fitur ke extractor + window, lalu predictor dan smoother."""
+        if self._smoother is None:
+            self._build_prediction_stage()
+        try:
+            row = self._feature_extractor.feed(frame.landmarks)
+            for window in self._windower.feed(row):
+                predicted = self.predictor.predict(window)
+                label = self._smoother.feed(predicted, frame.timestamp)
+                if label is not None:
+                    frame.text = label
+                    with self._lock:
+                        self._predicted_frames += 1
+        except Exception as exc:
+            # Galat predict dicatat tanpa mematikan capture; frame tetap jalan
+            # dengan teks apa adanya (biasanya kosong).
+            with self._lock:
+                if self._last_prediction_error is None:
+                    self._last_prediction_error = exc
+            print(f"Galat predictor diabaikan: {exc!r}", file=sys.stderr)
+
+    def _build_prediction_stage(self) -> None:
+        """Bangun extractor fitur, window, dan smoother dari config."""
+        from .features import FeatureExtractor, Windower
+        from .smoothing import Smoother
+
+        self._feature_extractor = FeatureExtractor()
+        self._windower = Windower(
+            frame_count=self.config.window_frame_count,
+            stride=self.config.window_stride,
+        )
+        self._smoother = Smoother(self.config)
+
+    @property
+    def predicted_frames(self) -> int:
+        """Jumlah frame yang teksnya berasal dari label predictor."""
+        with self._lock:
+            return self._predicted_frames
+
+    @property
+    def prediction_error(self) -> Exception | None:
+        """Galat predictor terakhir yang tidak fatal; None bila bersih."""
+        with self._lock:
+            return self._last_prediction_error
+
     def _output_loop(self) -> None:
         while not (self._stop.is_set() and self._frames.empty()):
             try:
@@ -171,7 +235,11 @@ class Pipeline:
             except queue.Empty:
                 continue
             try:
-                frame.text = self.text
+                # Teks placeholder hanya berlaku bila predictor tidak
+                # menghasilkan label; label predictor menang supaya overlay
+                # memakai teks hasil inferensi.
+                if not frame.text:
+                    frame.text = self.text
                 frame = self.renderer(frame)
                 self.sink.send(frame)
             except Exception as exc:

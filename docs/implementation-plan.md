@@ -50,7 +50,7 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
 - Dependensi: slice 3, plus checklist inspeksi dataset di docs/dataset-notes.md sudah selesai.
 - Fake-first: FakePredictor dipakai untuk menguji smoothing dan output sebelum model nyata ada.
 - Kriteria selesai:
-  - [ ] Predictor dummy mengeluarkan label dari fitur dengan logika tetap.
+  - [x] Predictor dummy mengeluarkan label dari fitur dengan logika tetap.
   - [ ] Checkpoint inspeksi dataset sudah tercatat di docs/dataset-notes.md.
   - [ ] Unduh dataset dari docs/info-dataset.md ke data/raw/ sesuai urutan KATA, ANGKA, HURUF, lalu isi checklist inspeksi di docs/dataset-notes.md.
   - [ ] Split data per signer, bukan acak per video.
@@ -58,7 +58,7 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
   - [ ] Model awal baseline sederhana selesai dilatih dan dievaluasi.
   - [ ] Confusion matrix dilaporkan.
   - [ ] Kata yang sering tertukar dihapus atau diganti sebelum daftar dikunci.
-  - [ ] Kelas "tidak ada isyarat" ada di label set.
+  - [x] Kelas "tidak ada isyarat" ada di label set. (slot pertama `DummyPredictor.LABELS`)
 
 ## Slice 5 — Smoothing dan TTS offline
 

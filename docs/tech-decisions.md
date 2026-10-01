@@ -29,9 +29,17 @@ Setiap baris sudah ditutup. Alasan satu baris.
 | Tidak pakai virtual environment di mesin ini | Seluruh paket sudah terpasang di Python 3.14.6 global; venv ditambah baru bila butuh isolasi. |
 | Dataset sumber: 3 teratas per kategori, bukan satu dataset tunggal | Menyatukan pekerjaan dengan 21 kandidat yang sudah diverifikasi metadatanya; rincian di docs/info-dataset.md. |
 | Dataset yang dipakai training | 21 kandidat di 7 kategori, lihat docs/info-dataset.md dan docs/dataset-notes.md bagian Kandidat dataset; isi berkas masing-masing masih belum diinspeksi. Rincian di docs/info-dataset.md. |
+| Slice 4c: predictor dan smoothing dibangun fake-first, nol ketergantungan dataset | Pipeline classifier bisa diuji end-to-end (87 test lolos) sebelum training apa pun dijalankan; DummyPredictor dan FakePredictor keduanya deterministik tanpa `random`, dan tidak ada impor `training/` di `src/core/` (pemindai AST: SCAN LOLOS). |
+| Slice 4c: aturan DummyPredictor = energi gerak + kehadiran tangan | Satu energi mudah diverifikasi dan diuji; pose tanpa tangan dan gerak nol keduanya keluar sebagai "tidak ada isyarat". Bukan model asli, hanya placeholder sampai slice training siap. |
+| Slice 4c: voting Smoother = hitungan label identik berurutan, bukan jendela geser | "N berturut" berarti run ketat; reset saat label berbeda. Jendela geser membuat label yang bergantian tetap lolos, dan menambah counter tiap label. |
+| Slice 4c: cooldown per label, tidak memblokir label berbeda | Cooldown ada supaya ucapan tidak berulang; label baru justru layak keluar segera. |
+| Slice 4c: timestamp disuntik sebagai parameter, bukan `time.time()` di dalam Smoother | Test bisa masuk ke cooldown 100 detik tanpa sleep; `Smoother.now()` tersedia untuk jalur runtime. |
+| Slice 4c: galat predict dicatat dan dibuang, tidak mematikan pipeline | Pipeline tetap streaming video meski model gagal; mati diam dijalur capture akan menghentikan demo. Dicatat lewat properti `prediction_error`. |
+| Slice 4c: label predictor menang atas teks placeholder di `Frame.text` | Overlay harus menampilkan hasil inferensi; placeholder hanya berlaku bila predictor belum memberi label. Memicu perubahan ini di jalur teks lama: teks placeholder tetap sama bila `predictor=None`. |
 
 
 ## Bukti terukur: virtual camera (2026-10-01, mesin ini)
+
 
 Kedua fakta di bawah diperoleh dari percobaan langsung, bukan asumsi.
 
