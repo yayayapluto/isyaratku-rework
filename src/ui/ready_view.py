@@ -148,6 +148,9 @@ class ReadyView(qw.QMainWindow):
 
     def _stop_timer_on_error(self, fail: Exception) -> None:
         self._timer.stop()
+        if self._pipeline is not None:
+            self._pipeline.stop()
+            self._pipeline = None
         self._set_status(*STATUS_ERROR)
         self._details.setText(f"Pipeline berhenti karena galat: {fail}")
 
