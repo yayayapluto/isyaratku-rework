@@ -26,10 +26,10 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
 - Dependensi: slice 1.
 - Fake-first: FakeLandmarkExtractor menghasilkan landmark tetap dan landmark hilang sebagian supaya UI dan pipeline teruji tanpa webcam.
 - Kriteria selesai:
-  - [ ] Landmark tangan muncul di video overlay.
-  - [ ] Landmark pose muncul di video overlay.
-  - [ ] Jika tangan tidak terlihat, sistem tidak berhenti dan tidak error.
-  - [ ] Persentase frame dengan landmark tidak lengkap dihitung dan tampil di panel debug.
+  - [x] Landmark tangan muncul di video overlay.
+  - [x] Landmark pose muncul di video overlay.
+  - [x] Jika tangan tidak terlihat, sistem tidak berhenti dan tidak error.
+  - [x] Persentase frame dengan landmark tidak lengkap dihitung dan tampil di panel debug.
 
 ## Slice 3 — Normalisasi, windowing, dan test
 
