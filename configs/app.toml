@@ -22,6 +22,10 @@
 #     (240 default ~4 s pada 60 fps); pipeline.stop_timeout_seconds = batas tunggu
 #     join thread saat stop.
 #   tts.device_name = "CABLE Output", tts.rate = 160
+#   tts.enabled = true (TTS menyala saat runtime)
+#   tts.speak_cooldown_seconds = 2.5 (jeda minimal antar ucapan; beda dari
+#     smoothing.cooldown_seconds yang membatasi kapan label BOLEH keluar —
+#     yang ini mencegah ucapan menumpuk saat audio lebih panjang dari jeda)
 #   virtual_camera.backend = "obs"  (backend virtual camera OBS; jalur
 #     kirim-saja yang dulu dipakai tidak dipakai lagi: filter penerimanya tidak
 #     pernah load di mesin ini sehingga tak ada consumer yang bisa membaca

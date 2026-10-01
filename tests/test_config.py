@@ -143,6 +143,8 @@ def test_contract_key_names_are_documented_exactly() -> None:
         "pipeline.stop_timeout_seconds",
         "tts.device_name",
         "tts.rate",
+        "tts.enabled",
+        "tts.speak_cooldown_seconds",
         "virtual_camera.backend",
     )
 

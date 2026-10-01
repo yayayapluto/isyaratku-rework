@@ -42,6 +42,8 @@ _CONTRACT: tuple[tuple[str, str, str, Any], ...] = (
     ("pipeline", "stop_timeout_seconds", "float", 2.0),
     ("tts", "device_name", "str", "CABLE Output"),
     ("tts", "rate", "int", 160),
+    ("tts", "enabled", "bool", True),
+    ("tts", "speak_cooldown_seconds", "float", 2.5),
     ("virtual_camera", "backend", "str", "obs"),
 )
 
@@ -66,7 +68,7 @@ _POSITIVE = frozenset({
     "pipeline.stop_timeout_seconds",
     "tts.rate",
 })
-_NON_NEGATIVE = frozenset({"camera.device_index"})
+_NON_NEGATIVE = frozenset({"camera.device_index", "tts.speak_cooldown_seconds"})
 
 
 @dataclass(frozen=True)
@@ -91,6 +93,8 @@ class AppConfig:
     pipeline_stop_timeout_seconds: float
     tts_device_name: str
     tts_rate: int
+    tts_enabled: bool
+    tts_speak_cooldown_seconds: float
     virtual_camera_backend: str
 
 
@@ -130,6 +134,10 @@ def _merge(raw: dict[str, Any], values: dict[str, Any]) -> None:
 
 
 def _check_value(dotted: str, kind: str, value: Any) -> Any:
+    if kind == "bool":
+        if not isinstance(value, bool):
+            raise ConfigError(f"Config '{dotted}' harus bool, dapat {type(value).__name__}: {value!r}")
+        return value
     if kind == "int":
         if isinstance(value, bool) or not isinstance(value, int):
             raise ConfigError(f"Config '{dotted}' harus int, dapat {type(value).__name__}: {value!r}")
