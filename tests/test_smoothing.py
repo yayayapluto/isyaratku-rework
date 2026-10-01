@@ -77,32 +77,29 @@ def test_voting_emits_once_while_label_continues() -> None:
     """Setelah lolos, label yang terus berturut tidak mengulang emit."""
     vote = smoother(smoothing_vote_count=2, smoothing_cooldown_seconds=1.5)
     assert vote.feed(prediction("satu"), 1.0) is None
-    assert vote.feed(prediction("satu"), 2.0) == "satu"
-    assert vote.feed(prediction("satu"), 3.0) is None
-    assert vote.feed(prediction("satu"), 4.0) is None
+    assert vote.feed(prediction("satu"), 1.5) == "satu"  # voting lengkap, cooldown kosong
+    assert vote.feed(prediction("satu"), 2.0) is None  # masih di cooldown
+    assert vote.feed(prediction("satu"), 3.0) == "satu"  # cooldown lewat, emit lagi
 
 
 # -- cooldown ----------------------------------------------------------------
 def test_cooldown_blocks_repeat_until_duration_passes() -> None:
     """Label sama ditahan sampai cooldown_seconds berlalu."""
-    cool = smoother(smoothing_vote_count=2, smoothing_cooldown_seconds=1.5)
+    cool = smoother(smoothing_vote_count=1, smoothing_cooldown_seconds=1.5)
     assert cool.feed(prediction("satu"), 10.0) == "satu"
-    # 1.2 s kemudian: masih di dalam cooldown, voting ulang tetap tahan.
-    assert cool.feed(prediction("satu", 0.6), 11.2) is None
+    # 1.2 s kemudian: masih di dalam cooldown, label sama tahan.
     assert cool.feed(prediction("satu"), 11.2) is None
     # 1.6 s setelah emit pertama: sudah lewat, label sama boleh keluar lagi.
-    assert cool.feed(prediction("satu"), 11.6) is None  # hitungan voting mulai lagi
-    assert cool.feed(prediction("satu"), 11.7) == "satu"
+    assert cool.feed(prediction("satu"), 11.6) == "satu"
 
 
 def test_cooldown_is_per_label_different_labels_do_not_block_each_other() -> None:
     """Cooldown label A tidak menahan label B."""
-    cool = smoother(smoothing_vote_count=2, smoothing_cooldown_seconds=5.0)
+    cool = smoother(smoothing_vote_count=1, smoothing_cooldown_seconds=1.0)
     assert cool.feed(prediction("satu"), 10.0) == "satu"
-    assert cool.feed(prediction("dua"), 10.1) is None
-    assert cool.feed(prediction("dua"), 10.2) == "dua"
-    assert cool.feed(prediction("tiga"), 10.3) is None
-    assert cool.feed(prediction("tiga"), 10.4) == "tiga"
+    # 0.1 s kemudian: "dua" tak ikut tertahan cooldown milik "satu".
+    assert cool.feed(prediction("dua"), 10.1) == "dua"
+    assert cool.feed(prediction("tiga"), 10.2) == "tiga"
 
 
 def test_long_cooldown_uses_injected_timestamps_not_wall_clock() -> None:

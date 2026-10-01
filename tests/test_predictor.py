@@ -12,15 +12,15 @@ import pytest
 from src.core.features import (
     COORD_COUNT,
     FEATURE_COUNT,
+    FeatureExtractor,
     HAND_LANDMARK_COUNT,
     POSE_LANDMARK_COUNT,
-    Windower,
 )
 from src.core.landmarks import (
     HandLandmarks,
     LandmarkFrame,
     PoseLandmarks,
-    all_missing,
+    missing_hand,
 )
 from src.core.predictor import (
     NO_SIGN_LABEL,
@@ -54,8 +54,11 @@ def gesture_window(drop_from: float = 0.0, drop_to: float = 0.12) -> np.ndarray:
 
     Frame 0..14 tangan diam di ``drop_from``, frame 15..29 tangan menurun
     ke ``drop_to`` supaya bagian delta membawa energi gerak nyata.
-    Deret pose memakai indeks frame sehingga deterministik.
+    Deret pose memakai indeks frame sehingga deterministik. Baris fitur
+    lewat ``FeatureExtractor`` supaya lebar kolom = FEATURE_COUNT, sama
+    seperti jalur pipeline.
     """
+    extractor = FeatureExtractor()
     frames = []
     for index in range(WINDOW_FRAMES):
         if index < WINDOW_FRAMES // 2:
@@ -64,12 +67,12 @@ def gesture_window(drop_from: float = 0.0, drop_to: float = 0.12) -> np.ndarray:
             offset = drop_from + (drop_to - drop_from) * (
                 (index - WINDOW_FRAMES // 2) / (WINDOW_FRAMES // 2 - 1)
             )
-        frames.append(_single_hand_row(offset))
+        frames.append(extractor.feed(_single_hand_frame(offset)))
     return np.stack(frames).astype(np.float32)
 
 
-def _single_hand_row(offset: float) -> np.ndarray:
-    """Baris fitur satu tangan dengan telunjuk di tinggi ``offset``."""
+def _single_hand_frame(offset: float) -> LandmarkFrame:
+    """Landmark satu tangan dengan telunjuk di tinggi ``offset``."""
     hand_coords = np.zeros((HAND_LANDMARK_COUNT, COORD_COUNT), dtype=np.float32)
     for point in range(HAND_LANDMARK_COUNT):
         hand_coords[point] = (
@@ -80,14 +83,11 @@ def _single_hand_row(offset: float) -> np.ndarray:
     pose_coords = np.zeros((POSE_LANDMARK_COUNT, COORD_COUNT), dtype=np.float32)
     pose_coords[11] = (0.40, 0.30, 0.0)  # bahu kiri
     pose_coords[12] = (0.60, 0.30, 0.0)  # bahu kanan
-    frame = LandmarkFrame(
-        hands=(HandLandmarks(coords=hand_coords, present=True), None),
+    return LandmarkFrame(
+        hands=(HandLandmarks(coords=hand_coords, present=True), missing_hand()),
         pose=PoseLandmarks(coords=pose_coords, present=True),
         complete=True,
     )
-    from src.core.features import normalise
-
-    return normalise(frame)
 
 
 # -- kontrak -----------------------------------------------------------------

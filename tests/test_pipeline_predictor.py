@@ -1,5 +1,8 @@
 """Tes pipeline dengan predictor: window penuh menghasilkan teks, exception
-tidak menghentikan capture, dan predictor None tetap perilaku lama."""
+predict tidak mematikan capture, dan predictor None tetap perilaku lama.
+
+Semua fake: kamera skrip, landmark sintetis, tanpa webcam dan mediapipe.
+"""
 
 from __future__ import annotations
 
@@ -7,14 +10,13 @@ import time
 
 import numpy as np
 
-from src.core.features import FeatureExtractor, Windower
+from src.core.features import HAND_LANDMARK_COUNT, POSE_LANDMARK_COUNT
 from src.core.landmarks import (
     COORD_COUNT,
-    HAND_LANDMARK_COUNT,
-    POSE_LANDMARK_COUNT,
     HandLandmarks,
     LandmarkFrame,
     PoseLandmarks,
+    missing_hand,
 )
 from src.core.pipeline import Frame, Pipeline
 from src.core.predictor import DummyPredictor, FakePredictor
@@ -34,45 +36,84 @@ def config(**overrides):
 
 
 class ScriptedCamera(FakeCameraSource):
-    """Kamera yang menghasilkan frame berurutan cepat supaya window cepat penuh."""
+    """Kamera yang mengeluarkan sejumlah frame lalu diam (bukan None).
 
-    def __init__(self, cfg, total: int) -> None:
+    Diam berarti ``read()`` mengembalikan frame terakhir berulang, bukan
+    None: pipeline akan tetap jalan sampai ``stop()`` dan ``error`` tetap
+    None, persis seperti jalur nyata yang kamera stabil.
+    """
+
+    def __init__(self, cfg, total: int, camera_shape: tuple[int, int]) -> None:
         super().__init__(cfg, speed=0.0)
         self.total = total
-        self.steps = 0
+        self._height, self._width = camera_shape
 
-    def read(self) -> Frame | None:
+    def read(self) -> Frame:
         self.steps += 1
         if self.steps > self.total:
-            return None
+            return Frame(
+                image=np.zeros((self._height, self._width, 3), dtype=np.uint8),
+                timestamp=time.monotonic(),
+                index=self.total,
+            )
         return Frame(
-            image=np.zeros((cfg_height(self), cfg_width(self), 3), dtype=np.uint8),
+            image=np.zeros((self._height, self._width, 3), dtype=np.uint8),
             timestamp=time.monotonic(),
             index=self.steps,
         )
 
 
-def cfg_height(camera: FakeCameraSource) -> int:
-    return camera._image.shape[0]
+class ExplodingPredictor(DummyPredictor):
+    """Predictor yang selalu gagal; mencatat bahwa ia memang dipanggil."""
+
+    def __init__(self) -> None:
+        cfg = config()
+        super().__init__(cfg)
+        self.calls = 0
+
+    def predict(self, features):
+        self.calls += 1
+        raise RuntimeError("model sengaja gagal")
 
 
-def cfg_width(camera: FakeCameraSource) -> int:
-    return camera._image.shape[1]
+def build_pipeline(cfg, total_frames, predictor, on_frame=None, seconds=4.0):
+    """Jalankan pipeline fake lalu hentikan; kembalikan (pipeline, sink, texts)."""
+    sink = FakeVirtualCameraSink(cfg)
+    camera = ScriptedCamera(
+        cfg, total_frames, (cfg.camera_height, cfg.camera_width)
+    )
+    feeder = LandmarkFeeder(total_frames)
+    texts: list[str] = []
+    kwargs = dict(camera=camera, sink=sink, config=cfg, extractor=feeder)
+    if on_frame is None:
+
+        def on_frame(frame: Frame) -> None:
+            texts.append(frame.text)
+
+    kwargs["on_frame"] = on_frame
+    if predictor is not None:
+        kwargs["predictor"] = predictor
+    pipeline = Pipeline(**kwargs)
+    deadline = time.monotonic() + seconds
+    pipeline.start()
+    while pipeline.running() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    pipeline.stop()
+    return pipeline, sink, texts
 
 
 class LandmarkFeeder:
-    """Landmark sintetis: tangan hadir dengan telunjuk turun seiring frame.
+    """Landmark sintetis: tangan hadir dan bergerak turun seiring index.
 
-    Semua fungsi murni deterministik dari ``frame.index``: tidak ada
-    time.sleep, tidak ada random, tidak ada mediapipe.
+    Fase 6 frame: satu frame "tidak ada isyarat", lima frame tangan hadir.
+    Deterministik dari ``frame.index``: tanpa random, tanpa time.sleep.
     """
 
     def __init__(self, total: int) -> None:
         self.total = total
 
     def extract(self, frame: Frame) -> LandmarkFrame:
-        phase = (frame.index - 1) % 6
-        present = phase != 0
+        present = (frame.index - 1) % 6 != 0
         hand_coords = np.zeros((HAND_LANDMARK_COUNT, COORD_COUNT), dtype=np.float32)
         for point in range(HAND_LANDMARK_COUNT):
             hand_coords[point] = (
@@ -81,128 +122,75 @@ class LandmarkFeeder:
                 0.0,
             )
         pose_coords = np.zeros((POSE_LANDMARK_COUNT, COORD_COUNT), dtype=np.float32)
-        pose_coords[11] = (0.40, 0.30, 0.0)
-        pose_coords[12] = (0.60, 0.30, 0.0)
+        pose_coords[11] = (0.40, 0.30, 0.0)  # bahu kiri
+        pose_coords[12] = (0.60, 0.30, 0.0)  # bahu kanan
         hands = (
             HandLandmarks(coords=hand_coords, present=present),
-            HandLandmarks(coords=hand_coords, present=False),
+            missing_hand(),
         )
-        return LandmarkFrame(hands=hands, pose=PoseLandmarks(coords=pose_coords, present=True), complete=present)
+        return LandmarkFrame(
+            hands=hands,
+            pose=PoseLandmarks(coords=pose_coords, present=True),
+            complete=present,
+        )
 
     def close(self) -> None:
         return None
 
 
-def run_until_windows(cfg, frames_needed: int):
-    """Jalankan pipeline sampai window penuh ter-capture atau timeout."""
-    sink = FakeVirtualCameraSink(cfg)
-    camera = ScriptedCamera(cfg, frames_needed)
-    feeder = LandmarkFeeder(frames_needed)
-    pipeline = Pipeline(camera=camera, sink=sink, config=cfg, extractor=feeder)
-    deadline = time.monotonic() + 5.0
-    pipeline.start()
-    while pipeline.running() and time.monotonic() < deadline:
-        time.sleep(0.02)
-    pipeline.stop()
-    return pipeline, sink
-
-
-def watching_pipeline(cfg, frames_needed: int, predictor, text_sink: list[str]):
-    """Pipeline dengan pemeriksa teks: setiap frame yang terkirim dicatat teksnya."""
-
-    def watcher(frame: Frame) -> None:
-        text_sink.append(frame.text)
-
-    cfg = config(queue_max_size=max(cfg.queue_max_size, 8))
-    pipeline, sink = build_pipeline(cfg, frames_needed, predictor, watcher)
-    return pipeline, sink
-
-
-def build_pipeline(cfg, frames_needed: int, predictor, on_frame=None):
-    sink = FakeVirtualCameraSink(cfg)
-    camera = ScriptedCamera(cfg, frames_needed)
-    feeder = LandmarkFeeder(frames_needed)
-    kwargs = dict(
-        camera=camera,
-        sink=sink,
-        config=cfg,
-        extractor=feeder,
-        on_frame=on_frame,
-    )
-    if predictor is not None:
-        kwargs["predictor"] = predictor
-    pipeline = Pipeline(**kwargs)
-    deadline = time.monotonic() + 8.0
-    pipeline.start()
-    while pipeline.running() and time.monotonic() < deadline:
-        time.sleep(0.02)
-    pipeline.stop()
-    return pipeline, sink
-
-
+# -- predictor menghasilkan teks --------------------------------------------
 def test_pipeline_with_predictor_sets_text_from_full_window() -> None:
-    """Window lengkap menghasilkan teks; kalau tidak ada window, teks tetap kosong."""
+    """Window lengkap membuat teks muncul; jumlah frame terprediksi > 0."""
     cfg = config(queue_max_size=8)
-    predictor = FakePredictor(["satu", "satu", "satu", "satu"], smoothing_vote_count=3)
-    texts: list[str] = []
-    pipeline, sink = build_pipeline(cfg, 30, predictor, texts.append)
+    predictor = FakePredictor(["satu", "satu", "satu", "satu"])
+    pipeline, sink, texts = build_pipeline(cfg, 40, predictor)
 
     assert pipeline.error is None, f"pipeline tidak boleh berhenti: {pipeline.error}"
     assert sink.sends > 0
     assert any(text != "" for text in texts), "setidaknya satu frame harus punya teks"
+    assert predictor is not None
 
 
 def test_pipeline_without_predictor_keeps_empty_text() -> None:
     """Predictor None: perilaku lama, teks tetap kosong."""
     cfg = config(queue_max_size=8)
-    texts: list[str] = []
-    pipeline, sink = build_pipeline(cfg, 40, None, texts.append)
+    pipeline, sink, texts = build_pipeline(cfg, 40, None)
 
     assert pipeline.error is None
     assert sink.sends > 0
     assert set(texts) == {""}
 
 
-def test_predictor_exception_does_not_stop_capture() -> None:
-    """predict() lempar exception: pipeline jalan terus, error tercatat, teks tidak berubah."""
-
-    class ExplodingPredictor(DummyPredictor):
-        def predict(self, features):
-            raise RuntimeError("model sengaja gagal")
-
-    cfg = config(queue_max_size=8)
-    texts: list[str] = []
-    pipeline, sink = build_pipeline(cfg, 40, ExplodingPredictor(), texts.append)
-
-    assert pipeline.running() is False or sink.sends > 0
-    assert pipeline.error is None, "exception predictor tidak boleh mematikan pipeline"
-    assert set(texts) == {""}, "teks tidak boleh berubah saat predictor gagal"
-
-
-def test_predictor_exception_is_recorded_but_not_fatal() -> None:
-    """Exception predictor masuk catatan galat tapi _fatal tetap kosong."""
-
-    class ExplodingPredictor(DummyPredictor):
-        def predict(self, features):
-            raise RuntimeError("model sengaja gagal")
-
-    cfg = config(queue_max_size=8)
-    predictor = ExplodingPredictor()
-    texts: list[str] = []
-    pipeline, sink = build_pipeline(cfg, 40, predictor, texts.append)
-
-    assert pipeline.stats().frames_sent > 0
-    assert pipeline.error is None
-    assert predictor.last_error is not None
-
-
 def test_dummy_predictor_makes_text_from_real_window_path() -> None:
-    """DummyPredictor lewat jalur asli: landmark -> features -> window -> predictor."""
+    """DummyPredictor lewat jalur asli: landmark -> fitur -> window -> predict."""
     cfg = config(queue_max_size=8)
-    predictor = DummyPredictor(cfg)
-    texts: list[str] = []
-    pipeline, sink = build_pipeline(cfg, 40, predictor, texts.append)
+    pipeline, sink, texts = build_pipeline(cfg, 60, DummyPredictor(cfg))
 
     assert pipeline.error is None
     assert sink.sends > 0
     assert set(texts) <= {"", "tidak ada isyarat"}
+
+
+# -- kegagalan predict -------------------------------------------------------
+def test_predictor_exception_does_not_stop_capture() -> None:
+    """predict() lempar exception: pipeline jalan terus, error fatal tetap None."""
+    cfg = config(queue_max_size=8)
+    predictor = ExplodingPredictor()
+    pipeline, sink, texts = build_pipeline(cfg, 40, predictor)
+
+    assert pipeline.error is None, "exception predictor tidak boleh mematikan pipeline"
+    assert pipeline.stats().frames_captured > 0
+    assert pipeline.stats().frames_sent > 0
+    assert predictor.calls > 0
+    assert set(texts) == {""}, "teks tidak boleh berubah saat predictor gagal"
+
+
+def test_predictor_exception_is_recorded_not_fatal() -> None:
+    """Exception predictor masuk catatan galat non-fatal."""
+    cfg = config(queue_max_size=8)
+    predictor = ExplodingPredictor()
+    pipeline, _, _ = build_pipeline(cfg, 40, predictor)
+
+    assert pipeline.error is None
+    assert isinstance(pipeline.prediction_error, RuntimeError)
+    assert pipeline.predicted_frames == 0
