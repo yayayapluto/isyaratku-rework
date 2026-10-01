@@ -83,6 +83,83 @@ warna hijau; consumer `cv2.VideoCapture(2, cv2.CAP_DSHOW)` baca mean BGR
 - R2: producer harus tetap hidup dengan Camera terbuka; kirim N frame lalu
   keluar tidak mengirim apa pun.
 
+## Diagnosa slice 4b: urutan frame BUKAN penyebab akurasi gloss 0.0856 (2026-10-01)
+
+Ditemukan bahwa akurasi gloss saja 0.0856 pada test signer3 bukan disebabkan
+oleh model yang meratakan urutan frame. Eksperimen terkunci ada di
+`training/diagnose_urutan.py` dan bisa diulang:
+`python -m training.diagnose_urutan`. Semua model memakai split WAJIB
+(train signer0-2, val signer4, test signer3).
+
+**Tiga angka utama (akurasi gloss saja di test signer3, mode 'semua'):**
+
+| Eksperimen | Fitur | Akurasi |
+| --- | --- | --- |
+| 1. patokan baseline | mean+std (912) | 0.0856 |
+| 2. urutan dipertahankan | window diratakan (13680) | 0.0668 |
+| 3. kontrol: urutan diacak | window diratakan + acak (seed tetap) | 0.0579 |
+
+Angka (1) mereproduksi `models/baseline.json`, jadi patokannya sah.
+Angka (2) LEBIH BURUK dari (1): memberi model 13680 fitur yang
+menghormati urutan membuatnya lebih buruk, bukan lebih baik. Limbah
+dimensi itu murni memperbesar beban tanpa menambah sinyal.
+
+**Pembagi: pergeseran signer vs urutan frame.** Di dalam signer3
+(split acak 80/20, seed 7), model yang sama mendapat gloss 0.9799 dengan
+mean+std dan 0.6040 dengan window diratakan. Jadi:
+
+- Pergeseran antar signer = 0.9799 - 0.0856 = 0.894 dari total celah.
+- Urutan frame di dalam signer sama = 0.9799 - 0.6040 = 0.376 menurunkan,
+  bukan menambah: urutan yang dipertahankan MEMPERBURUK.
+- Kontrol acak (3) turun 0.0089 karena model diratakan memang sensitif
+  pada noise dimensi, bukan karena urutan membawa informasi.
+
+Kesimpulan: akurasi 0.0856 adalah masalah PERGESERAN ANTAR SIGNER
+(bentuk tangan, gaya isyarat, posisi kamera), BUKAN masalah urutan frame.
+Model sequence tidak dipakai; `src/core/features.py:31` sudah 2x NORM_COUNT
+yang sebenarnya bisa merekam perubahan posisi, tapi rata-rata dan std di
+`fitur_ringkas()` memang meratakan urutannya. Tetap: LogReg atas mean+std
+adalah pilihan model yang paling sederhana dan terbukti paling baik.
+
+**Kandidat model alternatif yang sudah dicoba dan GAGAL** (train signer0-2,
+test signer3, semua memakai split wajib):
+
+| Model | Fitur | gloss test |
+| --- | --- | --- |
+| LogReg (patokan) | mean+std 912 | 0.0856 |
+| LogReg C terbaik dari val (C=0.01) | mean+std 912 | 0.0882 |
+| LogReg class_weight 0.5, C=0.03 (dipilih val) | mean+std 912 | 0.0907 |
+| MLPClassifier (256,128) | mean+std 912 | 0.0806 |
+| HistGradientBoosting | mean+std 912 | 0.0139 |
+| torch GRU 64 (8 epoch, urutan) | window 30x456 | 0.0453 |
+| LogReg fitur gerak (delta antar frame) | delta 13224 | 0.0390 |
+| LogReg wrist-relative (bentuk tangan) | 258 | 0.0340 |
+| LogReg displacement saja | 912 | 0.0945 (val pilihan gagal di test) |
+
+Tidak ada satu pun yang menang >1% (ambang laporan 0.0957). Model
+sequence ditolak dengan jujur: GRU mendapatkan 0.0453, lebih buruk
+daripada patokan; semuanya perlu torch atau skor lebih tinggi, dan
+tidak memperbaiki gloss sama sekali. Artefak `models/seq-baseline.npz`
+TIDAK dibuat karena tidak ada yang menang.
+
+**Distribusi kesalahan:** dari 1718 window test, 925 diprediksi
+"tidak ada isyarat" (benar 919), 251 "Sore", 196 "Bagaimana", hanya
+43 "Datang" dan 33 "Malam" sisanya. Enam gloss menumpuk diprediksi
+"Sore" dan lima diprediksi "Bagaimana" -- pola penyerapan satu arah
+khas bias signer, bukan kata yang benar-benar mirip. Tidak ada
+pasangan dua arah: Sore vs Bagaimana tidak pernah saling tertukar.
+
+**Posisi teknik terukur:** hanya 9 dari 32 gloss punya dukungan
+(window bertangan test) <=10; "Lagi" 0 window, jadi tidak bisa
+dievaluasi sama sekali. Akurasi per kelas jadi sangat rapuh:
+"Rumah" 2 window, "Siang" 4, "Hitam" 4, "Keluarga" 5, "Kuning" 8,
+"Hijau" 8.
+
+**Latensi runtime (asli `TrainedPredictor` memuat `models/baseline.npz`,
+200 pengulangan di CPU mesin ini):** p50 0.066 ms, p95 0.084 ms, maks
+0.191 ms. Satu window = ~15129 window/detik p50, sehingga target 25-30 FPS
+terlampaui 500x lipat. Model tidak punya masalah latensi.
+
 ## Status slice 1: yang belum terbukti
 
 Tiga kriteria slice 1 di docs/implementation-plan.md BELUM terbukti, jadi tidak
@@ -107,7 +184,7 @@ gambar bergerak dari pipeline bukan layar hitam atau noise beku R1, dan
 | Apakah Holistic pernah dibutuhkan | Dipakai hanya kalau pose dari Hands + Pose terbukti tidak cukup. Untuk sekarang jangan dipakai. |
 | Lisensi dataset untuk lomba | Sebagian besar aman (MIT, CC BY 4.0, CC0, Apache 2.0); `glennleonali/wl-bisindo` CC BY-NC 4.0 (non-komersial), dan beberapa kandidat lisensi Unknown yang harus diverifikasi sebelum dipublikasikan. |
 | Daftar kata minimum untuk v1 | Usulan awal 20 sampai 30 kata relevan meeting, tapi daftar pastinya belum diputuskan. Asumsi: daftar awal belum ada, jadi belum bisa dijadikan label model. |
-| Arsitektur model untuk isyarat kata: GRU atau 1D-CNN | Keduanya kandidat. Dilihat dari hasil evaluasi, bukan pilihan awal. |
+| Arsitektur model untuk isyarat kata: GRU atau 1D-CNN | DITOLAK pada slice 4b: GRU 64 dapat gloss 0.0453, lebih buruk dari LogReg mean+std 0.0856. Penyebab bukan arsitektur melainkan pergeseran antar signer; lihat bagian diagnosa di atas. |
 | Titik acuan normalisasi: DIPUTUSKAN tengah bahu | Sudah ditutup di tabel keputusan final; dicatat lewat test invariansi translasi+skala di tests/test_features.py. |
 | Ukuran label set output model | Bergantung hasil inspeksi dataset dan daftar kata v1. Belum diputuskan. |
 | Inference realtime di CPU atau butuh GPU | Bergantung ukuran model. Angka target 25 hingga 30 FPS harus diuji di CPU dulu; keperluan GPU diperiksa pada slice 4. |

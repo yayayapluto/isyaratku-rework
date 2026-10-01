@@ -57,7 +57,7 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
   - [x] Ekstraksi landmark dan training jalan di training/, runtime tidak mengimpor training/.
   - [x] Model awal baseline sederhana selesai dilatih dan dievaluasi.
   - [x] Confusion matrix dilaporkan.
-  - [ ] Kata yang sering tertukar dihapus atau diganti sebelum daftar dikunci.
+  - [ ] Kata yang sering tertukar dihapus atau diganti sebelum daftar dikunci. Terukur 2026-10-01: 6 gloss ditumpuk diprediksi "Sore" (Ingat 27, Berangkat 27, Maaf 23, Makan 17, Belajar 17, Mengapa 16) dan 5 diprediksi "Bagaimana" (Siapa 33, Motor 28, Merah 26, Apa 21, Cari 19), tanpa satu pun kebalikannya — pola penyerapan satu arah dari bias signer, bukan kata mirip. "Lagi" punya 0 window bertangan di test sehingga tidak bisa dievaluasi; 9 gloss dukungannya <=10. Usulan versi ini: hapus "Lagi" dan "Sore" (test gloss naik 0.0856 -> 0.1111 pada 31 gloss), LATIH ULANG "Bagaimana" dengan signer tambahan karena menyerap 5 kata. Rinciannya di docs/tech-decisions.md bagian diagnosa slice 4b. Keputusan akhir tetap milik pemilik repo.
   - [x] Kelas "tidak ada isyarat" benar-benar dilatih, bukan hanya ada di label set. (`NO_SIGN_ID` = 32 dari window bertangan tanpa tangan; `training/train.py` menu `mode="semua"`; `TrainedPredictor` menolak model yang belum punya kelas itu. Seksinya karena 4b membuktikan kode hanya mengaku punya kelas tanpa dilatihnya.)
 
 ## Slice 5 — Smoothing dan TTS offline
