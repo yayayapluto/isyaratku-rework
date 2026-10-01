@@ -147,6 +147,26 @@ voices: 2
 
 Jadi: **tidak ada voice bahasa Indonesia** di SAPI mesin ini. Kecepatan/format audio pyttsx3: tidak dicek (butuh sintesis percobaan).
 
+### Piper TTS (bahasa Indonesia)
+
+Terverikasi 2026-10-01 di mesin ini. Paket sudah terpasang, tidak ada instalasi baru.
+
+| Item | Terukur |
+| --- | --- |
+| `piper-tts` (pip) | 1.8.0 — modul `piper` bisa di-import |
+| `onnxruntime` | 1.30.0 (dibutuhkan memuat `.onnx`) |
+| Voice Indonesia di `rhasspy/piper-voices` | `id/id_ID/news_tts/medium/` — hanya satu: `id_ID-news_tts-medium.onnx` 62.950.044 byte (62.95 MB), mono 22.050 Hz, 1 speaker; `.onnx.json` 5.050 byte |
+| Config voice (MODEL_CARD) | fine-tuned dari lessac English medium; samplerate 22.050 Hz |
+| Tag versi repo voice | Tidak ada tag `v1.0.0` untuk voice ini — hanya `main` (unduh lewat `resolve/main/...`; `resolve/v1.0.0/...` membalas HTTP 404) |
+| Download voice | 62.950.044 byte dalam 13.9 s |
+| Muat voice (`PiperVoice.load`) | 1.54 s |
+| Sintesis "terima kasih" (library) | 0.11 s → WAV 50.732 byte, 25.344 frame, mono 22.050 Hz 16-bit, **durasi 1.149 s** |
+| Sintesis "selamat pagi" | WAV 51.756 byte, durasi 1.173 s |
+| Sintesis "apa kabar" | WAV 43.564 byte, durasi 0.987 s |
+| Lokasi eksperimen sementara | `%TEMP%\piper_voice_test` dan `%TEMP%\setup_voice_test_*`, di luar repo; repo dibiarkan bersih |
+
+Penyimpanan: voice **tidak** masuk git. Setup sekali: `python -m training.setup_voice`; cek: `python -m training.setup_voice --check`. Cache WAV ada di `models/tts/cache/`, juga tidak masuk git.
+
 ## Virtual Camera
 
 OBS Virtual Camera adalah perangkat virtual camera yang dipakai aplikasi ini.
@@ -292,6 +312,6 @@ Kesimpulan: paket `mediapipe` 1.0.1 di lingkungan ini mengirim kode tanpa aset m
 mp.tasks.vision -> FaceDetector, FaceLandmarker, GestureRecognizer, HandLandmarker, HandLandmarkerOptions, HolisticLandmarker, HolisticLandmarkerOptions, ImageClassifier, ...
 ```
 
-Catatan untuk config: `model_complexity` adalah argumen `mp.solutions.hands`, yang tidak ada di paket ini. Untuk Tasks API, padanan pengaturannya lewat `HandLandmarkerOptions` (`num_hands`, `min_hand_detection_confidence`, `min_hand_presence_confidence`, `min_tracking_confidence`) plus `model_asset_path`. Key `landmark.model_complexity` di `configs/app.yaml` perlu digantikan saat slice 2 membuat adapter.
+Catatan untuk config: `model_complexity` adalah argumen `mp.solutions.hands` yang tidak ada di paket ini; key `landmark.model_complexity` tetap ada di `configs/app.toml` sebagai bekas kontrak lama dan TIDAK dipakai adapter. Sejak slice 2 jalur Tasks API terbukti jalan: `landmark.hand_model_path` dan `landmark.pose_model_path` menunjuk `models/mediapipe/hand_landmarker.task` dan `models/mediapipe/pose_landmarker_lite.task`, sementara `HandLandmarkerOptions` hanya memakai `num_hands`, `model_asset_path`, dan `running_mode` VIDEO.
 
 Error tepat saat model tidak ditemukan: `FileNotFoundError: Unable to open file at nope/hand_landmarker.task`.
