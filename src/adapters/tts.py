@@ -23,6 +23,7 @@ ada berarti galat jelas, bukan pengganti senyap.
 
 from __future__ import annotations
 
+import sys
 import threading
 import wave
 from pathlib import Path
@@ -152,4 +153,116 @@ class PiperTts:
         for index, device in enumerate(devices):
             if want in device["name"].lower() and device["max_output_channels"] > 0:
                 return index
+
+        return None
+
+
+#: Label model -> kalimat yang enak didengar. Kosong dengan sengaja:
+#: tidak ada label di set saat ini yang salah bunyi bila dilewatkan apa
+#: adanya (label dataset sudah berbunyi "terima kasih", "apa kabar").
+#: Isi hanya kalau ada label yang benar-benar salah ucap.
+
+
+UANGKAP: dict[str, str] = {}
+
+
+def ucapkan(label: str) -> str:
+    """Label model -> teks yang diucapkan.
+
+    Mapping hanya untuk kasus yang jelas salah bunyi; sisanya dilewatkan
+    apa adanya. Dipisah dari label supaya disebut di test dan dilaporkan
+    di mode debug tanpa menyentuh jalur audio.
+    """
+    return UANGKAP.get(label, label)
+
+
+class FakeTTS:
+    """Pencatat ucapan untuk test dan jalur headless; tidak memutar audio.
+
+    Kontrak sama dengan ``PiperTts`` yang dipakai pipeline: ``play()``
+    mengembalikan durasi 0.0 dan mencatat label terakhir. Tidak pernah
+    menyentuh sounddevice atau voice model, jadi pipeline bisa diuji
+    tanpa perangkat audio.
+    """
+
+    def __init__(self, config: AppConfig | None = None) -> None:
+        self.calls: list[tuple[str, float]] = []
+        self.speaks: list[str] = []
+        self._spoke_at: dict[str, float] = {}
+        self._cooldown = (
+            config.tts_speak_cooldown_seconds if config is not None else 0.0
+        )
+
+    @property
+    def voice_model_available(self) -> bool:
+        """Selalu True: fake tidak bergantung pada artifact di disk."""
+        return True
+
+    def speak(self, label: str) -> Path:
+        """Catat label yang akan disintesis; balas path cache palsu."""
+        self.speaks.append(label)
+        return Path(label)
+
+    def play(self, label: str, *, at: float | None = None) -> float:
+        """Catat ucapan; hormati cooldown bila ``at`` diberikan."""
+        if at is not None:
+            last = self._spoke_at.get(label)
+            if last is not None and at - last < self._cooldown:
+                return 0.0
+            self._spoke_at[label] = at
+        self.calls.append((label, 0.0))
+        return 0.0
+
+    @property
+    def last(self) -> tuple[str, float] | None:
+        return self.calls[-1] if self.calls else None
+
+
+class SpeechSink:
+    """Jembatan label stabil -> pre-generate WAV -> pemutaran.
+
+    ``feed(label)`` aman dipanggil dari callback pipeline: sintesis
+    dijalankan lebih dulu (cache deterministik adapter), lalu pemutaran
+    dikirim ke thread terpisah supaya pemanggil TIDAK terhenti menunggu
+    audio 1 detik. Kegagalan tidak didiamkan: ``last_error`` menyimpan
+    galat terakhir, dan TtsUnavailableError ditandai khusus supaya UI
+    bisa meminta setup voice.
+    """
+
+    def __init__(self, tts: object, enabled: bool = True) -> None:
+        self._tts = tts
+        self.enabled = enabled
+        self.sent: list[str] = []
+        self.last_error: Exception | None = None
+        self._lock = threading.Lock()
+
+    def feed(self, label: str) -> None:
+        """Satu label stabil masuk. Return cepat; audio jalan di thread lain."""
+        if not self.enabled:
+            return
+        spoken = ucapkan(label)
+        with self._lock:
+            self.sent.append(label)
+        try:
+            self._tts.speak(spoken)
+        except Exception as exc:
+            self._record(exc)
+            return
+        threading.Thread(
+            target=self._play, args=(spoken,), daemon=True
+        ).start()
+
+    def _play(self, label: str) -> None:
+        try:
+            self._tts.play(label)
+        except Exception as exc:
+            self._record(exc)
+
+    def _record(self, exc: Exception) -> None:
+        self.last_error = exc
+        print(f"Galat TTS dicatat, streaming lanjut: {exc!r}", file=sys.stderr)
+
+    @property
+    def voice_available(self) -> bool:
+        return bool(getattr(self._tts, "voice_model_available", True))
         return None

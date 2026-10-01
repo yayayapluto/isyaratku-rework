@@ -10,6 +10,7 @@ dalam teks status, mis. "CABLE Output".
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import winreg
 
 import cv2
@@ -27,12 +28,29 @@ OBS_FRIENDLY_NAME = "OBS Virtual Camera"
 
 
 def run_checks(device_index: int = 0) -> list[tuple[str, bool, str]]:
-    """Jalankan ketiga pemeriksaan startup, urut: kamera, virtual camera, VB-Cabel."""
+    """Pemeriksaan startup, urut: kamera, virtual camera, VB-Cabel, voice TTS."""
     return [
         _check_camera(device_index),
         _check_obs_virtual_camera(),
         _check_vb_cable(),
+        _check_tts_voice(),
     ]
+
+
+def _check_tts_voice() -> tuple[str, bool, str]:
+    """Voice piper Indonesia ada di disk; kalau tidak, setup sekali jalan."""
+    from .tts import DEFAULT_VOICE
+
+    path = Path(DEFAULT_VOICE)
+    if path.is_file():
+        return ("Voice TTS", True, f"Voice Indonesia siap ({path}).")
+    return (
+        "Voice TTS",
+        False,
+        f"Voice TTS tidak ada di {path}. Jalankan "
+        "python -m training.setup_voice sekali; aplikasi meeting tidak "
+        "akan menerima audio sampai itu dijalankan.",
+    )
 
 
 def _check_camera(device_index: int) -> tuple[str, bool, str]:
