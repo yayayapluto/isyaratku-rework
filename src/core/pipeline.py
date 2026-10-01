@@ -24,12 +24,18 @@ from .config import AppConfig
 
 @dataclass
 class Frame:
-    """Satu frame video beserta penanda waktu, urutan, dan teks overlay."""
+    """Satu frame video beserta penanda waktu, urutan, teks overlay, dan
+    hasil ekstraksi landmark (``None`` bila belum diekstraksi).
+
+    Landmark ikut di objek Frame, bukan lewat queue sendiri: ekstraksi terjadi
+    di thread capture dan sampai ke worker output tanpa thread atau antrean baru.
+    """
 
     image: np.ndarray
     timestamp: float
     index: int
     text: str = ""
+    landmarks: object | None = None
 
 
 @dataclass
@@ -62,6 +68,10 @@ class Pipeline:
     text: str = ""
     on_frame: Callable[[Frame], None] | None = None
     on_stats: Callable[[Stats], None] | None = None
+    #: Ekstraksi landmark dijalankan di thread capture, jadi hasilnya sudah
+    #: menempel di Frame ketika sampai ke worker output. Default None:
+    #: pipeline tanpa landmark berjalan persis seperti sebelumnya.
+    extractor: object | None = None
 
     def __post_init__(self) -> None:
         self._frames: queue.Queue[Frame] = queue.Queue(
@@ -139,6 +149,12 @@ class Pipeline:
                         )
                     )
                 break
+            if self.extractor is not None:
+                try:
+                    frame.landmarks = self.extractor.extract(frame)
+                except Exception as exc:
+                    self._fail(exc)
+                    break
             with self._lock:
                 self._captured += 1
             try:

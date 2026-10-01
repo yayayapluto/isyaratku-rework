@@ -30,6 +30,8 @@ _CONTRACT: tuple[tuple[str, str, str, Any], ...] = (
     ("camera", "fps", "int", 30),
     ("landmark", "max_num_hands", "int", 2),
     ("landmark", "model_complexity", "int", 0),
+    ("landmark", "hand_model_path", "str", "models/mediapipe/hand_landmarker.task"),
+    ("landmark", "pose_model_path", "str", "models/mediapipe/pose_landmarker_lite.task"),
     ("window", "frame_count", "int", 30),
     ("window", "stride", "int", 5),
     ("smoothing", "confidence_threshold", "float", 0.7),
@@ -77,6 +79,8 @@ class AppConfig:
     camera_fps: int
     landmark_max_num_hands: int
     landmark_model_complexity: int
+    landmark_hand_model_path: str
+    landmark_pose_model_path: str
     window_frame_count: int
     window_stride: int
     smoothing_confidence_threshold: float

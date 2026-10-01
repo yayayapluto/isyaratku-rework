@@ -20,6 +20,10 @@ def test_defaults_load_without_file(tmp_path) -> None:
     assert config.camera_fps == 30
     assert config.landmark_max_num_hands == 2
     assert config.landmark_model_complexity == 0
+    assert config.landmark_hand_model_path == "models/mediapipe/hand_landmarker.task"
+    assert config.landmark_pose_model_path == (
+        "models/mediapipe/pose_landmarker_lite.task"
+    )
     assert config.window_frame_count == 30
     assert config.window_stride == 5
     assert config.smoothing_confidence_threshold == 0.7
@@ -127,6 +131,8 @@ def test_contract_key_names_are_documented_exactly() -> None:
         "camera.fps",
         "landmark.max_num_hands",
         "landmark.model_complexity",
+        "landmark.hand_model_path",
+        "landmark.pose_model_path",
         "window.frame_count",
         "window.stride",
         "smoothing.confidence_threshold",
