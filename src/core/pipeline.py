@@ -12,6 +12,7 @@ Kematian diam adalah musuh; UI membaca properti itu di tick timer.
 from __future__ import annotations
 
 import collections
+import logging
 import queue
 import sys
 import threading
@@ -22,6 +23,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .config import AppConfig
+
+logger = logging.getLogger(__name__)
 
 
 def _clock() -> float:
@@ -132,6 +135,7 @@ class Pipeline:
         self._output_thread = threading.Thread(target=self._output_loop, daemon=True)
         self._capture_thread.start()
         self._output_thread.start()
+        logger.info("pipeline start: capture+output hidup")
 
     def stop(self) -> None:
         self._stop.set()
@@ -143,6 +147,13 @@ class Pipeline:
         self._output_thread = None
         self.camera.close()
         self.sink.close()
+        logger.info(
+            "pipeline stop: dibaca=%d dikirim=%d dibuang=%d galat=%r",
+            self._captured,
+            self._sent,
+            self._dropped,
+            self._fatal,
+        )
 
     @property
     def error(self) -> Exception | None:
@@ -165,6 +176,7 @@ class Pipeline:
             if self._fatal is None:
                 self._fatal = exc
         self._stop.set()
+        logger.warning("pipeline _fail: %r", exc)
 
     def _tolerate_read_failure(self) -> bool:
         """Catat read() None; True bila masih di dalam ambang toleransi.

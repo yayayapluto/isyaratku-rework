@@ -277,6 +277,9 @@ GERBANG = 0.30
 
 
 def utama() -> int:
+    from src.core.logging import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--extracted", type=Path, default=DEFAULT_EXTRACTED_DIR)
     args = parser.parse_args()

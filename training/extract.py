@@ -302,6 +302,9 @@ def report(result: dict) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from src.core.logging import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(
         prog="python -m training.extract",
         description="Ekstraksi landmark + fitur dari video BISINDO ke .npz per video.",

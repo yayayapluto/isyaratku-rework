@@ -92,6 +92,9 @@ def rekam_satu(
 
 
 def main(argv: list[str] | None = None) -> int:
+    from src.core.logging import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--max-reps", type=int, default=5)
     parser.add_argument("--seconds", type=float, default=4.0)

@@ -260,6 +260,9 @@ def cetak_laporan(hasil: dict[str, object]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from src.core.logging import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--extracted", default="data/extracted")
     parser.add_argument("--limit-window", type=int, default=0, help="batasi jumlah window (0 = semua)")

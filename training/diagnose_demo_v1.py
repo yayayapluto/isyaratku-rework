@@ -423,6 +423,9 @@ def tulis_artifact(pilih: dict) -> tuple[Path, Path]:
 
 
 def utama() -> int:
+    from src.core.logging import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--extracted", default=str(DEFAULT_EXTRACTED_DIR))
     parser.add_argument(

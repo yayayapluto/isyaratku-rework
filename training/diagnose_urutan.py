@@ -92,6 +92,9 @@ def latih_logreg(X: np.ndarray, y: np.ndarray):
 
 
 def main(argv: list[str] | None = None) -> int:
+    from src.core.logging import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--extracted", default=str(DEFAULT_EXTRACTED_DIR))
     args = parser.parse_args(argv)

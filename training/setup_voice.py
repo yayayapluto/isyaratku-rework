@@ -110,6 +110,9 @@ def _panaskan_cache() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from src.core.logging import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--check",

@@ -425,6 +425,10 @@ def hand_of(window: np.ndarray) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     """Cetak ringkasan dataset + split; tidak menulis apa pun ke data/."""
+
+    from src.core.logging import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--extracted", default=str(DEFAULT_EXTRACTED_DIR))
     args = parser.parse_args(argv)

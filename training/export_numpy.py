@@ -36,6 +36,9 @@ def ekspor(bobot: np.ndarray, bias: np.ndarray, classes, label: tuple[str, ...],
 
 
 def main(argv: list[str] | None = None) -> int:
+    from src.core.logging import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default=str(MODEL_DIR / f"{MODEL_STEM}.joblib"))
     parser.add_argument("--out", default=str(MODEL_DIR / f"{MODEL_STEM}.npz"))
