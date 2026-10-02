@@ -7,6 +7,7 @@ panel yang tidak ada di mode siap pakai, bukan mencabang di dalam satu view.
 
 from __future__ import annotations
 
+import logging
 import numpy as np
 import PySide6.QtCore as qc
 import PySide6.QtWidgets as qw
@@ -24,7 +25,10 @@ from .ready_view import (
 )
 from .render import draw_overlay
 
+logger = logging.getLogger(__name__)
+
 PREVIEW_INTERVAL_MS = 40
+
 DEBUG_TEXT = "Mode debug — belum ada model."
 
 
@@ -127,6 +131,7 @@ class DebugView(qw.QMainWindow):
 
     def _on_start(self) -> None:
         """Mulai pemeriksaan lalu pipeline. Aman ditekan berulang kali."""
+        logger.info("Start diklik (mode debug)")
         start_checks(self, details=None)
 
     def _on_checks_done(self, results) -> None:
@@ -146,6 +151,7 @@ class DebugView(qw.QMainWindow):
         self._raw_image = image
 
     def _on_stop(self) -> None:
+        logger.info("Stop diklik (mode debug)")
         self._timer.stop()
         if self._pipeline is not None:
             self._pipeline.stop()
@@ -189,6 +195,7 @@ class DebugView(qw.QMainWindow):
         )
 
     def _set_status(self, state: str, style: str) -> None:
+        logger.info("status -> %s", state)
         self._status.setText(f"Status: {state}")
         self._status.setStyleSheet(style)
 

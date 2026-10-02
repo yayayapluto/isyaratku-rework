@@ -6,11 +6,13 @@ import argparse
 import sys
 import time
 
+from ..core.logging import setup_logging
 from .debug_view import build_debug_view
 from .ready_view import build_ready_view
 
 
 def main(argv: list[str] | None = None) -> int:
+    setup_logging()
     args = _parse_args(argv)
     if args.headless:
         return _run_headless(args.seconds)

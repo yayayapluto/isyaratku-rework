@@ -73,6 +73,11 @@ Prosa dokumen dan issue memakai Bahasa Indonesia. Nama teknikal, path file, nama
 - Menimpa lokasi config: set environment variable `ISYARATKU_CONFIG=<path>` (default `configs/app.toml`)
 - Setup voice TTS sekali jalan (voice 62 MB tidak masuk git): `python -m training.setup_voice`
 
+### Log
+
+- Setiap run menulis log ke `logs/`, satu berkas per hari: `logs/isyaratku-YYYY-MM-DD.log` (mis. `logs/isyaratku-2026-10-02.log`), jam lokal dengan offset `+0700`. Berkas `logs/` tidak masuk git.
+- Bunyi setiap baris: `waktu offset LEVEL nama.modul pesan` — saat UI membeku, buka berkas hari itu dan baca baris terakhir (tipe `Start`, `run_checks`, `pipeline start/stop`, `status ->`); baris itu menunjukkan aksi atau tahap terakhir yang sedang berjalan.
+
 Tooling sudah terpasang di lingkungan ini: `python` (Python 3.14.6), `pip` (26.1.2), `git`. Paket relevan yang sudah terpasang: pytest 9.1.1, opencv-python, mediapipe, numpy, pyvirtualcam, pyttsx3, sounddevice. Tidak ada virtual environment di mesin ini; seluruh paket dipakai dari Python global.
 
 ## Dokumen lain

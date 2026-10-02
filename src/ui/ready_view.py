@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import PySide6.QtCore as qc
 import PySide6.QtGui as qg
@@ -11,6 +13,8 @@ from ..core.config import AppConfig, load_config
 from ..core.pipeline import Frame, Pipeline, Stats
 from .check_task import finish_checks, start_checks
 from .render import draw_landmarks, draw_overlay
+
+logger = logging.getLogger(__name__)
 
 PREVIEW_INTERVAL_MS = 40
 STATUS_IDLE = ("berhenti", "color: #475569;")
@@ -79,6 +83,7 @@ class ReadyView(qw.QMainWindow):
     # -- aksi --------------------------------------------------------------------
     def _on_start(self) -> None:
         """Mulai pemeriksaan lalu pipeline. Aman ditekan berulang kali."""
+        logger.info("Start diklik (mode siap pakai)")
         # Start kedua ditolak selama pemeriksaan atau pipeline masih hidup,
         # sehingga kamera tidak pernah dibuka dua kali.
         start_checks(self, self._details)
@@ -102,6 +107,7 @@ class ReadyView(qw.QMainWindow):
         qw.QMessageBox.warning(self, title, text)
 
     def _on_stop(self) -> None:
+        logger.info("Stop diklik (mode siap pakai)")
         self._timer.stop()
         if self._pipeline is not None:
             self._pipeline.stop()
@@ -123,6 +129,7 @@ class ReadyView(qw.QMainWindow):
 
     def _set_status(self, state: str, style: str) -> None:
         self._status.setText(f"Status: {state}")
+        logger.info("status -> %s", state)
         self._status.setStyleSheet(style)
 
     # -- pratinjau ---------------------------------------------------------------

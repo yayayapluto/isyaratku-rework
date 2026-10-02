@@ -21,3 +21,5 @@ _extract_full.log
 
 # voice piper + cache WAV: diunduh sekali (training.setup_voice), tidak masuk git
 models/tts/
+# log harian runtime (src/core/logging.py), tidak masuk git
+logs/

@@ -13,6 +13,7 @@ Dokumen ini menjelaskan susun direktori, alur pipeline, dua mode aplikasi, strat
 | models/ | Artefak model hasil training. | Diubah hanya oleh training/. |
 | data/ | Dataset mentah dan fitur hasil ekstraksi. | Tidak masuk git. |
 | configs/ | Semua angka yang bisa dituning. | Tidak ada magic number di kode. |
+| logs/ | Berkas log harian runtime, satu per hari (`isyaratku-YYYY-MM-DD.log`). | Tidak masuk git; hanya ditulis oleh `src/core/logging.py`. |
 
 ## Kontrak konfigurasi
 
