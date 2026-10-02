@@ -14,8 +14,8 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
   - [ ] OBS Virtual Camera muncul daftar perangkat kamera di Zoom atau Meet. Belum terbukti: Zoom/Meet tidak pernah dijalankan bersama feed kita; pembuktiannya di docs/tech-decisions.md bagian "Status slice 1: yang belum terbukti".
   - [ ] Peserta meeting lain melihat video, bukan layar hitam. Belum terbukti dengan alasan yang sama.
   - [ ] Frame yang keluar hanya berasal dari pipeline, bukan dari perangkat lain. Belum terbukti dengan alasan yang sama.
-  - [ ] FPS yang diukur tercatat di configs/ sebagai nilai awal, bukan diset sembarangan di kode.
-  - [ ] Tidak ada angka ajaib di kode: semua parameter masuk configs/ sesuai kontrak di docs/architecture.md.
+  - [x] FPS yang diukur tercatat di configs/ sebagai nilai awal, bukan diset sembarangan di kode. (Terukur dan dicatat di `configs/app.toml`: kamera 640x480, 300 frame — CAP_DSHOW `fps_capture` 8.80, CAP_MSMF 28.56, CAP_ANY 28.57 sehingga MSMF jadi default di `src/adapters/camera.py`; jalur headless fake adapter FPS terkirim 1655.60. Nilai fps dibaca dari key `camera.fps`, tidak ada literal fps di kode.)
+  - [x] Tidak ada angka ajaib di kode: semua parameter masuk configs/ sesuai kontrak di docs/architecture.md. (Seluruh parameter tuning ada di `_CONTRACT` `src/core/config.py`; dijaga `test_dataclass_fields_match_contract_keys` dan `test_contract_key_names_are_documented_exactly` di tests/test_config.py. Sisa literal bukan parameter tuning: ukuran minimum jendela UI dan warna frame fake, keduanya fixture tampilan.)
   - [ ] Mode ready-to-use dibangun dengan PySide6 dan aplikasi jalan dari entry point tanpa GUI langsung crash (smoke run headless dengan fake adapter).
   - [ ] GUI ready-to-use dan dashboard debug berada di mode yang berbeda, bukan percabangan if di satu view.
   - [ ] Empat kegagalan acceptance criteria yang ditemukan review sudah ditutup dengan test: pipeline mati diam-diam, Start ganda, pemeriksaan blocking saat startup, dan panel debug yang mengaliasing data mentah.
@@ -51,7 +51,7 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
 - Fake-first: FakePredictor dipakai untuk menguji smoothing dan output sebelum model nyata ada.
 - Kriteria selesai:
   - [x] Predictor dummy mengeluarkan label dari fitur dengan logika tetap.
-  - [ ] Checkpoint inspeksi dataset sudah tercatat di docs/dataset-notes.md.
+  - [x] Checkpoint inspeksi dataset sudah tercatat di docs/dataset-notes.md. (Checklist inspeksi `docs/dataset-notes.md:84-95` lengkap 12/12; item terakhir "varian isyarat antar signer" ditambahkan commit `8884105`.)
   - [ ] Unduh dataset dari docs/info-dataset.md ke data/raw/ sesuai urutan KATA, ANGKA, HURUF, lalu isi checklist inspeksi di docs/dataset-notes.md.
   - [x] Split data per signer, bukan acak per video. (train signer0-2, val signer4, test signer3)
   - [x] Ekstraksi landmark dan training jalan di training/, runtime tidak mengimpor training/.
@@ -67,14 +67,12 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
 - Dependensi: slice 4.
 - Fake-first: FakeSpeechSink mencatat teks tanpa suara. Test voting, cooldown, dan satu-ucapan-satu-kata tidak perlu perangkat audio.
 - Kriteria selesai:
-  - [ ] Threshold confidence menahan prediksi lemah.
-  - [ ] Voting antar prediksi berurutan aktif.
-  - [ ] Cooldown mencegah kata sama terucap berulang dalam satu tahanan isyarat.
+  - [ ] Threshold confidence menahan prediksi lemah. DILUAR scope kriteria ini: gerbang dasar `smoothing.confidence_threshold` (default 0.7) memang aktif dan diuji (`test_weak_confidence_never_emits_anything`, `test_confidence_at_threshold_passes_the_gate`), tetapi AMBANG TAMBAHAN "tidak percaya diri = diam" dari slice 4b DITOLAK dengan angka di docs/tech-decisions.md:48 (`min_confidence=0.80`: val coverage gloss 0.7372, akurasi jawaban gloss test jatuh 0.0856 ke 0.0739; `configs/app.toml` tidak diubah). Dibiarkan terbuka sampai pemilik repo memutuskan.
+  - [x] Voting antar prediksi berurutan aktif. (`Smoother.feed` `src/core/smoothing.py:51-58`; tes: `test_voting_requires_consecutive_same_label`, `test_voting_chain_broken_by_different_label_resets`, `test_voting_emits_once_while_label_continues`.)
+  - [x] Cooldown mencegah kata sama terucap berulang dalam satu tahanan isyarat. (Dua lapis: `Smoother` per label `src/core/smoothing.py:60-64` dan `SpeechSink` per label memakai `tts.speak_cooldown_seconds`; tes: `test_cooldown_blocks_repeat_until_duration_passes`, `test_cooldown_is_per_label_different_labels_do_not_block_each_other`, `test_label_sama_cepat_berturut_diblok_cooldown_sink`, `test_label_beda_cepat_tidak_saling_menahan`.)
   - [ ] Suara offline terdengar ketika aplikasi meeting menangkap perangkat yang dipilih.
-  - [ ] Audio per kata dibuat lebih dulu saat aplikasi mulai, sehingga pemutaran tidak bolong.
   - [x] Tidak ada TTS cloud dalam jalur runtime. (piper-tts memuat `.onnx` dari disk; `src/adapters/tts.py` tidak punya panggilan jaringan sama sekali, dan UNDUH voice hanya setup sekali `python -m training.setup_voice`, bukan jalur runtime.)
-  - [ ] Latensi prediksi terukur (p50 dan p95) dan nilainya dicatat di docs/, bukan hanya diklaim.
-
+  - [ ] Latensi prediksi terukur (p50 dan p95) dan nilainya dicatat di docs/, bukan hanya diklaim. Sebagian sudah tercatat: latensi predictor sendiri p50 0.066 ms, p95 0.084 ms, maks 0.191 ms di docs/tech-decisions.md:178-181. Yang HILANG sehingga kriteria ini belum tercentang: pasangan p50/p95 latensi ujung-ke-ujung pada jalur hardware (label stabil sampai audio terdengar di kabel) belum ada di docs/ mana pun, dan definisi pengukurannya sendiri masih "belum diputuskan" (docs/tech-decisions.md:213).
   - [x] Audio per kata dibuat lebih dulu saat aplikasi mulai, sehingga pemutaran tidak bolong. (Pra-sintesis 33 label ke `models/tts/cache/` saat `finish_checks` memanggil `SpeechSink.warm_up(predictor.labels)`. Cache dingin diisi lewat `python -m training.setup_voice --warm-cache` sebelum orang menekan Start; sintesis 33 label dari kosong terukur 3.18 s wall, 33/33 label jadi WAV, 0 gagal. Tanpa langkah ini, pra-sintesis jalan saat Start sehingga penonton menunggu.)
 
 ## Slice 6 — Penyelesaian mode ready-to-use dan dasbor debug
