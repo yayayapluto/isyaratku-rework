@@ -170,13 +170,18 @@ class Pipeline:
         """Catat read() None; True bila masih di dalam ambang toleransi.
 
         Ambang adalah DURASI gagal berurutan, bukan jumlah read: read gagal
-        kembali dalam ~0,1 ms di mesin ini, jadi batas jumlah habis tak
-        berarti (25 kali gagal = beberapa milidetik, bukan beberapa detik).
+        kembali ~0,1 ms, jadi batas jumlah habis tak berarti. Jeda polling
+        TIDAK di sini — lihat ``_poll_read_failure``; akuntansi saja, tanpa
+        tidur, supaya pemanggil yang mengatur ritme dan test tanpa hardware
+        tetap bisa memanggil metode ini langsung.
         """
         now = _clock()
         with self._lock:
             if self._read_failed_since is None:
                 self._read_failed_since = now
+            # Satu siklus loop = satu polling, bukan satu read(). Angka ini
+            # memperkirakan DURASI kamera mati, bukan beban: hitungan per
+            # read() kasar ~3 juta dalam jendela mati 3 s dan tak berguna.
             self._read_failures += 1
             self._last_read_error = RuntimeError("read() None")
             elapsed = now - self._read_failed_since
@@ -190,7 +195,18 @@ class Pipeline:
                         f"yang lalu; pipeline tetap hidup.",
                         file=sys.stderr,
                     )
-            return within
+        return within
+
+    def _poll_read_failure(self) -> None:
+        """Jeda satu siklus polling saat toleransi masih berlaku.
+
+        Tanpa ini loop capture berputar secepat CPU — read gagal kembali
+        ~0,1 ms, terukur ~3 juta putaran dalam jendela mati 3 s — sehingga
+        merebut core yang dibutuhkan ekstraksi landmark. Dipanggil di luar
+        lock supaya stats() tak ikut membeku dan stop() tidak perlu menunggu
+        jeda habis.
+        """
+        time.sleep(self.config.pipeline_read_failure_poll_seconds)
 
     def _clear_read_failure(self) -> None:
         """Reset hitungan toleransi setelah read() berhasil lagi."""
@@ -211,10 +227,14 @@ class Pipeline:
                 # read() None bisa transien: MSMF berhenti mengirim ~19 s
                 # lalu pulih sendiri (diukur), dan kamera yang masih terpasang
                 # tidak boleh mati diam-diam karena satu jendela Mati. Selama
-                # dalam ambang, thread tetap hidup, tidak ada frame diteruskan,
-                # dan kondisinya terlihat lewat read_error. Lewat ambang:
-                # gagal persis seperti sebelum ada toleransi.
+                # di dalam ambang, thread tetap hidup, satu siklus jeda sampai
+                # read() berikutnya (lihat _tolerate_read_failure), tidak ada
+                # frame yang diteruskan, dan kondisinya terlihat lewat
+                # read_error. Lewat ambang: gagal persis seperti sebelum.
                 if self._tolerate_read_failure():
+                    # Jeda polling: satu siklus tidur (detik, bukan per read()),
+                    # supaya loop tidak memakan satu core penuh selagi menunggu.
+                    self._poll_read_failure()
                     continue
                 if not self._stop.is_set():
                     self._fail(
@@ -326,7 +346,12 @@ class Pipeline:
 
     @property
     def read_failures(self) -> int:
-        """Jumlah read() None berurutan yang sedang ditoleransi; 0 bila bersih."""
+        """Siklus polling read() None berurutan yang ditoleransi; 0 bila bersih.
+
+        Satu siklus = satu loop capture, jadi angka ini memperkirakan DURASI
+        kamera mati, bukan beban: hitungan per read() kasar ~3 juta dalam
+        jendela mati 3 s dan tak ada artinya sebagai diagnosis.
+        """
         with self._lock:
             return self._read_failures
 

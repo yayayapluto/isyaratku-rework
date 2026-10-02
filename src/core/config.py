@@ -46,6 +46,12 @@ _CONTRACT: tuple[tuple[str, str, str, Any], ...] = (
     # kembali dalam ~0,1 ms di mesin ini, jadi batas jumlah habis tak
     # berarti.
     ("pipeline", "read_failure_timeout_seconds", "float", 5.0),
+    # Jeda polling selama toleransi. Tanpa jeda, loop capture berputar
+    # secepat CPU (read gagal kembali ~0,1 ms; terukur ~3 juta putaran dalam
+    # jendela mati 3 s) dan merebut core yang dibutuhkan MediaPipe. 0,05 s
+    # = 20 Hz: kamera yang pulih menyampaikan frame pertamanya dalam < 0,05 s,
+    # masih di bawah satu periode frame 30 FPS yang terasa.
+    ("pipeline", "read_failure_poll_seconds", "float", 0.05),
     ("tts", "device_name", "str", "CABLE Output"),
     ("tts", "rate", "int", 160),
     ("tts", "enabled", "bool", True),
@@ -73,6 +79,7 @@ _POSITIVE = frozenset({
     "pipeline.stats_window",
     "pipeline.stop_timeout_seconds",
     "pipeline.read_failure_timeout_seconds",
+    "pipeline.read_failure_poll_seconds",
     "tts.rate",
 })
 _NON_NEGATIVE = frozenset({"camera.device_index", "tts.speak_cooldown_seconds"})
@@ -99,6 +106,7 @@ class AppConfig:
     pipeline_stats_window: int
     pipeline_stop_timeout_seconds: float
     pipeline_read_failure_timeout_seconds: float
+    pipeline_read_failure_poll_seconds: float
     tts_device_name: str
     tts_rate: int
     tts_enabled: bool

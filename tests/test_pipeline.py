@@ -195,6 +195,14 @@ def test_read_none_toleransi_dicatat_tanpa_spam() -> None:
     assert camera.closed is True
     # read() belum pernah sukses, jadi hitungan toleransi tidak boleh direset.
     assert pipeline.read_failures > 0
+    # Harus berupa SIKLUS POLLING, bukan spin: read_error baru terisi dalam
+    # puluhan milidetik. Tanpa jeda, 0,05 s saja sudah ~50 ribu putaran,
+    # jadi 200 adalah batas jauh di atas polling (20 Hz) dan jauh di bawah
+    # spin. Pembuktian skala yang tepat ada di tes berikutnya.
+    assert pipeline.read_failures < 200, (
+        f"{pipeline.read_failures} siklus terlalu banyak untuk waktu setunggang "
+        "read() None pertama; jeda polling tidak bekerja"
+    )
 
 
 def test_read_none_selamanya_tetap_fatal_tepat_waktu(monkeypatch) -> None:
@@ -219,11 +227,48 @@ def test_read_none_selamanya_tetap_fatal_tepat_waktu(monkeypatch) -> None:
     assert pipeline.read_failures == 5
     assert camera.closed is True
 
+
+
+def test_read_none_toleransi_beri_jeda_polling() -> None:
+    """Jendela mati TIDAK boleh jadi spin: siklus sebanding dengan durasi.
+
+    Ini cacat yang diukur: tanpa jeda, loop capture berputar secepat CPU —
+    ~3 juta read() dalam jendela mati 3 s, merebut core dari MediaPipe.
+    Dengan jeda ``poll``, siklus harus sebesar kira-kira observasi/poll.
+
+    Pakai jam NYATA (tanpa JamPalsu) supaya ``time.sleep`` yang sebenarnya
+    ikut terukur; justru itu yang dibuktikan. Camera tidak pernah pulih
+    (LimitedCamera(0)) karena ``_clear_read_failure()`` mereset hitungan pada
+    read sukses — menghitung setelah pulih selalu 0, jadi diamati saat mati.
+    """
+    poll = 0.02
+    cfg = fast_config(pipeline_read_failure_poll_seconds=poll)
+    camera = LimitedCamera(0)
+    pipeline = Pipeline(camera, FakeVirtualCameraSink(cfg), cfg)
+    pipeline.start()
+    observasi = 0.2
+    time.sleep(observasi)
+    cycles = pipeline.read_failures
+    pipeline.stop()
+
+    # 0,2 s pada 20 Hz = ~10 siklus. Batas atas longgar untuk jitter
+    # scheduling; batas bawah memastikan loop memang berjalan.
+    harapan = observasi / poll
+    assert 1 <= cycles <= harapan * 3, (
+        f"siklus {cycles} di luar harapan ~{harapan:.0f} untuk {observasi}s "
+        f"pada jeda {poll}s — jeda polling tidak bekerja"
+    )
+    # Intinya: puluhan, bukan jutaan. Sebelum jeda, 0,2 s sudah ribuan putaran.
+    assert cycles < harapan * 10, f"{cycles} siklus = spin, bukan polling"
+    assert pipeline.error is None, "masih di dalam ambang 5 s"
+    assert pipeline.running() is False
+    assert camera.closed is True
+
+
 def run_for(seconds: float, pipeline: Pipeline) -> None:
     pipeline.start()
     time.sleep(seconds)
     pipeline.stop()
-
 
 # -- jalur dasar -------------------------------------------------------------
 def test_pipeline_runs_sends_frames_and_stops_cleanly() -> None:

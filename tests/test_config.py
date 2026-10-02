@@ -33,6 +33,7 @@ def test_defaults_load_without_file(tmp_path) -> None:
     assert config.tts_device_name == "CABLE Output"
     assert config.tts_rate == 160
     assert config.virtual_camera_backend == "obs"
+    assert config.pipeline_read_failure_poll_seconds == 0.05
 
 
 def test_default_path_exists_in_repo() -> None:
@@ -142,6 +143,7 @@ def test_contract_key_names_are_documented_exactly() -> None:
         "pipeline.stats_window",
         "pipeline.stop_timeout_seconds",
         "pipeline.read_failure_timeout_seconds",
+        "pipeline.read_failure_poll_seconds",
         "tts.device_name",
         "tts.rate",
         "tts.enabled",

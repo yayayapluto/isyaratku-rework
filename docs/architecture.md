@@ -25,7 +25,7 @@ Aturan proyek: tidak ada angka ajaib di kode. Kontrak ini menentukan cara konfig
 - Validasi saat load: tipe salah atau key wajib tidak ada = gagal cepat dengan pesan jelas yang menyebut nama key. Key tak dikenal = peringatan lalu diabaikan, tidak pernah diterima diam-diam.
 - Environment: variabel `ISYARATKU_CONFIG` boleh menunjuk path konfigurasi alternatif, untuk jalankan debug.
 
-Tabel di bawah punya 20 baris untuk 22 key karena `camera.width`, `camera.height`, dan `camera.fps` berbagi satu baris.
+Tabel di bawah punya 20 baris untuk 23 key karena `camera.width`, `camera.height`, dan `camera.fps` berbagi satu baris.
 
 | Key | Tipe | Default awal | Dipakai di |
 | --- | --- | --- | --- |
@@ -43,6 +43,7 @@ Tabel di bawah punya 20 baris untuk 22 key karena `camera.width`, `camera.height
 | `queue.max_size` | int | 4 | threading |
 | `pipeline.stop_timeout_seconds` | float | 2.0 | pipeline stop |
 | `pipeline.read_failure_timeout_seconds` | float | 5.0 | toleransi `read()` None: durasi gagal berurutan yang ditoleransi sebelum pipeline dihentikan (batas waktu, bukan jumlah read — read gagal kembali dalam ~0,1 ms) |
+| `pipeline.read_failure_poll_seconds` | float | 0.05 | jeda antar polling saat `read()` None masih ditoleransi: 20 Hz, supaya loop capture tidak berputar secepat CPU (~3 juta putaran dalam jendela mati 3 s terukur) sambil tetap mengantar frame < 0,05 s setelah kamera pulih |
 | `tts.device_name` | str | "CABLE Output" | speech sink: nama keluarga kabel untuk memilih endpoint PEMUTAR (lihat catatan pencocokan) |
 | `tts.rate` | int | 160 | speech sink |
 | `tts.enabled` | bool | true | pemilih sink di UI: false memakai FakeTTS, video tetap jalan tanpa suara |

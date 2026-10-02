@@ -23,6 +23,8 @@
 #     join thread saat stop; pipeline.read_failure_timeout_seconds = berapa lama
 #     read() yang kembali None DITOLERASI sebelum pipeline mati (5.0 default;
 #     read gagal bisa transien — MSMF sempat mati ~19 s lalu pulih sendiri).
+#     pipeline.read_failure_poll_seconds = jeda antar polling selama toleransi
+#     itu (0.05 default, 20 Hz) supaya loop capture tidak memakan core penuh.
 #   tts.device_name = "CABLE Output", tts.rate = 160
 #   tts.enabled = true (TTS menyala saat runtime)
 #   tts.speak_cooldown_seconds = 2.5 (jeda minimal antar ucapan; beda dari
