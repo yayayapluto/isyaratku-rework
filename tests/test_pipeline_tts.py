@@ -12,6 +12,7 @@ atau sounddevice — core hanya memanggil callback yang disuntikkan.
 from __future__ import annotations
 
 import inspect
+import threading
 import time
 
 from src.adapters.tts import SpeechSink, TtsUnavailableError, ucapkan
@@ -43,6 +44,33 @@ class RecordingTTS:
 
     def play(self, label: str) -> float:
         self.order.append("play")
+        self.played.append(label)
+        return 0.0
+
+class SyntesisCatatThread:
+    """TTS perekam nama thread saat sintesis dan saat warm-up dipanggil."""
+
+    def __init__(self) -> None:
+        self.spoken: list[str] = []
+        self.played: list[str] = []
+        self.thread_speak: str | None = None
+        self.thread_play: str | None = None
+        self.thread_warm: str | None = None
+
+    @property
+    def voice_model_available(self) -> bool:
+        return True
+
+    def speak(self, label: str):
+        self.thread_speak = threading.current_thread().name
+        self.spoken.append(label)
+        return None
+
+    def warm_up(self, labels) -> None:
+        self.thread_warm = threading.current_thread().name
+
+    def play(self, label: str) -> float:
+        self.thread_play = threading.current_thread().name
         self.played.append(label)
         return 0.0
 
@@ -157,12 +185,33 @@ def test_speech_pregenerates_audio_into_cache() -> None:
     speech = SpeechSink(tts)
 
     speech.feed("selamat pagi")
-    time.sleep(0.3)  # thread pemutaran daemon
+    _tunggu_thread_play(speech)
 
     assert tts.spoken == ["selamat pagi"]
     assert tts.played == ["selamat pagi"]
-    assert tts.order == ["speak", "play"], (
-        f"speak harus lebih dulu dari play, urutan {tts.order}"
+
+
+def test_feed_synthesis_never_runs_on_calling_thread() -> None:
+    """BUG 3: sintesis label TIDAK boleh jalan di thread pemanggil feed.
+
+    Itulah bug yang terukur: piper mensintesis 1642 ms di thread capture
+    pipeline, FPS jatuh ke 26.9. Setelah warm-up, sintesis HARUS terjadi
+    di thread daemon, bukan di thread yang memanggil feed.
+    """
+    tts = SyntesisCatatThread()
+    speech = SpeechSink(tts)
+    speech.warm_up(["selamat pagi"])
+
+    speech.feed("selamat pagi")
+    _tunggu_thread_play(speech)
+
+    assert tts.spoken == ["selamat pagi"]
+    assert tts.played == ["selamat pagi"]
+    assert tts.thread_speak != threading.current_thread().name, (
+        "sintesis TIDAK boleh berjalan di thread capture (feed)"
+    )
+    assert tts.thread_speak == tts.thread_play, (
+        "sintesis dan pemutaran harus di thread daemon yang sama"
     )
 
 

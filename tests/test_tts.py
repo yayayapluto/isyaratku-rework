@@ -16,8 +16,13 @@ import wave
 from pathlib import Path
 
 import pytest
-
-from src.adapters.tts import DEFAULT_VOICE, PiperTts, TtsUnavailableError
+from src.adapters.tts import (
+    DEFAULT_VOICE,
+    DeviceTtsError,
+    PiperTts,
+    TtsUnavailableError,
+    match_cable_device,
+)
 from src.core.config import load_config
 
 LABEL = "terima kasih"
@@ -102,8 +107,132 @@ def test_voice_model_available_flag_false_when_missing(tts) -> None:
     assert tts.voice_model_available is False
 
 
-# -- klaim dengan artefak NYATA (models/tts/*.onnx) ---------------------
 
+# -- BUG 1: pemilih endpoint pemutar kabel ----------------------------------
+
+
+# Tabel hasil pengukuran nyata di mesin ini (sounddevice.query_devices()).
+# Dipakai untuk menguji pencocokan tanpa perangkat audio.
+TABEL_DEVICES = [
+    {"name": "Microsoft Sound Mapper - Input", "max_output_channels": 0},
+    {"name": "Speakers (Realtek(R) Audio)", "max_output_channels": 2},
+    {"name": "Speakers (Realtek(R) Audio)", "max_output_channels": 6},
+    {"name": "CABLE Output", "max_output_channels": 0},
+    {"name": "CABLE Input", "max_input_channels": 2, "max_output_channels": 0},
+    {"name": "Speakers (2- VB-Audio Virtual C)", "max_output_channels": 16},
+    {"name": "CABLE In 16 Ch", "max_output_channels": 16},
+    {"name": "Speakers (2- VB-Audio Virtual C)", "max_output_channels": 8},
+    {"name": "Speakers (2- VB-Audio Virtual C)", "max_output_channels": 8},
+    {"name": "Output (VB-Audio Point)", "max_output_channels": 16},
+    {"name": "CABLE Output (VB-Audio Point)", "max_output_channels": 0},
+]
+# Indeks 6: endpoint pemutar kabel pertama yang COCOK ("CABLE In 16 Ch").
+INDEKS_PUTAR_KABEL = 6
+
+
+def test_config_name_tidak_cocok_endpoint_mana_punya_sebelumnya() -> None:
+    """BUG 1: nama config "CABLE Output" HARUS cocok endpoint PEMUTAR.
+
+    Bug terukur: "CABLE Output" adalah endpoint capture (0 out), jadi
+    pencocokan literal mengembalikan None dan audio terdengar di speaker
+    lokal — aplikasi meeting menerima keheningan.
+    """
+    assert match_cable_device(TABEL_DEVICES, "CABLE Output") == INDEKS_PUTAR_KABEL
+
+
+def test_endpoint_capture_tidak_pernah_dipilih() -> None:
+    """meski namanya mengandung "cable", endpoint capture (0 out) disaring."""
+    for index in (3, 4, 10):
+        assert TABEL_DEVICES[index]["max_output_channels"] == 0
+        assert match_cable_device([TABEL_DEVICES[index]], "CABLE Output") is None
+
+
+def test_index_terkecil_dipilih_deterministik() -> None:
+    """Beberapa endpoint pemutar kabel: indeks terkecil, bukan yang acak."""
+    assert match_cable_device(TABEL_DEVICES, "cable") == INDEKS_PUTAR_KABEL
+    assert match_cable_device(TABEL_DEVICES, "CABLE Output") == INDEKS_PUTAR_KABEL
+
+
+def test_tanpa_kabel_tidak_ada_jatuh_ke_speaker_lokal() -> None:
+    """Tidak ada kabel: None, bukan 1 (speaker lokal). Gagal terang."""
+    lokal = [
+        {"name": "Speakers (Realtek(R) Audio)", "max_output_channels": 2},
+    ]
+    assert match_cable_device(lokal, "CABLE Output") is None
+
+
+def test_config_nama_lain_tetap_substring_literal() -> None:
+    """Config nama device lain (mis. headset) tetap substring literal."""
+    lokal = [
+        {"name": "Speakers (Realtek(R) Audio)", "max_output_channels": 2},
+        {"name": "Headset Earphone", "max_output_channels": 2},
+    ]
+    assert match_cable_device(lokal, "Headset") == 1
+    assert match_cable_device(lokal, "Headphone") is None
+
+
+def test_resolve_device_melempar_saat_kabel_tidak_ada(monkeypatch, tts) -> None:
+    """Kabel absen: DeviceTtsError, bukan sd.play(device=None) senyap."""
+    import sounddevice as sd
+
+    def _devices():
+        return [{"name": "Speakers (Realtek(R) Audio)", "max_output_channels": 2}]
+
+    monkeypatch.setattr(sd, "query_devices", _devices)
+    with pytest.raises(DeviceTtsError):
+        tts.resolve_device()
+
+
+def test_resolve_device_memakai_endpoint_pemutar_kabel(monkeypatch, tts) -> None:
+    """Kabel ada: endpoint pemutar kabel dipakai (indeks 5 di tabel)."""
+    import sounddevice as sd
+
+    monkeypatch.setattr(sd, "query_devices", lambda: TABEL_DEVICES)
+    assert tts.resolve_device() == INDEKS_PUTAR_KABEL
+    # Pencarian kedua memakai cache, indeksnya tidak berubah.
+    assert tts.resolve_device() == INDEKS_PUTAR_KABEL
+
+
+# -- BUG 3: warm-up pra-sintesis tanpa jaringan -----------------------------
+
+
+def test_warm_up_sintesis_semua_label(tts_dengan_voice) -> None:
+    """Pra-sintesis semua label: berkas WAV ada sebelum pipeline mulai."""
+    labels = ["air", "minum", ""]
+    siap = tts_dengan_voice.warm_up(labels)
+
+    assert [p.stem for p in siap] == ["air", "minum"]
+    assert tts_dengan_voice._palsu.calls == ["air", "minum"]
+    assert tts_dengan_voice.warm_up_errors == []
+
+
+def test_warm_up_label_gagal_tidak_stop_label_lain(tts_dengan_voice) -> None:
+    """Satu label gagal: sisanya tetap diproses, galat dicatat."""
+    asli = tts_dengan_voice._palsu.synthesize_wav
+
+    def _sintesis_rusak(teks, wav, *a, **k):
+        if teks == "rusak":
+            raise RuntimeError("sintesis gagal")
+        asli(teks, wav, *a, **k)
+
+    tts_dengan_voice._palsu.synthesize_wav = _sintesis_rusak
+    siap = tts_dengan_voice.warm_up(["rusak", "aman"])
+
+    assert [p.stem for p in siap] == ["aman"]
+    assert [label for label, _ in tts_dengan_voice.warm_up_errors] == ["rusak"]
+
+
+def test_warm_up_sink_tanpa_adapter_warm_up_tidak_galat() -> None:
+    """SpeechSink.warm_up pada adapter tanpa warm_up: diam, tidak galat."""
+    from src.adapters.tts import FakeTTS, SpeechSink
+
+    sink = SpeechSink(FakeTTS())
+    sink.warm_up(["air"])
+    assert sink.last_error is None
+    assert sink.sent == []
+
+
+# -- klaim dengan artefak NYATA (models/tts/*.onnx) ---------------------
 
 def _voice_nyata_ada() -> bool:
     return Path(DEFAULT_VOICE).is_file()

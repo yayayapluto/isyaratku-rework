@@ -179,24 +179,32 @@ def _obs_module_path(clsid: str) -> str | None:
 def _check_vb_cable() -> tuple[str, bool, str]:
     # Label baris pertama "VB-Cabel"; nama produk asli (mis. "CABLE Output")
     # tetap tampil di dalam pesan supaya cocok dengan sebutan di docs/ dan UI.
+    from src.adapters.tts import match_cable_device
+
     try:
         devices = sounddevice.query_devices()
-    except Exception as exc:  # audio backend tidak terinisialisasi
+    except Exception as exc:  # backend audio tidak terinisialisasi
         return (
             "VB-Cabel",
             False,
             f"VB-Cabel tidak bisa diperiksa ({exc}). Aplikasi meeting tidak akan "
             "menerima audio.",
         )
-    for device in devices:
-        if "cable" in device["name"].lower():
-            return (
-                "VB-Cabel",
-                True,
-                f"VB-Cabel terpasang ({device['name']}).",
-            )
+    # SAMA dengan pemutaran: endpoint PEMUTAR (max_output_channels > 0)
+    # yang dihitung. Endpoint capture bernama sama ("CABLE Output", 2 in
+    # / 0 out) tidak bisa memutar, tapi dulu membuat pemeriksaan ini
+    # hijau palsu.
+    device_index = match_cable_device(devices, "cable")
+    if device_index is not None:
+        nama = devices[device_index]["name"]
+        return (
+            "VB-Cabel",
+            True,
+            f"VB-Cabel terpasang ({nama}); pemutaran bisa masuk ke kabel.",
+        )
     return (
         "VB-Cabel",
         False,
-        "VB-Cabel belum terpasang. Aplikasi meeting tidak akan menerima audio.",
+        "Endpoint pemutar VB-Cabel belum terpasang. Aplikasi meeting tidak "
+        "akan menerima audio.",
     )
