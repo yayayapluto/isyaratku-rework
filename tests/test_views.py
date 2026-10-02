@@ -147,6 +147,13 @@ def test_finish_checks_wires_real_predictor_into_pipeline(qapp, monkeypatch) -> 
     monkeypatch.setattr(
         check_task, "run_checks_async", lambda index, done: done([("ok", True, "")])
     )
+    # Speech tidak relevan di sini; warm_up nyata akan mensintesis 33 label
+    # (menit-menit) dan tes ini mengunci wiring predictor, bukan audio.
+    monkeypatch.setattr(
+        check_task,
+        "_build_speech",
+        lambda config: type("S", (), {"feed": lambda self, label: None, "warm_up": lambda self, labels: []})(),
+    )
 
     view = DebugView(config())
     view._on_start()
@@ -156,6 +163,58 @@ def test_finish_checks_wires_real_predictor_into_pipeline(qapp, monkeypatch) -> 
     assert hasattr(started, "predict"), "bukan objek predictor"
     assert seen.get("extractor") is not None, "extractor wajib tetap ada"
     assert list(started.labels), "predictor asli memuat label model"
+
+    if view._pipeline is not None:
+        view._pipeline.stop()
+        view._pipeline = None
+    view.close()
+
+
+def test_finish_checks_warms_up_all_model_labels_before_pipeline(qapp, monkeypatch) -> None:
+    """Regresi slice 5: label model harus pra-sintesis sebelum Start sukses.
+
+    ``SpeechSink.feed`` tidak lagi mensintesis di thread capture, jadi tanpa
+    ``warm_up`` kata pertama tiap label membayar biaya sintesis di thread
+    pemutaran. Tes ini membuktikan ``finish_checks`` memanggil ``warm_up``
+    dengan DAFTAR LABEL PREDICTOR yang lengkap, sebelum Pipeline dibangun.
+    """
+    order: list[str] = []
+    warmed: list[str] = []
+    original = Pipeline.__init__
+
+    class RecordingSpeech:
+        def feed(self, label: str) -> None:
+            return None
+
+        def warm_up(self, labels) -> list:
+            order.append("warm_up")
+            warmed.extend(labels)
+            return []
+
+    def spy(self, *args, **kwargs):
+        order.append("pipeline")
+        seen_predictor.append(kwargs.get("predictor"))
+        original(self, *args, **kwargs)
+
+    seen_predictor: list = []
+    monkeypatch.setattr(Pipeline, "__init__", spy)
+    monkeypatch.setattr(
+        check_task, "run_checks_async", lambda index, done: done([("ok", True, "")])
+    )
+    monkeypatch.setattr(check_task, "_build_speech", lambda config: RecordingSpeech())
+
+    view = DebugView(config())
+    view._on_start()
+
+    predictor = seen_predictor[0]
+    assert warmed, "finish_checks tidak memanggil warm_up pada speech sink"
+    assert len(warmed) == len(predictor.labels), (
+        f"warm_up dapat {len(warmed)} label, model punya {len(predictor.labels)}"
+    )
+    assert warmed == list(predictor.labels), "daftar label warm_up berbeda dari model"
+    assert order.index("warm_up") < order.index("pipeline"), (
+        "warm_up harus terjadi sebelum Pipeline dibangun/di-start"
+    )
 
     if view._pipeline is not None:
         view._pipeline.stop()

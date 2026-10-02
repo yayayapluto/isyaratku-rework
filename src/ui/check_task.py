@@ -128,6 +128,12 @@ def finish_checks(view, results, details, renderer) -> object | None:
         # muncul sebagai galat pemeriksaan, bukan thread yang mati
         # sepinya di tengah demo. PiperTts ganti FakeTTS bila voice ada.
         speech = _build_speech(view._config)
+        # Pra-sintesis seluruh label model di fase pra-cek: feed() tidak lagi
+        # mensintesis di thread capture, jadi tanpa warm_up kata pertama
+        # tiap label membayar ~1,6 s sintesis di thread pemutaran. Gagalnya
+        # dicatat per label, tapi galat di sini tetap muncul sebagai galat
+        # pemeriksaan seperti extractor/predictor/speech di atas.
+        speech.warm_up(predictor.labels)
         pipeline = Pipeline(
             camera=camera,
             sink=sink,
