@@ -78,30 +78,52 @@ Paket lain yang terpasang tetapi tidak terkait proyek ini (mis. `python-telegram
 
 Perintah: `python -c "import sounddevice; print(sounddevice.query_devices())"`
 
-Output lengkap 44 baris. Baris yang mengandung `CABLE` atau `VB-Audio`:
+Output dikutip sebagian. Baris yang mengandung `CABLE`, `VB-Audio`, atau `Speakers` (nama dipotong seperti output aslinya):
 
 ```
-   2 CABLE Output (2- VB-Audio Virtu, MME (2 in, 0 out)
-   7 Speakers (2- VB-Audio Virtual C, MME (0 in, 0 out)
-   9 CABLE In 16 Ch (2- VB-Audio Vir, MME (0 in, 16 out)
-  12 CABLE Output (2- VB-Audio Virtual Cable), Windows DirectSound (2 in, 0 out)
-  17 Speakers (2- VB-Audio Virtual Cable), Windows DirectSound (0 in, 16 out)
-  19 CABLE In 16 Ch (2- VB-Audio Virtual Cable), Windows DirectSound (0 in, 16 out)
-  22 Speakers (2- VB-Audio Virtual Cable), WASAPI (0 in, 2 out)
-  24 CABLE In 16 Ch (2- VB-Audio Virtual Cable), WASAPI (0 in, 16 out)
-  25 CABLE Output (2- VB-Audio Virtual Cable), WASAPI (2 in, 0 out)
-  37 CABLE Output (VB-Audio Point), Windows WDM-KS (16 in, 0 out)
-  38 Output (VB-Audio Point), Windows WDM-KS (0 in, 16 out)
-  39 Input (VB-Audio Point), Windows WDM-KS (16 in, 0 out)
+   1 Speakers (Realtek(R) Audio), MME (0 in, 2 out)                  <- default output sounddevice #5
+   2 CABLE Output (2- VB-Audio Virtu, MME (2 in, 0 out)              <- CAPTURE (0 out)
+   5 Speakers (Realtek(R) Audio), Windows DirectSound (0 in, 6 out)  <- default output
+   7 Speakers (2- VB-Audio Virtual C, MME (0 in, 16 out)            <- PEMUTAR
+   9 CABLE In 16 Ch (2- VB-Audio Vir, MME (0 in, 16 out)             <- PEMUTAR
+  12 CABLE Output (2- VB-Audio Virtual Cable), Windows DirectSound (2 in, 0 out)   <- CAPTURE
+  17 Speakers (2- VB-Audio Virtual Cable), Windows DirectSound (0 in, 16 out)      <- PEMUTAR
+  19 CABLE In 16 Ch (2- VB-Audio Virtual Cable), Windows DirectSound (0 in, 16 out)<- PEMUTAR
+  22 Speakers (2- VB-Audio Virtual Cable), WASAPI (0 in, 2 out)      <- PEMUTAR
+  24 CABLE In 16 Ch (2- VB-Audio Virtual Cable), WASAPI (0 in, 2 out)              <- PEMUTAR
+  25 CABLE Output (2- VB-Audio Virtual Cable), WASAPI (2 in, 0 out)  <- CAPTURE
+  37 CABLE Output (VB-Audio Point), Windows WDM-KS (16 in, 0 out)    <- CAPTURE
+  38 Output (VB-Audio Point), Windows WDM-KS (0 in, 16 out)          <- PEMUTAR
+  39 Input (VB-Audio Point), Windows WDM-KS (16 in, 0 out)           <- CAPTURE
 ```
 
 Perangkat kunci yang penting untuk arsitektur slice 5:
 
-- Index 25 WASAPI, `CABLE Output (2- VB-Audio Virtual Cable)`, 2 in / 0 out: perangkat **pemutar** tempat aplikasi Python menulis audio. Ini penanda VB-Cable "CABLE Input" pada aplikasi meeting.
-- Index 24 WASAPI, `CABLE In 16 Ch (2- VB-Audio Virtual Cable)`, 16 out: perangkat **perekam** yang dipilih aplikasi meeting sebagai mikrofon.
-- Pasangan serupa tersedia di MME (index 2 dan 9) dan DirectSound (index 12 dan 19), plus channel WDM-KS (37 hingga 39).
+- Index 25 WASAPI, `CABLE Output (2- VB-Audio Virtual Cable)`, 2 in / **0 out** — endpoint **CAPTURE**, bukan pemutar (ini kesalahan catatan lama). Tidak bisa jadi tujuan `sd.play`.
+- Index **7** `Speakers (2- VB-Audio Virtual C`, MME (0 in, **16 out**) — endpoint **PEMUTAR** pertama yang cocok di mesin ini; inilah yang dipilih `match_cable_device()` untuk `tts.device_name = "CABLE Output"`.
+- Index 24 WASAPI, `CABLE In 16 Ch (2- VB-Audio Virtual Cable)`, 16 out: endpoint **PEMUTAR** juga; aplikasi meeting memakainya sebagai mikrofon (versi capture-nya: 9/19/24 hendaknya dibaca berdasarkan nama host API).
+
+Aturan pemilihan yang dipakai kode: `match_cable_device()` meminta `max_output_channels > 0` DAN nama mengandung `cable` (case-insensitive; keluarga kabel disetarakan ke `cable`, sehingga config `"CABLE Output"` tetap cocok). Bila tidak ada yang cocok: `DeviceTtsError` — gagal terang, bukan fallback senyap ke speaker lokal. Default sounddevice: output `5` (Speakers Realtek), input `1` (Microphone Array), bukan perangkat CABLE.
 
 Nama string "CABLE Input" tidak muncul persis di output `sounddevice`. Yang muncul: `CABLE Output` dan `CABLE In 16 Ch`.
+
+### Bukti terukur setelah perbaikan (2026-10-02, jalur asli aplikasi)
+
+Dipakai `PiperTts` asli (bukan piper dipanggil tangan) lewat `tts.play()`, direkam dari endpoint CAPTURE WASAPI index 25 (`CABLE Output (2- VB-Audio Virtual Cable)`, 2 in / 0 out) dengan `sounddevice.InputStream` 48 kHz, 2 kanal, sementara 8 label diputar ke index 9.
+
+| Ukuran | Hasil |
+| --- | --- |
+| Endpoint pemutar yang dipilih aplikasi | index **9** `CABLE In 16 Ch (2- VB-Audio Vir`, MME, 16 out |
+| RMS kabel (ch0 / ch1) | **0.104700 / 0.104694** |
+| Peak kabel | **0.985077** |
+| Sample bukan nol / total | **893216 / 3225600** (ch0), 893316 / 3225600 (ch1) |
+| Durasi audio di kabel | **18.61 s** (8 label) |
+| Latensi `play()` dingin (cache kosong) | **1628 ms** sintesis pertama (label "Perangkat") |
+| Latensi `play()` hangat (cache ada) | **0 ms** sintesis, 647–2326 ms total (read + putar) |
+
+Kesimpulan: audio aplikasi BENAR-BENAR sampai ke kabel dan bisa dibaca aplikasi meeting sebagai mikrofon. Jadi bug 1 (audio jatuh ke speaker lokal) sudah tertutup.
+
+Catatan bug 3: 1628 ms adalah biaya sintesis piper pertama. Karena itu pra-sintesis semua label dijalankan di fase pra-cek (`PiperTts.warm_up()` / `SpeechSink.warm_up()`), bukan di thread capture pipeline — sebelum itu, `SpeechSink.feed()` menyintesis di thread capture dan FPS video turun. Cache WAV per label ada di `models/tts/cache/` (sudah git-ignore, lihat konfigurasi `.gitignore`).
 
 Default sounddevice saat cek dijalankan: input `1` (Microphone Array), output `5` (Speakers Realtek). Bukan perangkat CABLE.
 

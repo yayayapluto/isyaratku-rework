@@ -43,13 +43,13 @@ Nama key adalah kontrak. Kode memakai nama ini persis. Tabel di bawah punya 19 b
 | `queue.max_size` | int | 4 | threading |
 | `pipeline.stop_timeout_seconds` | float | 2.0 | pipeline stop |
 | `pipeline.stats_window` | int | 240 | statistik FPS |
-| `tts.device_name` | str | "CABLE Output" | speech sink |
+| `tts.device_name` | str | "CABLE Output" | speech sink: nama keluarga kabel untuk memilih endpoint PEMUTAR (lihat catatan pencocokan) |
 | `tts.rate` | int | 160 | speech sink |
 | `tts.enabled` | bool | true | pemilih sink di UI: false memakai FakeTTS, video tetap jalan tanpa suara |
 | `tts.speak_cooldown_seconds` | float | 2.5 | cooldown per label di speech sink: mencegah ucapan menumpuk saat audio lebih panjang dari jeda label (beda dari `smoothing.cooldown_seconds` yang menentukan kapan label boleh keluar) |
 | `virtual_camera.backend` | str | "obs" | virtual camera sink (OBS Virtual Camera) |
 
-Pencocokan device TTS memakai substring, bukan persis: string 'CABLE Input' tidak ada di sounddevice; default 'CABLE Output' menunjuk endpoint tempat aplikasi menulis, dan aplikasi meeting memakai 'CABLE In 16 Ch' sebagai mikrofon. Bila beberapa endpoint cocok, pilih yang WASAPI.
+Pencocokan device TTS (`match_cable_device()` di `src/adapters/tts.py`, dipakai juga `checks._check_vb_cable()`): endpoint PEMUTAR dicari dengan dua syarat — nama mengandung string kabel dari `tts.device_name` (case-insensitive; untuk keluarga kabel pencariannya disetarakan ke "cable", jadi nama config "CABLE Output" tetap cocok) DAN `max_output_channels > 0`. Endpoint capture bernama mirip ("CABLE Output", 2 in / 0 out) disaring — dulu pencocokan literal mengembalikan `None`, audio jatuh ke speaker default lokal dan aplikasi meeting menerima keheningan. Bila beberapa cocok, indeks terkecil dipakai (deterministik). Tidak cocok apa pun: `DeviceTtsError`, tidak ada fallback ke speaker lokal.
 
 ## Alur pipeline
 
