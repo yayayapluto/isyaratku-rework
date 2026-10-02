@@ -8,17 +8,33 @@ pipeline di sini dipakai kedua view; yang tinggal di view hanya perbedaannya.
 
 from __future__ import annotations
 
+import logging
+import time
 from collections.abc import Callable
 
 import PySide6.QtCore as qc
 
 from ..adapters.camera import OpenCvCameraSource
 from ..adapters.checks import _SharedCameraSource, run_checks
-from ..adapters.virtual_camera import VirtualCameraSink
-from ..core.pipeline import Frame, Pipeline
 from ..adapters.landmark import MediaPipeLandmarkExtractor
 from ..adapters.predictor import TrainedPredictor
+from ..adapters.virtual_camera import VirtualCameraSink
+from ..core.pipeline import Frame, Pipeline
 from .render import draw_landmarks
+
+logger = logging.getLogger(__name__)
+
+
+class _Langkah:
+    """Timer satu tahap pemeriksaan; durasi ditulis saat tahap selesai."""
+
+    def __init__(self, nama: str) -> None:
+        self.nama = nama
+        self._mulai = time.monotonic()
+
+    def selesai(self) -> None:
+        logger.info("%s selesai dalam %.3f s", self.nama, time.monotonic() - self._mulai)
+
 
 # Sinyal yang masih hidup; dibuang setelah hasil diungkapkan atau setelah
 # penerima ditutup, supaya slot view tidak memanggil objek yang sudah musnah.
@@ -26,9 +42,15 @@ _ACTIVE: set[qc.QObject] = set()
 
 
 class CheckSignals(qc.QObject):
-    """Sinyal hasil pemeriksaan; satu objek per run, aman antar thread."""
+    """Sinyal hasil pemeriksaan; satu objek per run, aman antar thread.
 
-    finished = qc.Signal(list)
+    Tipe payload ``object``, bukan ``list``: ``Signal(list)`` mengonversi
+    subkelas ``CheckResults`` menjadi list polos dan ``.camera`` hilang —
+    ``finish_checks`` lalu membuka kamera KEDUA di GUI thread (terukur 27,5 s
+    freeze Start).
+    """
+
+    finished = qc.Signal(object)
 
 
 class CheckRunner(qc.QRunnable):
@@ -40,22 +62,30 @@ class CheckRunner(qc.QRunnable):
         self.signals = CheckSignals()
 
     def run(self) -> None:
+        logger.info("run_checks mulai (device_index=%s)", self._device_index)
+        t0 = time.monotonic()
         results = run_checks(self._device_index)
+        logger.info(
+            "run_checks selesai dalam %.3f s (%d hasil)",
+            time.monotonic() - t0,
+            len(results),
+        )
         try:
             self.signals.finished.emit(results)
         except RuntimeError:
             # View penerima sudah ditutup; tidak ada yang perlu diberi tahu.
             # Hasilnya ikut musnah, jadi kamera pra-cek dilepas di sini —
             # kalau tidak, device tetap tersandera sampai proses keluar.
+            logger.warning("sinyal run_checks gagal emit; view sudah ditutup")
             if hasattr(results, "release_camera"):
                 results.release_camera()
             _ACTIVE.discard(self.signals)
 
 
 def _make_slot(
-    on_done: Callable[[list], None], signals: CheckSignals
-) -> Callable[[list], None]:
-    def slot(results: list) -> None:
+    on_done: Callable[[object], None], signals: CheckSignals
+) -> Callable[[object], None]:
+    def slot(results: object) -> None:
         _ACTIVE.discard(signals)
         on_done(results)
 
@@ -89,7 +119,9 @@ def start_checks(view, details) -> bool:
     diubah di sini supaya kedua view tidak menyalin blok yang sama.
     """
     if view._pipeline is not None or view._check_task is not None:
+        logger.info("Start ditolak: pipeline/pemeriksaan masih hidup")
         return False
+    logger.info("Start ditekan; memulai pemeriksaan awal")
     view._set_status(*view.STATUS_CHECKING)
     view._start_button.setEnabled(False)
     if details is not None:
@@ -108,11 +140,16 @@ def finish_checks(view, results, details, renderer) -> object | None:
     jalur dipakai kedua view; perbedaan hanya ``details`` (None untuk view
     tanpa label rincian) dan ``renderer`` yang disuntikkan view.
     """
+    t0 = time.monotonic()
+    logger.info("finish_checks mulai (%d hasil pemeriksaan)", len(results))
     view._check_task = None
     view._start_button.setEnabled(True)
     if any(not ok for _, ok, _ in results):
+        gagal = [nama for nama, ok, _ in results if not ok]
+        logger.warning("pemeriksaan awal gagal: %s", ", ".join(gagal))
         _release_shared_camera(results)
         _report_failure(view, results, details)
+        logger.info("finish_checks selesai dalam %.3f s (galat)", time.monotonic() - t0)
         return None
     pipeline = None
     camera = None
@@ -121,33 +158,45 @@ def finish_checks(view, results, details, renderer) -> object | None:
         # memakan ~27 s di mesin ini (terukur), dan itu yang membuat Start
         # terasa menggantung. Hasil boleh berupa list biasa (test, atau
         # pemanggil lain) — di sana pemeriksaan kamera tidak membawa handle.
+        step = _Langkah("kamera pra-cek")
         camera = _take_shared_camera(results)
         if camera is not None:
             camera = _SharedCameraSource(camera)
         else:
             camera = OpenCvCameraSource(view._config)
+        step.selesai()
+        step = _Langkah("sink virtual camera")
         sink = VirtualCameraSink(
             view._config,
             view._config.camera_width,
             view._config.camera_height,
             view._config.camera_fps,
         )
+        step.selesai()
         # Extractornya dibuat sebelum pipeline jalan: kegagalan baca model harus
         # muncul sebagai galat pemeriksaan di sini, bukan thread mati sepinya.
+        step = _Langkah("extractor landmark")
         extractor = MediaPipeLandmarkExtractor(view._config)
+        step.selesai()
         # Predictor asli dibangun di sini juga: model hilang harus muncul
         # sebagai galat pemeriksaan, bukan demo yang diam tanpa teks.
+        step = _Langkah("predictor")
         predictor = TrainedPredictor(view._config)
+        step.selesai()
         # TTS: speech sink dibuat lebih dulu supaya VoiceModel hilang
         # muncul sebagai galat pemeriksaan, bukan thread yang mati
         # sepinya di tengah demo. PiperTts ganti FakeTTS bila voice ada.
+        step = _Langkah("speech sink")
         speech = _build_speech(view._config)
+        step.selesai()
         # Pra-sintesis seluruh label model di fase pra-cek: feed() tidak lagi
         # mensintesis di thread capture, jadi tanpa warm_up kata pertama
         # tiap label membayar ~1,6 s sintesis di thread pemutaran. Gagalnya
         # dicatat per label, tapi galat di sini tetap muncul sebagai galat
         # pemeriksaan seperti extractor/predictor/speech di atas.
+        step = _Langkah("speech warm_up")
         speech.warm_up(predictor.labels)
+        step.selesai()
         pipeline = Pipeline(
             camera=camera,
             sink=sink,
@@ -165,15 +214,18 @@ def finish_checks(view, results, details, renderer) -> object | None:
         # Pipeline gagal dibangun tapi kamera pra-cek tetap hidup: tanpa close
         # di sini device tersandera sampai proses keluar, dan Start berikutnya
         # gagal membuka kamera.
+        logger.warning("pipeline gagal dibangun: %r", exc)
         _close_quietly(camera)
         view._set_status(*view.STATUS_ERROR)
         if details is not None:
             details.setText(f"Pipeline gagal start: {exc}")
+        logger.info("finish_checks selesai dalam %.3f s (gagal bangun)", time.monotonic() - t0)
         return None
     view._pipeline = pipeline
     view._pipeline.start()
     view._timer.start()
     view._set_status(*view.STATUS_RUNNING)
+    logger.info("finish_checks selesai dalam %.3f s; pipeline berjalan", time.monotonic() - t0)
     return camera
 
 
@@ -217,12 +269,12 @@ def _release_shared_camera(results) -> None:
 def make_renderer(text: str, raw_sink, draw: Callable[[Frame, str], Frame]):
     """Renderer: salinan piksel mentah, lalu overlay teks, lalu landmark.
 
-    Pipeline memanggil renderer lebih dulu, baru ``on_frame``. Salinan di
-    ``on_frame`` karena itu selalu terlambat: overlay sudah menimpa ``frame.image``
-    in place. Salinannya harus terjadi di depan, di jalur renderer.
+    Pipeline memanggil renderer lebih dulu, baru ``on_frame``. Salinan piksel
+    di ``on_frame`` karena itu selalu terlambat: overlay sudah menimpa
+    ``frame.image`` in place. Salinannya harus terjadi di depan, di jalur renderer.
 
     Landmark digambar paling akhir supaya titik tetap terlihat; frame tanpa
-    hasil ekstraksi dilewati tanpa galat.
+    ekstraksi landmark dilewati tanpa galat.
     """
 
     def renderer(frame: Frame) -> Frame:

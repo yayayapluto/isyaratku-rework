@@ -306,3 +306,78 @@ def test_finish_checks_reuses_the_checks_camera(qapp, monkeypatch) -> None:
         view._pipeline.stop()
         view._pipeline = None
     view.close()
+
+def test_checks_signal_carries_results_camera_to_the_view(qapp, monkeypatch) -> None:
+    """Regresi freeze Start: hasil pemeriksaan harus sampai ke view utuh.
+
+    ``CheckSignals.finished`` semula bertipe ``list``, dan PySide6 mengonversi
+    ``CheckResults`` menjadi list polos di batas itu. ``.camera`` hilang, jadi
+    ``finish_checks`` membuka kamera KEDUA di GUI thread: terukur 27,5 s
+    membekukan Start (status masih "memeriksa...", pipeline belum ada).
+    """
+    from src.adapters.checks import CheckResults
+
+    class KameraRekam:
+        """Handle kamera tiruan; bukan hardware."""
+
+        def close(self) -> None:
+            pass
+
+        def release(self) -> None:
+            pass
+
+        def isOpened(self) -> bool:
+            return True
+
+        def getBackendName(self) -> str:
+            return "test"
+
+    class PabrikKamera:
+        """Membangun kamera baru = bug: itu pembukaan KEDUA di GUI thread."""
+
+        def __init__(self, *args, **kwargs) -> None:
+            raise AssertionError("Start membuka kamera kedua")
+
+    shared = KameraRekam()
+    results = CheckResults([("kamera", True, "siap")], camera=shared)
+
+    seen_camera: list[object] = []
+    original = Pipeline.__init__
+
+    def spy(self, *args, **kwargs):
+        seen_camera.append(kwargs.get("camera"))
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Pipeline, "__init__", spy)
+    monkeypatch.setattr(check_task, "OpenCvCameraSource", PabrikKamera)
+    monkeypatch.setattr(
+        check_task,
+        "_build_speech",
+        lambda config: type(
+            "S", (), {"feed": lambda self, label: None, "warm_up": lambda self, labels: []}
+        )(),
+    )
+
+    # Jalur aslinya dipakai: QThreadPool -> signal -> slot -> finish_checks.
+    view = DebugView(config())
+    monkeypatch.setattr(
+        check_task, "run_checks", lambda index: results, raising=False
+    )
+    view._on_start()
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and not seen_camera:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert seen_camera, "pipeline tidak dibangun oleh jalur sinyal"
+    assert seen_camera[0] is not None, "pipeline dibangun tanpa kamera"
+    # Handle pra-cek harus tetap objek yang sama: kalau sinyal mengonversinya
+    # menjadi list polos, kamera baru dibuka di sini.
+    assert getattr(seen_camera[0], "_capture", None) is shared, (
+        "handle kamera pra-cek hilang saat melewati sinyal pemeriksaan"
+    )
+
+    if view._pipeline is not None:
+        view._pipeline.stop()
+        view._pipeline = None
+    view.close()
