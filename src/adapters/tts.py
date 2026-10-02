@@ -114,9 +114,14 @@ class PiperTts:
         self._warm_errors: list[tuple[str, Exception]] = []
         # Satu gerbang untuk muat voice DAN buka/tutup stream audio.
         # BUG 2: PortAudio rusak (heap 0xc0000374) kalau onnxruntime
-        # mengalokasi saat stream sudah terbuka di thread lain; muat
+        # mengalokasikan saat stream sudah terbuka di thread lain; muat
         # voice dan alokasi stream audio tidak boleh berimpit.
-        self._audio_gate = threading.Lock()
+        # RLock, bukan Lock: warm_up() memegang gerbang ini lalu memanggil
+        # speak() -> _load() yang memegang gerbang yang SAMA. Lock biasa
+        # membuat itu self-deadlock (test_warm_up_sintesis_semua_label
+        # menggantung selamanya di _load()); RLock mengizinkan reentran
+        # thread yang sama dan tetap menutup race antar-thread.
+        self._audio_gate = threading.RLock()
 
     # -- properti -------------------------------------------------------
 
