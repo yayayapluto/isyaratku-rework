@@ -17,6 +17,7 @@ from ..adapters.camera import OpenCvCameraSource
 from ..adapters.virtual_camera import VirtualCameraSink
 from ..core.pipeline import Frame, Pipeline
 from ..adapters.landmark import MediaPipeLandmarkExtractor
+from ..adapters.predictor import TrainedPredictor
 from .render import draw_landmarks
 
 # Sinyal yang masih hidup; dibuang setelah hasil diungkapkan atau setelah
@@ -120,6 +121,9 @@ def finish_checks(view, results, details, renderer) -> object | None:
         # Extractornya dibuat sebelum pipeline jalan: kegagalan baca model harus
         # muncul sebagai galat pemeriksaan di sini, bukan thread mati sepinya.
         extractor = MediaPipeLandmarkExtractor(view._config)
+        # Predictor asli dibangun di sini juga: model hilang harus muncul
+        # sebagai galat pemeriksaan, bukan demo yang diam tanpa teks.
+        predictor = TrainedPredictor(view._config)
         # TTS: speech sink dibuat lebih dulu supaya VoiceModel hilang
         # muncul sebagai galat pemeriksaan, bukan thread yang mati
         # sepinya di tengah demo. PiperTts ganti FakeTTS bila voice ada.
@@ -132,6 +136,7 @@ def finish_checks(view, results, details, renderer) -> object | None:
             on_frame=view._on_frame,
             on_stats=view._on_stats,
             extractor=extractor,
+            predictor=predictor,
             # Tracker landmark hidup di view (punya labelnya), diisi per frame.
             on_landmarks=getattr(view, "_on_landmarks", None),
             on_label=speech.feed,

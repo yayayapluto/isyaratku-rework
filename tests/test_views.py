@@ -12,6 +12,7 @@ from src.adapters.camera import FakeCameraSource
 from src.adapters.virtual_camera import FakeVirtualCameraSink
 from src.core.config import AppConfig, load_config
 from src.core.pipeline import Frame, Pipeline
+from src.ui import check_task
 from src.ui.check_task import make_renderer
 from src.ui.debug_view import DebugView
 from src.ui.ready_view import ReadyView
@@ -123,3 +124,40 @@ def test_raw_copy_happens_before_overlay_mutates_the_frame(qapp) -> None:
         "panel mentah sama persis dengan panel overlay: salinan terjadi "
         "setelah draw_overlay menimpa frame.image"
     )
+
+
+def test_finish_checks_wires_real_predictor_into_pipeline(qapp, monkeypatch) -> None:
+    """Regresi bug 1: jalur Start harus memasang predictor asli.
+
+    Sebelum perbaikan ``Pipeline`` dibangun tanpa ``predictor=``, jadi
+    ``_run_predictor`` tidak pernah jalan dan demo tidak menghasilkan teks
+    maupun suara. Constructor ``Pipeline`` ditahan di sini supaya pembuktian
+    hanya bergantung pada argumen yang dikirim, bukan pada tanda tangan
+    ``Pipeline``.
+    """
+    seen: dict[str, object] = {}
+    original = Pipeline.__init__
+
+    def spy(self, *args, **kwargs):
+        seen["predictor"] = kwargs.get("predictor")
+        seen["extractor"] = kwargs.get("extractor")
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Pipeline, "__init__", spy)
+    monkeypatch.setattr(
+        check_task, "run_checks_async", lambda index, done: done([("ok", True, "")])
+    )
+
+    view = DebugView(config())
+    view._on_start()
+
+    started = seen.get("predictor")
+    assert started is not None, "Pipeline dibangun tanpa predictor"
+    assert hasattr(started, "predict"), "bukan objek predictor"
+    assert seen.get("extractor") is not None, "extractor wajib tetap ada"
+    assert list(started.labels), "predictor asli memuat label model"
+
+    if view._pipeline is not None:
+        view._pipeline.stop()
+        view._pipeline = None
+    view.close()
