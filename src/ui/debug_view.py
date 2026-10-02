@@ -276,10 +276,17 @@ def _paint(panel: qw.QFrame, image: np.ndarray) -> None:
     # lalu QLabel memotong sisanya. Tanpa ini frame tampil mengecil di dalam
     # box (pillarbox). Kamera tidak dicerminakan: capture (src/adapters/
     # camera.py) tidak pernah flip, jadi gambar tampil apa adanya.
-    screen.setScaledContents(True)
+    # contentsRect(), bukan size(): margin/frame QLabel ikut dihitung.
+    # Tanpa setScaledContents: pixmap diskalakan TEPAT SEKALI di sini, dan
+    # QLabel hanya memotong kelebihannya. Jangan pasang setScaledContents —
+    # itu me-resample ulang pixmap yang sudah diskalakan (stretch ganda).
+    target = screen.contentsRect().size()
+    if target.isEmpty():
+        # Frame pertama sebelum window punya geometri: hasil non-null dulu.
+        target = screen.size()
     screen.setPixmap(
         pixmap_bgr(image).scaled(
-            screen.size(),
+            target,
             qc.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
             qc.Qt.TransformationMode.SmoothTransformation,
         )

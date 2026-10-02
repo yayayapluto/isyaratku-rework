@@ -152,10 +152,18 @@ class ReadyView(qw.QMainWindow):
         # memperluas, sisanya dipotong QLabel. Tanpa ini frame tampil
         # mengecil di dalam box (pillarbox). Kamera tidak dicerminkan:
         # capture tidak pernah flip, gambar tampil apa adanya.
-        self._preview.setScaledContents(True)
+        # contentsRect(), bukan size(): margin/frame QLabel ikut dihitung.
+        # Tanpa setScaledContents: pixmap diskalakan TEPAT SEKALI di sini,
+        # QLabel hanya memotong kelebihannya. Jangan pasang
+        # setScaledContents — itu me-resample ulang pixmap yang sudah
+        # diskalakan (stretch ganda).
+        target = self._preview.contentsRect().size()
+        if target.isEmpty():
+            # Frame pertama sebelum window punya geometri: hasil non-null.
+            target = self._preview.size()
         self._preview.setPixmap(
             pixmap_bgr(frame.image).scaled(
-                self._preview.size(),
+                target,
                 qc.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                 qc.Qt.TransformationMode.SmoothTransformation,
             )
