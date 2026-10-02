@@ -21,8 +21,14 @@ from src.core.landmarks import (
     COORD_COUNT,
     HAND_LANDMARK_COUNT,
     POSE_LANDMARK_COUNT,
+    HandLandmarks,
+    LandmarkFrame,
+    PoseLandmarks,
     all_missing,
     incomplete_percentage,
+    is_complete,
+    missing_hand,
+    missing_pose,
 )
 from src.core.pipeline import Pipeline
 
@@ -115,6 +121,27 @@ class _IndexHolder:
         self.index = index
 
 
+def _present_hand() -> HandLandmarks:
+    """Satu tangan dengan koordinat nyata (bukan zero-fill)."""
+    coords = np.zeros((HAND_LANDMARK_COUNT, COORD_COUNT), dtype=np.float32)
+    coords[0] = (0.45, 0.35, 0.0)
+    return HandLandmarks(coords=coords, present=True)
+
+
+def _frame(left, right, present_pose: bool) -> LandmarkFrame:
+    """Susun LandmarkFrame sintetis; ``complete`` mengikuti aturan baru."""
+    pose = (
+        PoseLandmarks(
+            coords=np.zeros((POSE_LANDMARK_COUNT, COORD_COUNT), dtype=np.float32),
+            present=True,
+        )
+        if present_pose
+        else missing_pose()
+    )
+    hands = (left, right)
+    return LandmarkFrame(hands=hands, pose=pose, complete=is_complete(hands, pose))
+
+
 # -- 3. persentase frame tidak lengkap ----------------------------------------
 def test_incomplete_percentage_counts_only_incomplete_frames() -> None:
     """0 dari 0 = 0%; campuran 2 dari 4 = 50%; semua lengkap = 0%."""
@@ -127,6 +154,45 @@ def test_incomplete_percentage_counts_only_incomplete_frames() -> None:
     assert incomplete_percentage(frames) == pytest.approx(expected)
     complete = [f for f in frames if f.complete]
     assert incomplete_percentage(complete) == 0.0
+
+
+def test_complete_means_one_hand_plus_pose_not_both_hands() -> None:
+    """Lengkap = minimal satu tangan DAN pose, BUKAN kedua tangan.
+
+    Definisi lama "kedua tangan" membuat angka tidak lengkap selalu 100% di
+    video nyata: MediaPipe menemukan satu tangan hampir selalu, dua tangan
+    hampir tidak pernah. Aturan baru diuji dengan sintetis yang sama:
+    satu tangan tetap lengkap, tanpa tangan tetap tidak lengkap, pose hilang
+    tetap tidak lengkap.
+    """
+    pose = missing_pose()
+    both = _frame(_present_hand(), _present_hand(), present_pose=True)
+    one = _frame(missing_hand(), _present_hand(), present_pose=True)
+    none = _frame(missing_hand(), missing_hand(), present_pose=False)
+
+    assert is_complete(both.hands, both.pose) is True
+    assert is_complete(one.hands, one.pose) is True, "satu tangan tetap berguna"
+    assert is_complete(none.hands, none.pose) is False, "tanpa tangan tidak berguna"
+    assert is_complete(both.hands, pose) is False, "tanpa pose tidak lengkap"
+
+
+def test_fake_single_hand_frame_counts_as_complete() -> None:
+    """Fake satu tangan (fase 1) harus lengkap, bukan tidak lengkap."""
+    extractor = FakeLandmarkExtractor(config())
+    frame = extractor.extract(_IndexHolder(1))
+    present = [hand for hand in frame.hands if hand.present]
+    assert len(present) == 1
+    assert frame.complete is True
+    assert incomplete_percentage([frame]) == 0.0
+
+
+def test_zero_hand_frame_stays_incomplete() -> None:
+    """Frame tanpa tangan sama sekali tetap tidak lengkap: nol deteksi."""
+    extractor = FakeLandmarkExtractor(config())
+    frame = extractor.extract(_IndexHolder(0))
+    assert all(not hand.present for hand in frame.hands)
+    assert frame.complete is False
+    assert incomplete_percentage([frame]) == 100.0
 
 
 # -- 4. tangan tak terlihat: tidak raise, pipeline tetap jalan ----------------

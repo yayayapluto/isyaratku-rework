@@ -26,6 +26,7 @@ from src.core.landmarks import (
     LandmarkFrame,
     PoseLandmarks,
     all_missing,
+    is_complete,
     missing_hand,
 )
 
@@ -116,7 +117,7 @@ def gesture_frame(
         present=right_hand_present,
     )
     hands = (left, right if right_hand_present else missing_hand())
-    complete = all(hand.present for hand in hands) and pose.present
+    complete = is_complete(hands, pose)
     return LandmarkFrame(hands=hands, pose=pose, complete=complete)
 
 

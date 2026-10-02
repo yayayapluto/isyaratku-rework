@@ -59,13 +59,26 @@ def missing_pose() -> PoseLandmarks:
 class LandmarkFrame:
     """Landmark satu frame beserta catatan kelengkapan per frame.
 
-    ``complete`` adalah True hanya bila kedua tangan DAN pose terdeteksi;
-    inilah yang dihitung menjadi persentase frame tidak lengkap.
+    ``complete`` berarti frame membawa data isyarat yang berguna: minimal
+    satu tangan terdeteksi DAN pose terdeteksi (lihat ``is_complete``).
+    Inilah yang dihitung menjadi persentase frame tidak lengkap.
     """
 
     hands: tuple[HandLandmarks, HandLandmarks]
     pose: PoseLandmarks
     complete: bool
+
+
+def is_complete(hands: tuple[HandLandmarks, ...], pose: PoseLandmarks) -> bool:
+    """Lengkap = minimal satu tangan DAN pose terdeteksi.
+
+    Definisi lama "kedua tangan" membuat angka tidak lengkap selalu 100% di
+    video nyata: MediaPipe menemukan satu tangan hampir selalu, dua tangan
+    hampir tidak pernah. Frame satu tangan tetap membawa data isyarat yang
+    berguna; frame tanpa tangan sama sekali yang tidak. Definisi ini jadi
+    satu-satunya sumber aturan, dipakai adapter dan fake.
+    """
+    return any(hand.present for hand in hands) and pose.present
 
 
 def all_missing() -> LandmarkFrame:

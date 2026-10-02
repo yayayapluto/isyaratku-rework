@@ -48,6 +48,7 @@ from ..core.landmarks import (
     HandLandmarks,
     LandmarkFrame,
     PoseLandmarks,
+    is_complete,
     missing_hand,
     missing_pose,
 )
@@ -112,7 +113,7 @@ class MediaPipeLandmarkExtractor:
             if pose_result.pose_landmarks
             else missing_pose()
         )
-        complete = all(hand.present for hand in hands) and pose.present
+        complete = is_complete(hands, pose)
         return LandmarkFrame(hands=tuple(hands), pose=pose, complete=complete)
 
     def close(self) -> None:
@@ -165,7 +166,7 @@ class FakeLandmarkExtractor:
                 hands = tuple(missing_hand() for _ in range(self._num_hands))
             elif phase == 1 and self._num_hands > 1:
                 hands = (hands[0], missing_hand())
-        complete = all(hand.present for hand in hands) and pose.present
+        complete = is_complete(hands, pose)
         return LandmarkFrame(hands=hands, pose=pose, complete=complete)
 
     def close(self) -> None:
