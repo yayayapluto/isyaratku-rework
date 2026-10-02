@@ -5,9 +5,12 @@ Kontrak:
 - ``speak(label) -> Path`` — sintesis satu kata/kalimat ke WAV dan balas
   path-nya. Pemanggilan kedua untuk label yang sama TIDAK mensintesis
   ulang: berkas cache dipakai apa adanya.
+- ``warm_up(labels) -> list[Path]`` — pra-sintesis semua label SEBELUM
+  frame mengalir (dipanggil fase pra-cek GUI), sehingga ``play()``
+  hanya membaca berkas.
 - ``play(label) -> float`` — putar audio lewat sounddevice ke endpoint
-  VB-Cabel (``config.tts_device_name``) dan balik durasi audio dalam
-  detik.
+  pemutar VB-Cabel (``config.tts_device_name``) dan balik durasi audio
+  dalam detik.
 
 Kenapa library, bukan subprocess ``python -m piper``: satu proses
 runtime memanggil banyak kata; subprocess membayar startup interpreter
@@ -19,6 +22,11 @@ Kenapa TIDAK ada fallback pyttsx3: di mesin ini pyttsx3 hanya punya
 suara Inggris. Fallback diam-diam akan mengucapkan kata Indonesia dengan
 pelafalan Inggris tanpa siapa pun menyadarinya. Voice Indonesia tidak
 ada berarti galat jelas, bukan pengganti senyap.
+
+Pencocokan endpoint audio VB-Cabel lihat ``match_cable_device()``:
+nama perangkat SAMA ("CABLE Output") adalah endpoint CAPTURE
+(``max_output_channels == 0``), jadi cocokkan nama kabel pada endpoint
+yang output-nya lebih besar dari nol.
 """
 
 from __future__ import annotations
@@ -46,6 +54,44 @@ class TtsUnavailableError(RuntimeError):
     """Voice TTS tidak tersedia. Sikap: gagal terang, bukan fallback senyap."""
 
 
+class DeviceTtsError(RuntimeError):
+    """Tidak ada endpoint audio yang bisa memutar ke VB-Cabel.
+
+    Hanya ini yang boleh menggantikan pemutaran diam-diam ke speaker
+    lokal: user WAJIB mendengar masalahnya, bukan suara yang hilang.
+    """
+
+
+def match_cable_device(devices: list[dict], want: str) -> int | None:
+    """Indeks endpoint PEMUTAR kabel dari daftar ``sounddevice.query_devices()``.
+
+    Aturan, dipakai juga ``checks._check_vb_cable()`` supaya kedua modul
+    sepakat soal "VB-Cabel hadir":
+
+    1. ``max_output_channels > 0`` — endpoint capture tidak memutar,
+       disaring. Jebakan yang terukur: nama "CABLE Output" adalah
+       endpoint CAPTURE (2 in / 0 out); difilter literal dia tidak cocok
+       dengan endpoint pemutar mana pun dan audio jatuh ke speaker lokal
+       (bug 1).
+    2. nama mengandung ``want``. Untuk keluarga VB-Cabel (``want``
+       mengandung "cable") pencarian memakai "cable", bukan literal
+       "cable output", supaya endpoint pemutar mana pun dari kabel ikut
+       terpilih; ``want`` lain tetap substring literal.
+    3. beberapa yang cocok: indeks TERKECIL dipilih (deterministik).
+
+    Tidak cocok apa pun: ``None`` — pemanggil wajib memutuskan gagalan,
+    bukan memakai device default.
+    """
+    cari = want.lower()
+    if "cable" in cari:
+        cari = "cable"
+    for index, device in enumerate(devices):
+        name = str(device.get("name", "")).lower()
+        if cari in name and int(device.get("max_output_channels", 0)) > 0:
+            return index
+    return None
+
+
 class PiperTts:
     """Sintesis + cache WAV per label + pemutaran ke VB-Cabel."""
 
@@ -61,7 +107,16 @@ class PiperTts:
             Path(cache_dir) if cache_dir is not None else self._voice_path.parent / "cache"
         )
         self._voice: PiperVoice | None = None
+        #: Indeks endpoint pemutar kabel, diisi saat pertama dibutuhkan.
+        self._device: int | None = None
         self._lock = threading.Lock()
+        #: (label, galat) dari ``warm_up`` untuk laporan GUI.
+        self._warm_errors: list[tuple[str, Exception]] = []
+        # Satu gerbang untuk muat voice DAN buka/tutup stream audio.
+        # BUG 2: PortAudio rusak (heap 0xc0000374) kalau onnxruntime
+        # mengalokasi saat stream sudah terbuka di thread lain; muat
+        # voice dan alokasi stream audio tidak boleh berimpit.
+        self._audio_gate = threading.Lock()
 
     # -- properti -------------------------------------------------------
 
@@ -81,22 +136,83 @@ class PiperTts:
         return self._voice_path.is_file()
 
     # -- sintesis -------------------------------------------------------
-
     def _load(self) -> PiperVoice:
-        """Muat voice sekali; panggilan berikutnya memakai instance yang sama."""
-        if self._voice is None:
-            if not self.voice_model_available:
-                raise TtsUnavailableError(
-                    f"Voice TTS tidak ditemukan di {self._voice_path}. "
-                    "Unduh id_ID-news_tts-medium dari rhasspy/piper-voices "
-                    "(lihat docs/environment.md); aplikasi tidak memakai "
-                    "suara Inggris sebagai pengganti."
+        """Muat voice sekali; panggilan berikutnya memakai instance yang sama.
+
+        Pemuatan memegang gerbang audio yang sama dengan ``play()``: BUG 2
+        (PortAudio heap 0xc0000374) muncul saat alokasi onnxruntime
+        berimpit dengan stream audio yang sedang terbuka, jadi urutannya
+        diserialisasi, bukan dibiarkan balapan.
+        """
+        if self._voice is not None:
+            return self._voice
+        with self._audio_gate:
+            if self._voice is None:
+                if not self.voice_model_available:
+                    raise TtsUnavailableError(
+                        f"Voice TTS tidak ditemukan di {self._voice_path}. "
+                        "Unduh id_ID-news_tts-medium dari rhasspy/piper-voices "
+                        "(lihat docs/environment.md); aplikasi tidak memakai "
+                        "suara Inggris sebagai pengganti."
+                    )
+                self._voice = PiperVoice.load(self._voice_path)
+            return self._voice
+
+    def warm_up(self, labels) -> list[Path]:
+        """Pra-sintesis WAV untuk semua ``labels``; pemutaran tinggal baca berkas.
+
+        Dipanggil SATU KALI di fase pra-cek (GUI, ``check_task.finish_checks``),
+        bukan di thread capture. Label yang gagal disintesis dibuang dari
+        hasil, bukan melempar supaya satu label rusak tidak menggagalkan
+        startup — kegagalannya tercatat lewat ``warm_up_errors``.
+        """
+        siap: list[Path] = []
+        with self._audio_gate:
+            for label in labels:
+                if not label or not label.strip():
+                    continue
+                try:
+                    siap.append(self.speak(label))
+                except Exception as exc:  # satu label rusak tak boleh stop start
+                    self._warm_errors.append((label, exc))
+                    print(
+                        f"Pra-sintesis '{label}' gagal: {exc!r}", file=sys.stderr
+                    )
+        return siap
+
+    @property
+    def warm_up_errors(self) -> list[tuple[str, Exception]]:
+        """Label yang gagal pra-sintesis terakhir, urut waktu."""
+        return list(self._warm_errors)
+
+    @property
+    def audio_device(self) -> int | None:
+        """Indeks endpoint pemutar kabel; ``None`` kalau pencocokan gagal."""
+        return self._device
+
+    def resolve_device(self) -> int:
+        """Indeks endpoint pemutar kabel; lempar ``DeviceTtsError`` kalau tak ada.
+
+        Hasil di-cache supaya umur runtime tidak berubah indeks saat
+        perangkat dilepas. Gagal TERANG sengaja: device default (speaker
+        lokal) membuat aplikasi meeting menerima keheningan tanpa siapa
+        pun tahu.
+        """
+        if self._device is None:
+            found = self._resolve_device()
+            if found is None:
+                raise DeviceTtsError(
+                    "Tidak ada endpoint pemutar VB-Cabel yang cocok dengan "
+                    f"'{self._config.tts_device_name}'. "
+                    "Pasang VB-Cable, atau ubah tts.device_name; aplikasi tidak "
+                    "memutar ke speaker lokal karena aplikasi meeting tidak "
+                    "menerima audio dari sana."
                 )
-            self._voice = PiperVoice.load(self._voice_path)
-        return self._voice
+            self._device = found
+        return self._device
 
     def _cache_path(self, label: str) -> Path:
-        """Nama berkas deterministik dari label; label sama -> berkas sama."""
+        """Nama berkas cache deterministik dari label; label sama -> berkas sama."""
         return self._cache_dir / f"{label}.wav"
 
     def speak(self, label: str) -> Path:
@@ -116,12 +232,13 @@ class PiperTts:
                     voice.synthesize_wav(label, wav)
         return target
 
-    # -- pemutaran ------------------------------------------------------
-
     def play(self, label: str) -> float:
         """Putar WAV label ke device audio; balik durasi dalam detik.
 
         Durasi diukur dari berkas WAV, bukan dari waktu proses.
+        Pemutaran memegang gerbang audio supaya tidak berimpit dengan
+        muat voice (lihat ``_load``), dan menyilangkan alokasi/pelepasan
+        stream ke thread yang sama (BUG 2: PortAudio heap 0xc0000374).
         """
         import numpy as np
         import sounddevice as sd
@@ -134,30 +251,29 @@ class PiperTts:
         if not frames:
             return 0.0
         audio = np.frombuffer(frames, dtype=np.int16).reshape(-1, channels)
-        sd.play(audio, rate, device=self._resolve_device())
-        sd.wait()
+        device = self.resolve_device()
+        with self._audio_gate:
+            sd.play(audio, rate, device=device)
+            sd.wait()
         return len(audio) / rate
 
     def _resolve_device(self) -> int | None:
         """Indeks device sounddevice yang namanya cocok dengan config.
 
-        Pencocokan substring, bukan persis, mengikuti aturan yang sama
-        dengan ``checks._check_vb_cable()`` (lihat docs/architecture.md).
-        ``None`` berarti device default — hanya dipakai kalau config
-        tidak cocok dengan endpoint mana pun.
+        Pencocokan memakai ``match_cable_device()``: substring nama dari
+        config WAJIB cocok dengan endpoint PEMUTAR (``max_output_channels >
+        0``). Endpoint capture bernama sama ("CABLE Output", 2 in / 0 out)
+        tidak bisa dipakai memutar — itulah bug 1, ketika ini mengembalikan
+        ``None`` dan audio terdengar di speaker lokal, bukan di kabel.
         """
         import sounddevice as sd
 
-        want = self._config.tts_device_name.lower()
+        want = self._config.tts_device_name
         try:
             devices = sd.query_devices()
         except Exception:  # backend audio tidak terinisialisasi
             return None
-        for index, device in enumerate(devices):
-            if want in device["name"].lower() and device["max_output_channels"] > 0:
-                return index
-
-        return None
+        return match_cable_device(devices, want)
 
 
 #: Label model -> kalimat yang enak didengar. Kosong dengan sengaja:
@@ -227,15 +343,15 @@ class _Jam:
     def __call__(self) -> float:
         return time.monotonic()
 
-
 class SpeechSink:
-    """Jembatan label stabil -> pra-sintesis WAV -> pemutaran.
+    """Jembatan label stabil -> pemutaran.
 
-    ``feed(label)`` aman dipanggil dari callback pipeline: sintesis
-    dijalankan lebih dulu (adapter me-cache per label), lalu pemutaran
-    dikirim ke thread terpisah supaya pemanggil TIDAK terhenti menunggu
-    audio lebih dari satu detik. Kegagalan tidak didiamkan:
-    ``last_error`` menyimpan galat terakhir dan streaming tetap jalan.
+    ``feed(label)`` dipanggil dari callback pipeline (thread capture) dan
+    TIDAK boleh menyintesis di sana. Sintesis piper pertama untuk satu
+    kata termuat 1.64 s terukur; di 26.9 FPS itu menahan thread capture
+    dan pipeline video tersendat. Semua WAV dipra-sintesis lebih dulu
+    dengan ``warm_up()`` (dipanggil GUI saat pra-cek), jadi ``feed()``
+    hanya membaca cache dan mengirim pemutaran ke thread lain.
 
     Kebijakan duduk di sini, bukan di adapter:
 
@@ -246,6 +362,12 @@ class SpeechSink:
     - **Senyap untuk "tidak ada isyarat"**: label sah untuk overlay dan
       log debug, tapi tidak untuk didengar. Guard di sink, bukan di
       ``ucapkan()``, supaya teks overlay tidak ikut berubah.
+    - **Pra-sintesis di THREAD PEMUTARAN, bukan di thread capture**:
+      ``feed()`` hanya catat cooldown dan spawn thread daemon. Label
+      yang cache-nya sudah dingin tetap disintesis, tapi di thread itu,
+      bukan menahan capture (kulit bug 3: 1642 ms per kata pertama).
+      Kegagalan tidak didiamkan: ``last_error`` menyimpan galat
+      terakhir dan streaming tetap jalan.
     """
 
     def __init__(
@@ -268,10 +390,39 @@ class SpeechSink:
             self._cooldown = 0.0
         self._clock = clock if clock is not None else _Jam()
         self._lock = threading.Lock()
+        #: Thread pemutaran yang masih hidup; dipakai uji dan ``join``.
+        self._threads: list[threading.Thread] = []
         self._spoken_at: dict[str, float] = {}
 
+    def warm_up(self, labels) -> None:
+        """Pra-sintesis semua ``labels`` SEBELUM pipeline mulai.
+
+        Dipanggil dari fase pra-cek GUI (``check_task.finish_checks``) yang
+        tidak berada di thread capture. Delegasi ke adapter bila dia punya
+        ``warm_up``; fake/adapter tanpa warm-up dilewati karena memang
+        tidak mensintesis.
+        """
+        warm = getattr(self._tts, "warm_up", None)
+        if warm is None:
+            return
+        try:
+            warm(labels)
+        except Exception as exc:
+            self._record(exc)
+
     def feed(self, label: str) -> None:
-        """Satu label stabil masuk. Return cepat; audio jalan di thread lain."""
+        """Satu label stabil masuk. Audio diproses di thread lain, bukan di sini.
+
+        BUG 3: seringnya label stabil berubah membuat ``speak()`` piper
+        terpanggil dari thread capture pipeline; sintesis pertama terukur
+        1642 ms (26.9 FPS turun). Karena itu pra-sintesis dan pemutaran
+        dibungkus SATU thread daemon: thread capture hanya mencatat
+        cooldown dan langsung kembali. Cache yang sudah dibangkitkan
+        ``warm_up()`` membuat thread ini berbeban baca berkas saja.
+
+        Cache masih dingin (label baru): sintesis tetap terjadi, tapi
+        tidak memblokir capture — thread itu menunggu WAV-nya sendiri.
+        """
         if not self.enabled:
             return
         if label == NO_SIGN_LABEL:
@@ -284,14 +435,16 @@ class SpeechSink:
                 return
             self._spoken_at[spoken] = now
             self.sent.append(label)
-        try:
-            self._tts.speak(spoken)
-        except Exception as exc:
-            self._record(exc)
-            return
-        threading.Thread(
-            target=self._play, args=(spoken,), daemon=True
-        ).start()
+        self._spawn_play(spoken)
+
+    def _spawn_play(self, label: str) -> None:
+        """Jalankan pra-sintesis plus pemutaran di thread daemon baru."""
+        thread = threading.Thread(target=self._play, args=(label,), daemon=True)
+        # Dipakai tes untuk menunggu thread pemutaran selesai (tanpa sleep
+        # bebas yang membuat uji goyah).
+        with self._lock:
+            self._threads.append(thread)
+        thread.start()
 
     def reset(self) -> None:
         """Buang catatan cooldown; pipeline start ulang memakainya."""
@@ -300,9 +453,17 @@ class SpeechSink:
 
     def _play(self, label: str) -> None:
         try:
+            # Pra-sintesis di dalam thread pemutaran: tidak pernah di
+            # thread capture pipeline.
+            self._tts.speak(label)
             self._tts.play(label)
         except Exception as exc:
             self._record(exc)
+        finally:
+            with self._lock:
+                self._threads = [
+                    t for t in self._threads if t is not threading.current_thread()
+                ]
 
     def _record(self, exc: Exception) -> None:
         self.last_error = exc
