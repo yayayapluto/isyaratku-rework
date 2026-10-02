@@ -125,6 +125,19 @@ Kesimpulan: audio aplikasi BENAR-BENAR sampai ke kabel dan bisa dibaca aplikasi 
 
 Catatan bug 3: 1628 ms adalah biaya sintesis piper pertama. Karena itu pra-sintesis semua label dijalankan di fase pra-cek (`PiperTts.warm_up()` / `SpeechSink.warm_up()`), bukan di thread capture pipeline — sebelum itu, `SpeechSink.feed()` menyintesis di thread capture dan FPS video turun. Cache WAV per label ada di `models/tts/cache/` (sudah git-ignore, lihat konfigurasi `.gitignore`).
 
+### Pre-flight cache TTS (perintah hari demo)
+
+Cache WAV per kata (`models/tts/cache/`) tidak masuk git (`.gitignore` memuat `models/tts/`: voice 62.95 MB + 33 WAV, dan Git LFS ditolak karena clone tanpa `git lfs install` menghasilkan pointer sehingga demo rusak senyap). Regenerasi dengan satu perintah, bukan tooling baru:
+
+```
+python -m training.setup_voice --warm-cache    # pra-sintesis semua label (diperlukan sebelum Start)
+python -m training.setup_voice --check         # cek voice .onnx ada/tidak, tanpa jaringan
+```
+
+`python -m training.setup_voice` (tanpa flag) juga: unduh voice bila belum ada, lalu memanaskan cache.
+
+Ukuran terukur 2026-10-02: 12/33 label ter-cache menjadi **33/33**, 0 gagal, **3.18 s wall** untuk sintesis dari cache kosong. Rekomendasi: tetap jangan di-commit (biaya clone besar, regenerasi murah); jalankan `--warm-cache` sekali saat setup di komputer demo. Warm-up yang dipasang di `finish_checks` (GUI) menutup sisa jeda bila cache terlewat — hanya saja terjadi saat Start, dan itu yang ingin dihindari saat dinilai.
+
 Default sounddevice saat cek dijalankan: input `1` (Microphone Array), output `5` (Speakers Realtek). Bukan perangkat CABLE.
 
 Konfirmasi lewat CIM, bukan registry. Perintah:

@@ -75,6 +75,8 @@ Tahap slicing untuk huruf dan angka tidak dikunci tanggal. Urutan: kata dulu, la
   - [x] Tidak ada TTS cloud dalam jalur runtime. (piper-tts memuat `.onnx` dari disk; `src/adapters/tts.py` tidak punya panggilan jaringan sama sekali, dan UNDUH voice hanya setup sekali `python -m training.setup_voice`, bukan jalur runtime.)
   - [ ] Latensi prediksi terukur (p50 dan p95) dan nilainya dicatat di docs/, bukan hanya diklaim.
 
+  - [x] Audio per kata dibuat lebih dulu saat aplikasi mulai, sehingga pemutaran tidak bolong. (Pra-sintesis 33 label ke `models/tts/cache/` saat `finish_checks` memanggil `SpeechSink.warm_up(predictor.labels)`. Cache dingin diisi lewat `python -m training.setup_voice --warm-cache` sebelum orang menekan Start; sintesis 33 label dari kosong terukur 3.18 s wall, 33/33 label jadi WAV, 0 gagal. Tanpa langkah ini, pra-sintesis jalan saat Start sehingga penonton menunggu.)
+
 ## Slice 6 — Penyelesaian mode ready-to-use dan dasbor debug
 
 - Tujuan: dua mode stabil dan mudah didemokan, berbasis pipeline yang sama.
