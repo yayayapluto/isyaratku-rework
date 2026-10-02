@@ -1,13 +1,14 @@
-"""Unduh voice Indonesia piper sekali jalan, idempoten.
+"""Unduh voice Indonesia piper + panaskan cache WAV label, sekali jalan.
 
 Pakai::
 
-    python -m training.setup_voice           # unduh bila belum ada
-    python -m training.setup_voice --check   # hanya lapor ada/tidak
+    python -m training.setup_voice                 # unduh voice + panaskan cache
+    python -m training.setup_voice --check         # hanya lapor ada/tidak
+    python -m training.setup_voice --warm-cache    # hanya panaskan cache (jalankan)
 
-Voice TIDAK masuk git: 62.95 MB, dan Git LFS ditolak karena clone tanpa
-``git lfs install`` menghasilkan pointer file sehingga demo rusak senyap.
-Voice diunduh sekali ke ``models/tts/`` lalu dipakai runtime.
+``--warm-cache`` JALANKAN pra-sintesis semua label model ke
+``models/tts/cache/``. Diperlukan agar demo hari-H tidak menunggu: Start
+dengan cache dingin menyintesis 20 label menyisakan pause menit-menitan.
 """
 
 from __future__ import annotations
@@ -85,6 +86,29 @@ def setup(directory: Path | None = None) -> int:
     return 0
 
 
+
+
+def _panaskan_cache() -> int:
+    """Pra-sintesis semua label model ke ``models/tts/cache/``.
+
+    Pakai jalur aplikasi yang sama (``PiperTts.warm_up``), bukan sintesis
+    terpisah: cache yang diisi di sini harus persis yang dibaca tombol
+    Start nanti. Balas jumlah label yang gagal.
+    """
+    from src.adapters.predictor import TrainedPredictor
+    from src.adapters.tts import PiperTts
+    from src.core.config import load_config
+
+    config = load_config()
+    labels = TrainedPredictor(config).labels
+    tts = PiperTts(config)
+    siap = tts.warm_up(labels)
+    print(f"cache WAV siap: {len(siap)}/{len(labels)} label di {tts.cache_dir}")
+    for label, galat in tts.warm_up_errors:
+        print(f"GAGAL: '{label}': {galat!r}", file=sys.stderr)
+    return len(tts.warm_up_errors)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -92,12 +116,22 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="hanya lakukan pengecekan, tidak mengunduh apa pun",
     )
+    parser.add_argument(
+        "--warm-cache",
+        action="store_true",
+        help="hanya panaskan cache WAV label (jalankan pra-sintesis)",
+    )
     args = parser.parse_args(argv)
     if args.check:
         siap = is_ready()
         print(f"voice {'siap' if siap else 'belum ada'}: {voice_path()}")
         return 0 if siap else 1
-    return setup()
+    if args.warm_cache:
+        return 1 if _panaskan_cache() else 0
+    kode = setup()
+    if kode == 0:
+        kode = 1 if _panaskan_cache() else 0
+    return kode
 
 
 if __name__ == "__main__":
