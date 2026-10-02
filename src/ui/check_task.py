@@ -20,7 +20,7 @@ from ..adapters.landmark import MediaPipeLandmarkExtractor
 from ..adapters.predictor import TrainedPredictor
 from ..adapters.virtual_camera import VirtualCameraSink
 from ..core.pipeline import Frame, Pipeline
-from .render import draw_landmarks
+from .render import draw_landmarks, draw_overlay
 
 logger = logging.getLogger(__name__)
 
@@ -266,20 +266,37 @@ def _release_shared_camera(results) -> None:
         release()
 
 
-def make_renderer(text: str, raw_sink, draw: Callable[[Frame, str], Frame]):
-    """Renderer: salinan piksel mentah, lalu overlay teks, lalu landmark.
+def make_renderer(placeholder: str = "", raw_sink=None) -> Callable[[Frame], Frame]:
+    """Renderer overlay: subtitle lengket + landmark.
 
-    Pipeline memanggil renderer lebih dulu, baru ``on_frame``. Salinan piksel
-    di ``on_frame`` karena itu selalu terlambat: overlay sudah menimpa
-    ``frame.image`` in place. Salinannya harus terjadi di depan, di jalur renderer.
+    Subtitle = label predictor TERAKHIR yang pernah terlihat, diingat di
+    closure ``holder`` di bawah. Lengket di sini, bukan di pipeline:
+    ``Smoother`` punya cooldown yang sengaja menekan label identik supaya
+    TTS tidak mengulang kata yang sama tiap window — itu benar untuk audio,
+    salah untuk subtitle. Dengan ini kata tetap tampil sampai kata baru
+    datang; ``frame.text`` per frame tidak disimpan di mana pun di core.
+
+    ``holder`` hidup PER INSTANSI renderer: tiap ``make_renderer()`` membuat
+    closure baru, jadi dua view tidak pernah berbagi subtitle dan Start baru
+    (view memanggil ``make_renderer()`` lagi di ``_on_checks_done``) selalu
+    mulai kosong. Jangan "optimasi" holder jadi variabel modul.
+
+    ``raw_sink`` opsional: salinan piksel MENTAH dikirim ke sana lebih dulu.
+    Pipeline memanggil renderer lebih dulu, baru ``on_frame``; overlay
+    menimpa ``frame.image`` in place, jadi salinan di ``on_frame`` selalu
+    terlambat. View tanpa panel mentah memakai ``raw_sink=None``.
 
     Landmark digambar paling akhir supaya titik tetap terlihat; frame tanpa
     ekstraksi landmark dilewati tanpa galat.
     """
+    holder = [""]
 
     def renderer(frame: Frame) -> Frame:
-        raw_sink(frame.image.copy())
-        draw(frame, text)
+        if frame.text:
+            holder[0] = frame.text
+        if raw_sink is not None:
+            raw_sink(frame.image.copy())
+        draw_overlay(frame, holder[0] or placeholder)
         draw_landmarks(frame, frame.landmarks)
         return frame
 

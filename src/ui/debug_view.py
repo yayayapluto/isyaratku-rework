@@ -23,13 +23,11 @@ from .ready_view import (
     STATUS_RUNNING,
     pixmap_bgr,
 )
-from .render import draw_overlay
 
 logger = logging.getLogger(__name__)
 
 PREVIEW_INTERVAL_MS = 40
-
-DEBUG_TEXT = "Mode debug — belum ada model."
+PLACEHOLDER_TEXT = "Menunggu prediksi..."
 
 
 class DebugView(qw.QMainWindow):
@@ -143,8 +141,10 @@ class DebugView(qw.QMainWindow):
             self,
             results,
             details=None,
-            # Salinan piksel mentah disimpan SEBELUM draw_overlay menimpa frame.
-            renderer=make_renderer(DEBUG_TEXT, self._store_raw, draw_overlay),
+            # Salinan piksel mentah disimpan SEBELUM draw_overlay menimpa
+            # frame. Teks overlay selalu frame.text (label predictor);
+            # placeholder hanya tampil sebelum label pertama.
+            renderer=make_renderer(PLACEHOLDER_TEXT, self._store_raw),
         )
 
     def _store_raw(self, image: np.ndarray) -> None:
@@ -272,10 +272,15 @@ def _metric_row(title: str) -> qw.QLabel:
 
 def _paint(panel: qw.QFrame, image: np.ndarray) -> None:
     screen = panel._screen
+    # Isi seluruh panel: rasio aspek dipertahankan dengan cara memperluas,
+    # lalu QLabel memotong sisanya. Tanpa ini frame tampil mengecil di dalam
+    # box (pillarbox). Kamera tidak dicerminakan: capture (src/adapters/
+    # camera.py) tidak pernah flip, jadi gambar tampil apa adanya.
+    screen.setScaledContents(True)
     screen.setPixmap(
         pixmap_bgr(image).scaled(
-            screen.minimumSize(),
-            qc.Qt.AspectRatioMode.KeepAspectRatio,
+            screen.size(),
+            qc.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
             qc.Qt.TransformationMode.SmoothTransformation,
         )
     )

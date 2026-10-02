@@ -108,7 +108,7 @@ def test_raw_copy_happens_before_overlay_mutates_the_frame(qapp) -> None:
         FakeCameraSource(cfg),
         sink,
         cfg,
-        renderer=make_renderer("Overlay uji", raw.append, draw_overlay),
+        renderer=make_renderer("Overlay uji", raw.append),
     )
     pipeline.start()
     try:
@@ -125,6 +125,65 @@ def test_raw_copy_happens_before_overlay_mutates_the_frame(qapp) -> None:
         "setelah draw_overlay menimpa frame.image"
     )
 
+
+def test_renderer_keeps_last_label_on_screen() -> None:
+    """Regresi: subtitle wajib lengket, bukan kedip sekali lalu hilang.
+
+    ``Smoother`` menekan label identik selama cooldown supaya TTS tidak
+    mengulang kata yang sama tiap window. Subtitle tidak boleh mewarisi itu:
+    kata terakhir tetap digambar sampai kata baru datang. Yang diamati orang
+    adalah teks di layar, jadi di situ asersinya.
+    """
+    renderer = make_renderer("Menunggu prediksi...")
+    berlabel = Frame(
+        image=np.zeros((100, 400, 3), dtype=np.uint8),
+        timestamp=0.0,
+        index=0,
+        text="satu",
+    )
+    assert renderer(berlabel).text == "satu", (
+        "label predictor harus menang atas placeholder"
+    )
+    # Frame tanpa label baru: kata terakhir TETAP tampil.
+    kosong = Frame(
+        image=np.zeros((100, 400, 3), dtype=np.uint8),
+        timestamp=0.0,
+        index=1,
+        text="",
+    )
+    assert renderer(kosong).text == "satu", (
+        "subtitle hilang setelah cooldown: label terakhir harus tetap tampil"
+    )
+    # Kata baru menggantikan yang lama.
+    lain = Frame(
+        image=np.zeros((100, 400, 3), dtype=np.uint8),
+        timestamp=0.0,
+        index=2,
+        text="dua",
+    )
+    assert renderer(lain).text == "dua", "kata baru harus menggantikan yang lama"
+
+
+def test_each_make_renderer_has_its_own_subtitle() -> None:
+    """Holder subtitle per instance: dua renderer tidak pernah berbagi."""
+    pertama = make_renderer("Menunggu prediksi...")
+    kedua = make_renderer("Menunggu prediksi...")
+    frame = Frame(
+        image=np.zeros((100, 400, 3), dtype=np.uint8),
+        timestamp=0.0,
+        index=0,
+        text="satu",
+    )
+    assert pertama(frame).text == "satu"
+    kosong = Frame(
+        image=np.zeros((100, 400, 3), dtype=np.uint8),
+        timestamp=0.0,
+        index=1,
+        text="",
+    )
+    assert kedua(kosong).text == "Menunggu prediksi...", (
+        "renderer lain ikut menampilkan label: state bocor antar instance"
+    )
 
 def test_finish_checks_wires_real_predictor_into_pipeline(qapp, monkeypatch) -> None:
     """Regresi bug 1: jalur Start harus memasang predictor asli.
@@ -318,7 +377,15 @@ def test_checks_signal_carries_results_camera_to_the_view(qapp, monkeypatch) -> 
     from src.adapters.checks import CheckResults
 
     class KameraRekam:
-        """Handle kamera tiruan; bukan hardware."""
+        """Handle kamera tiruan; bukan hardware.
+
+        ``read()`` wajib ada: fake ini sampai di ``_capture_loop`` pipeline
+        sungguhan. Tanpa itu, AttributeError tiap run mencemari log harian
+        dengan peringatan "no attribute 'read'" yang menyesatkan.
+        """
+
+        def read(self):
+            return False, None
 
         def close(self) -> None:
             pass

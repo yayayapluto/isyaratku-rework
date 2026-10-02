@@ -11,12 +11,12 @@ import PySide6.QtWidgets as qw
 
 from ..core.config import AppConfig, load_config
 from ..core.pipeline import Frame, Pipeline, Stats
-from .check_task import finish_checks, start_checks
-from .render import draw_landmarks, draw_overlay
+from .check_task import finish_checks, make_renderer, start_checks
 
 logger = logging.getLogger(__name__)
 
 PREVIEW_INTERVAL_MS = 40
+PLACEHOLDER_TEXT = "Menunggu prediksi..."
 STATUS_IDLE = ("berhenti", "color: #475569;")
 STATUS_RUNNING = ("berjalan", "color: #1b7f3b; font-weight: 600;")
 STATUS_ERROR = ("error", "color: #b91c1c; font-weight: 600;")
@@ -90,13 +90,15 @@ class ReadyView(qw.QMainWindow):
 
     def _on_checks_done(self, results) -> None:
         """Dipanggil di GUI thread saat pemeriksaan selesai."""
-
-        def render(frame):
-            draw_overlay(frame, "Belum ada prediksi.")
-            draw_landmarks(frame, frame.landmarks)
-            return frame
-
-        camera = finish_checks(self, results, self._details, render)
+        camera = finish_checks(
+            self,
+            results,
+            self._details,
+            # Renderer yang sama dengan mode debug: teks overlay selalu
+            # frame.text (label predictor); placeholder hanya tampil sebelum
+            # label pertama. Tanpa raw sink: view ini tak punya panel mentah.
+            make_renderer(PLACEHOLDER_TEXT),
+        )
         if camera is not None:
             self._details.setText(
                 f"Kamera {camera.backend} {self._config.camera_width}x"
@@ -146,10 +148,15 @@ class ReadyView(qw.QMainWindow):
         self._newest_frame = None
         if frame is None:
             return
+        # Isi seluruh box pratinjau: rasio aspek dipertahankan dengan
+        # memperluas, sisanya dipotong QLabel. Tanpa ini frame tampil
+        # mengecil di dalam box (pillarbox). Kamera tidak dicerminkan:
+        # capture tidak pernah flip, gambar tampil apa adanya.
+        self._preview.setScaledContents(True)
         self._preview.setPixmap(
             pixmap_bgr(frame.image).scaled(
                 self._preview.size(),
-                qc.Qt.AspectRatioMode.KeepAspectRatio,
+                qc.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                 qc.Qt.TransformationMode.SmoothTransformation,
             )
         )
