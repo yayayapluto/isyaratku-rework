@@ -149,16 +149,31 @@ TIDAK dibuat karena tidak ada yang menang.
 
 **Distribusi kesalahan:** dari 1718 window test, 925 diprediksi
 "tidak ada isyarat" (benar 919), 251 "Sore", 196 "Bagaimana", hanya
-43 "Datang" dan 33 "Malam" sisanya. Enam gloss menumpuk diprediksi
-"Sore" dan lima diprediksi "Bagaimana" -- pola penyerapan satu arah
-khas bias signer, bukan kata yang benar-benar mirip. Tidak ada
-pasangan dua arah: Sore vs Bagaimana tidak pernah saling tertukar.
+43 "Datang" dan 33 "Malam" sisanya. Pola penyerapan satu arah khas
+bias signer, bukan kata yang benar-benar mirip: **12 gloss argmax-nya
+"Sore"** (Belajar, Hari, Ingat, Maaf, Makan, Mengapa, Kuning, Hijau,
+Hitam, Berangkat, Datang, Keluarga) dan **7 gloss argmax-nya
+"Bagaimana"** (Cari, Motor, Saya, Apa, Siapa, Bagaimana, Merah).
+Definisi: untuk tiap baris gloss pada `docs/confusion-baseline.csv`,
+label prediksi dengan jumlah terbanyak pada baris itu (argmax per
+baris); dihitung pada 32 baris gloss. Tidak ada pasangan dua arah:
+"Sore" -> "Bagaimana" = 0 (baris "Sore", kolom "Bagaimana") dan
+"Bagaimana" -> "Sore" = 1 (baris "Bagaimana", kolom "Sore"). Catatan
+koreksi: angka lama "enam gloss ke Sore dan lima ke Bagaimana" SALAH
+dan tidak dapat direproduksi oleh aturan lain yang diuji (ambang
+T=1..33, argmax dengan saringan window 0..69, saringan dukungan
+tangan 0..59, top-6/top-5 jumlah mutlak, aturan "masuk-Sore > masuk-
+Bagaimana"). Angka yang benar beserta pemindaian aturannya ada di bagian "Varian
+antar signer (terukur)" pada `docs/dataset-notes.md`.
 
-**Posisi teknik terukur:** hanya 9 dari 32 gloss punya dukungan
-(window bertangan test) <=10; "Lagi" 0 window, jadi tidak bisa
-dievaluasi sama sekali. Akurasi per kelas jadi sangat rapuh:
-"Rumah" 2 window, "Siang" 4, "Hitam" 4, "Keluarga" 5, "Kuning" 8,
-"Hijau" 8.
+**Posisi teknik terukur:** 10 dari 32 gloss punya dukungan
+(window bertangan test) <=10 -- definisi "window bertangan": flag
+tangan (`windows[:, :, LEFT_FLAG:RIGHT_FLAG+1].max(axis=(1,2))`) > 0.
+Sepuluh gloss itu: "Lagi" 0 window, "Kuning" 8, "Hijau" 8, "Hitam" 4,
+"Dengar" 10, "Keluarga" 5, "Rumah" 2, "Pagi" 10, "Siang" 4, "Sore" 2.
+Akurasi per kelas jadi sangat rapuh: "Lagi" 0 window, jadi tidak bisa
+dievaluasi sama sekali; "Rumah" 2 window, "Siang" 4, "Hitam" 4,
+"Keluarga" 5, "Kuning" 8, "Hijau" 8.
 
 **Latensi runtime (asli `TrainedPredictor` memuat `models/baseline.npz`,
 200 pengulangan di CPU mesin ini):** p50 0.066 ms, p95 0.084 ms, maks
