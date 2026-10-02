@@ -15,12 +15,18 @@ import collections
 import queue
 import sys
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from .config import AppConfig
+
+
+def _clock() -> float:
+    """Cap waktu sistem; hanya untuk jalur runtime, test menyuntiknya."""
+    return time.monotonic()
 
 
 @dataclass
@@ -110,6 +116,12 @@ class Pipeline:
         self._last_prediction_error: Exception | None = None
         self._last_label_error: Exception | None = None
         self._predicted_frames = 0
+        # read() None bukan selalu kamera mati; transien (MSMF) pulih sendiri.
+        # Kegagalan berurutan ditoleransi sampai ambang durasi tercapai.
+        self._read_failures = 0
+        self._read_failed_since: float | None = None
+        self._last_read_error: Exception | None = None
+        self._read_warned = False
 
     # -- kontrol -----------------------------------------------------------------
     def start(self) -> None:
@@ -154,6 +166,40 @@ class Pipeline:
                 self._fatal = exc
         self._stop.set()
 
+    def _tolerate_read_failure(self) -> bool:
+        """Catat read() None; True bila masih di dalam ambang toleransi.
+
+        Ambang adalah DURASI gagal berurutan, bukan jumlah read: read gagal
+        kembali dalam ~0,1 ms di mesin ini, jadi batas jumlah habis tak
+        berarti (25 kali gagal = beberapa milidetik, bukan beberapa detik).
+        """
+        now = _clock()
+        with self._lock:
+            if self._read_failed_since is None:
+                self._read_failed_since = now
+            self._read_failures += 1
+            self._last_read_error = RuntimeError("read() None")
+            elapsed = now - self._read_failed_since
+            within = elapsed < self.config.pipeline_read_failure_timeout_seconds
+            if within:
+                if not self._read_warned:
+                    self._read_warned = True
+                    print(
+                        f"Kamera belum mengirim frame (read() None), toleransi "
+                        f"{self.config.pipeline_read_failure_timeout_seconds}s "
+                        f"yang lalu; pipeline tetap hidup.",
+                        file=sys.stderr,
+                    )
+            return within
+
+    def _clear_read_failure(self) -> None:
+        """Reset hitungan toleransi setelah read() berhasil lagi."""
+        with self._lock:
+            self._read_failures = 0
+            self._read_failed_since = None
+            self._read_warned = False
+            self._last_read_error = None
+
     def _capture_loop(self) -> None:
         while not self._stop.is_set():
             try:
@@ -162,6 +208,14 @@ class Pipeline:
                 self._fail(exc)
                 break
             if frame is None:
+                # read() None bisa transien: MSMF berhenti mengirim ~19 s
+                # lalu pulih sendiri (diukur), dan kamera yang masih terpasang
+                # tidak boleh mati diam-diam karena satu jendela Mati. Selama
+                # dalam ambang, thread tetap hidup, tidak ada frame diteruskan,
+                # dan kondisinya terlihat lewat read_error. Lewat ambang:
+                # gagal persis seperti sebelum ada toleransi.
+                if self._tolerate_read_failure():
+                    continue
                 if not self._stop.is_set():
                     self._fail(
                         RuntimeError(
@@ -169,6 +223,7 @@ class Pipeline:
                         )
                     )
                 break
+            self._clear_read_failure()
             if self.extractor is not None:
                 try:
                     frame.landmarks = self.extractor.extract(frame)
@@ -257,6 +312,23 @@ class Pipeline:
         """Galat terakhir dari listener label (non-fatal); None bila bersih."""
         with self._lock:
             return self._last_label_error
+
+    @property
+    def read_error(self) -> Exception | None:
+        """Galat read() terakhir yang masih ditoleransi; None bila bersih.
+
+        Non-fatal seperti ``prediction_error``: kamera kembali None tapi masih
+        di dalam ambang, pipeline tetap hidup. Setelah ambang lewat yang
+        terisi adalah ``error`` dan pipeline berhenti.
+        """
+        with self._lock:
+            return self._last_read_error
+
+    @property
+    def read_failures(self) -> int:
+        """Jumlah read() None berurutan yang sedang ditoleransi; 0 bila bersih."""
+        with self._lock:
+            return self._read_failures
 
     def _output_loop(self) -> None:
         while not (self._stop.is_set() and self._frames.empty()):

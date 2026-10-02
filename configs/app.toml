@@ -20,7 +20,9 @@
 #   pipeline.stats_window = 240, pipeline.stop_timeout_seconds = 2.0
 #   pipeline.stats_window = banyak frame terakhir yang dipakai menghitung FPS
 #     (240 default ~4 s pada 60 fps); pipeline.stop_timeout_seconds = batas tunggu
-#     join thread saat stop.
+#     join thread saat stop; pipeline.read_failure_timeout_seconds = berapa lama
+#     read() yang kembali None DITOLERASI sebelum pipeline mati (5.0 default;
+#     read gagal bisa transien — MSMF sempat mati ~19 s lalu pulih sendiri).
 #   tts.device_name = "CABLE Output", tts.rate = 160
 #   tts.enabled = true (TTS menyala saat runtime)
 #   tts.speak_cooldown_seconds = 2.5 (jeda minimal antar ucapan; beda dari

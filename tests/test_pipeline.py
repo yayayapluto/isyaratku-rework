@@ -65,6 +65,160 @@ class LimitedCamera:
         self.closed = True
 
 
+
+class FlappingCamera:
+    """Kamera yang gagal read() N kali lalu pulih (kamera masih terpasang).
+
+    Shape-nya mengikuti LimitedCamera, bedanya pulih setelah ``nones`` gagal —
+    persis kondisi yang diukur di mesin ini: MSMF gagal ~19 s lalu pulih
+    dengan sendirinya, kamera tetap terpasang.
+    """
+
+    def __init__(self, nones: int) -> None:
+        self.nones = nones
+        self.calls = 0
+        self.closed = False
+
+    def read(self) -> Frame | None:
+        self.calls += 1
+        if self.calls <= self.nones:
+            return None
+        if self.calls == self.nones + 1:
+            # Frame sukses pertama langsung diikuti Nones lagi: membuktikan
+            # toleransi direset per keberhasilan, bukan dianggap sekali sah.
+            pass
+        return Frame(
+            image=np.zeros((4, 4, 3), np.uint8),
+            timestamp=time.monotonic(),
+            index=self.calls,
+        )
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class JamPalsu:
+    """Jam yang disuntikkan ke ``pipeline._clock``; test tanpa sleep.
+
+    Setiap panggilan maju sebesar ``langkah`` detik, jadi waktu hanya lewat
+    saat pipeline memang meminta — tidak ada ``time.sleep`` yang bikin suite
+    lambat dan goyah.
+    """
+
+    def __init__(self, langkah: float = 3.0) -> None:
+        self.langkah = langkah
+        self.now = 0.0
+        self.calls = 0
+
+    def __call__(self) -> float:
+        self.calls += 1
+        self.now += self.langkah
+        return self.now
+
+
+
+def _jalankan_sampai(pipeline, batas: float = 3.0) -> None:
+    """Jalankan pipeline; henti kalau pipeline mati atau ``batas`` habis.
+
+    Kamera yang sudah pulih berputar secepat CPU dan tak pernah mati, jadi
+    menunggu sampai thread selesai akan memakan seluruh ``batas``.
+    """
+    pipeline.start()
+    deadline = time.monotonic() + batas
+    while pipeline.running() and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+
+def _jalankan_sampai_frame(pipeline, batas: float = 3.0) -> None:
+    """Jalankan pipeline sampai frame pertama terkirim ke sink.
+
+    Lebih deterministik daripada menunggu durasi: buktikan read() None yang
+    ditoleransi tidak membuat pipeline lupa cara meneruskan frame.
+    """
+    pipeline.start()
+    deadline = time.monotonic() + batas
+    while time.monotonic() < deadline:
+        if pipeline.stats().frames_captured > 0:
+            return
+        time.sleep(0.002)
+    raise AssertionError("tidak ada frame terkirim dalam batas waktu")
+
+
+# -- toleransi read() None -----------------------------------------------------
+def test_read_none_toleransi_sebentar_lalu_pulih(monkeypatch) -> None:
+    """Kamera kembali None lalu pulih: pipeline TIDAK boleh mati.
+
+    Inilah bug yang diukur: MSMF berhenti mengirim ~19 s lalu pulih sendiri.
+    Sebelum perbaikan satu read() None sudah mematikan pipeline selamanya.
+    Selesai begitu frame pertama terkirim; kamera setelah pulih berputar
+    secepat CPU, jadi membiarkannya lama hanya memakan waktu suite.
+    """
+    cfg = fast_config()
+    camera = FlappingCamera(nones=3)
+    sink = FakeVirtualCameraSink(cfg)
+    pipeline = Pipeline(camera, sink, cfg)
+    # Tiga kali gagal lalu pulih: setiap gagal = 1 s detik fiktif (total 3 s),
+    # masih di bawah ambang 5 s — toleransi tetap aktif.
+    monkeypatch.setattr("src.core.pipeline._clock", JamPalsu(langkah=1.0))
+
+    _jalankan_sampai_frame(pipeline)
+    pipeline.stop()
+
+    assert pipeline.error is None, f"pipeline tidak boleh mati: {pipeline.error}"
+    assert pipeline.running() is False
+    stats = pipeline.stats()
+    assert stats.frames_captured > 0, "frame setelah pulih harus tetap terkirim"
+    assert sink.sends > 0, "frame setelah pulih harus sampai ke sink"
+    assert camera.closed is True
+
+
+def test_read_none_toleransi_dicatat_tanpa_spam() -> None:
+    """Selama ditoleransi, kondisi terlihat: read_error terisi, bukan diam.
+
+    Kamera tidak pernah pulih di sini, tapi jam asli: 5 s ambang jauh lebih
+    lama daripada jendela pengamatan, jadi tidak mungkin keburu fatal. Tidak
+    perlu jam palsu — tidak ada balapan waktu yang bisa membuat tes goyah.
+    """
+    cfg = fast_config()  # ambang 5 s
+    camera = LimitedCamera(0)
+    pipeline = Pipeline(camera, FakeVirtualCameraSink(cfg), cfg)
+    pipeline.start()
+    deadline = time.monotonic() + 1.0
+    while pipeline.read_error is None and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert pipeline.read_error is not None, "kondisi harus terbaca, bukan diam"
+    assert pipeline.error is None, f"belum waktunya fatal: {pipeline.error}"
+    assert pipeline.running() is True, "pipeline harus tetap hidup di dalam ambang"
+
+    pipeline.stop()
+    assert camera.closed is True
+    # read() belum pernah sukses, jadi hitungan toleransi tidak boleh direset.
+    assert pipeline.read_failures > 0
+
+
+def test_read_none_selamanya_tetap_fatal_tepat_waktu(monkeypatch) -> None:
+    """Kamera mati: fatal TEPAT ketika ambang lewat, tidak sebelum.
+
+    Jam palsu naik 1 s per read gagal dengan ambang 4 s, jadi fatal harus
+    terjadi setelah 5 read gagal (0..4 s ditoleransi, 5 s lewat). Ini menjaga
+    kamera mati tidak bisa mati diam-diam: selalu ada pesannya.
+    """
+    cfg = fast_config(pipeline_read_failure_timeout_seconds=4.0)
+    camera = LimitedCamera(0)
+    pipeline = Pipeline(camera, FakeVirtualCameraSink(cfg), cfg)
+    monkeypatch.setattr("src.core.pipeline._clock", JamPalsu(langkah=1.0))
+
+    _jalankan_sampai(pipeline, 5.0)
+    pipeline.stop()
+
+    error = pipeline.error
+    assert isinstance(error, RuntimeError)
+    assert "read() None" in str(error)
+    # 5 read gagal: 4 masih dalam ambang, yang ke-5 melewatinya.
+    assert pipeline.read_failures == 5
+    assert camera.closed is True
+
 def run_for(seconds: float, pipeline: Pipeline) -> None:
     pipeline.start()
     time.sleep(seconds)
@@ -94,12 +248,18 @@ def test_stop_without_start_completes() -> None:
 
 
 def test_read_none_stops_capture_loop() -> None:
-    cfg = config()
+    """Kamera mati menghentikan capture loop, tapi tidak sebelum lewat ambang.
+
+    Ambang dikecilkan supaya tetap cepat; tanpa toleransi, 5 frame lalu None
+    langsung fatal. Sekarang: 5 frame benar, lalu None menunggu ambang 0.5 s,
+    baru fatal dengan pesan yang sama seperti sebelumnya.
+    """
+    cfg = fast_config(pipeline_read_failure_timeout_seconds=0.4)
     camera = LimitedCamera(5)
     sink = FakeVirtualCameraSink(cfg)
     pipeline = Pipeline(camera, sink, cfg)
     pipeline.start()
-    deadline = time.monotonic() + 2.0
+    deadline = time.monotonic() + 4.0
     while pipeline.running() and time.monotonic() < deadline:
         time.sleep(0.01)
     pipeline.stop()
@@ -107,14 +267,16 @@ def test_read_none_stops_capture_loop() -> None:
     stats = pipeline.stats()
     assert stats.frames_captured == 5
     assert stats.frames_sent + stats.frames_dropped == 5
+    assert isinstance(pipeline.error, RuntimeError)
+    assert "read() None" in str(pipeline.error)
 
 
 def test_stop_closes_the_sink() -> None:
-    cfg = config()
+    cfg = config(pipeline_read_failure_timeout_seconds=0.5)
     sink = FakeVirtualCameraSink(cfg)
     camera = LimitedCamera(2)
     pipeline = Pipeline(camera, sink, cfg)
-    run_for(0.3, pipeline)
+    run_for(0.6, pipeline)
 
     assert camera.closed is True
     assert sink.sends == 2
@@ -304,11 +466,17 @@ def test_camera_read_error_sets_error_and_stops() -> None:
 
 
 def test_camera_returning_none_sets_error_with_clear_message() -> None:
-    cfg = fast_config()
+    """Kamera mati tetap fatal dengan pesan yang jelas — hanya menunggu ambang.
+
+    Ambang 5 s terlalu lama untuk tes, jadi dikecilkan; pesan RuntimeError
+    dan jumlah frame yang terbaca harus persis sama seperti sebelum
+    toleransi ada.
+    """
+    cfg = fast_config(pipeline_read_failure_timeout_seconds=0.4)
     camera = LimitedCamera(5)
     pipeline = Pipeline(camera, FakeVirtualCameraSink(cfg), cfg)
     pipeline.start()
-    deadline = time.monotonic() + 3.0
+    deadline = time.monotonic() + 4.0
     while pipeline.running() and time.monotonic() < deadline:
         time.sleep(0.02)
     pipeline.stop()

@@ -1,6 +1,9 @@
 """Pemeriksaan awal: kamera, virtual camera OBS, VB-Cabel.
 
-Setiap pemeriksaan murah dan tidak menyimpan handle perangkat setelah kembali.
+- Setiap pemeriksaan murah. Kecuali kamera: handle yang dibuka pra-cek tetap
+- hidup sampai hasil dipakai, karena handle itulah kamera pipeline (lihat
+- ``CheckResults.camera``).
+
 Hasil: daftar tuple (nama, ok, pesan) dengan pesan Bahasa Indonesia yang bisa
 langsung ditindaklanjuti. Ejaan pesan memakai "VB-Cabel" (sebutan sehari-hari
 yang sama seperti di docs/), sementara nama produk asli tetap muncul apa adanya
@@ -16,7 +19,7 @@ import winreg
 import cv2
 import sounddevice
 
-from .camera import CAMERA_BACKEND
+from .camera import CAMERA_BACKEND, OpenCvCameraSource
 
 #: Kategori DirectShow video input: filter video DirectShow terdaftar di
 #: bawah key CLSID ini, termasuk OBS Virtual Camera.
@@ -27,14 +30,60 @@ OBS_VIRTUAL_CAMERA_CLSID = "{A3FCE0F5-3493-419F-958A-ABA1250EC20B}"
 OBS_FRIENDLY_NAME = "OBS Virtual Camera"
 
 
-def run_checks(device_index: int = 0) -> list[tuple[str, bool, str]]:
-    """Pemeriksaan startup, urut: kamera, virtual camera, VB-Cabel, voice TTS."""
-    return [
-        _check_camera(device_index),
-        _check_obs_virtual_camera(),
-        _check_vb_cable(),
-        _check_tts_voice(),
-    ]
+class CheckResults(list):
+    """Hasil ``run_checks``: list tuple (nama, ok, pesan) seperti sebelumnya,
+    plus handle kamera yang berhasil dibuka.
+
+    Kamera dibawa bersama hasil supaya ``finish_checks`` memakai kamera yang
+    SAMA dengan pra-cek. Membuka kamera sekali di mesin ini ~27-33 s, jadi
+    acquisisi kedua yang dulu terjadi di ``finish_checks`` menghambat Start
+    hampir setengah menit tanpa alasan.
+    """
+
+    def __init__(self, checks, camera=None) -> None:
+        super().__init__(checks)
+        self.camera = camera
+
+    def release_camera(self) -> None:
+        """Lepas handle kamera bila ada; aman dipanggil berulang."""
+        camera, self.camera = self.camera, None
+        if camera is not None:
+            # Handle yang dibawa adalah cv2.VideoCapture mentah (hasil pra-cek),
+            # bukan OpenCvCameraSource — pelepasan hardware pakai release().
+            camera.release()
+
+
+class _SharedCameraSource(OpenCvCameraSource):
+    """Kamera pra-cek yang dipakai ulang pipeline: tanpa acquisisi kedua.
+
+    Constructor induk selalu membuka ``cv2.VideoCapture`` baru, dan itu tepat
+    biaya yang dihindari di sini. Kelas ini mengadopsi handle yang sudah
+    terbuka; ``opened``/``backend``/``read()``/``close()`` tetap warisan induk
+    agar tidak ada dua implementasi baca frame yang bisa berbeda.
+    """
+
+    def __init__(self, capture) -> None:
+        self._capture = capture
+        self._index = 0
+
+
+def run_checks(device_index: int = 0) -> CheckResults:
+    """Pemeriksaan startup, urut: kamera, virtual camera, VB-Cabel, voice TTS.
+
+    Hasil tetap berbentuk list tuple (nama, ok, pesan) supaya pembaca lama
+    tidak berubah, tapi kamera yang berhasil dibaca ikut dibawa di
+    ``CheckResults.camera``. Pemeriksaan yang gagal melepas handle-nya.
+    """
+    camera_name, ok, message, capture = _check_camera(device_index)
+    return CheckResults(
+        [
+            (camera_name, ok, message),
+            _check_obs_virtual_camera(),
+            _check_vb_cable(),
+            _check_tts_voice(),
+        ],
+        camera=capture,
+    )
 
 
 def _check_tts_voice() -> tuple[str, bool, str]:
@@ -53,32 +102,44 @@ def _check_tts_voice() -> tuple[str, bool, str]:
     )
 
 
-def _check_camera(device_index: int) -> tuple[str, bool, str]:
+def _check_camera(device_index: int) -> tuple[str, bool, str, object | None]:
+    """Buka kamera dan baca satu frame; SERAHKAN handle pada jalur sukses.
+
+    Elemen keempat adalah handle kamera yang masih hidup, dipakai pipeline
+    supaya kamera tidak dibuka dua kali. Jalur gagal melepasnya di tempat
+    supaya pemeriksaan yang gagal tidak menyisakan device yang tersandera.
+    """
     capture = cv2.VideoCapture(device_index, CAMERA_BACKEND)
     try:
         if not capture.isOpened():
+            capture.release()
             return (
                 "Kamera",
                 False,
                 f"Kamera tidak terbaca di indeks {device_index}. Cek koneksi atau "
                 "ubah camera.device_index di configs.",
+                None,
             )
         ok, frame = capture.read()
         if not ok:
+            capture.release()
             return (
                 "Kamera",
                 False,
                 "Kamera terbuka tapi frame gagal dibaca. Sambungkan ulang webcam "
                 "atau coba port USB lain.",
+                None,
             )
         height, width = frame.shape[:2]
         return (
             "Kamera",
             True,
             f"Kamera terbaca, ukuran frame {width}x{height}.",
+            capture,
         )
-    finally:
+    except Exception:
         capture.release()
+        raise
 
 
 def _check_obs_virtual_camera() -> tuple[str, bool, str]:

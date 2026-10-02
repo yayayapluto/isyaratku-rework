@@ -220,3 +220,89 @@ def test_finish_checks_warms_up_all_model_labels_before_pipeline(qapp, monkeypat
         view._pipeline.stop()
         view._pipeline = None
     view.close()
+
+
+def test_finish_checks_reuses_the_checks_camera(qapp, monkeypatch) -> None:
+    """Regresi bug 1: Start TIDAK boleh membuka kamera kedua.
+
+    Terukur: pra-cek ~32,8 s, rilis ~0,01 s, buka lagi ~27,7 s — hampir satu
+    menit terbuang per Start hanya karena ``finish_checks`` membuat
+    ``OpenCvCameraSource`` baru padahal pra-cek sudah punya handle hidup.
+    Tes ini membuktikan: handel dari pra-cek dipakai ulang, dan pabrik
+    ``OpenCvCameraSource`` TIDAK dipanggil sama sekali.
+    """
+    from src.adapters.checks import CheckResults
+
+    class KameraRekam:
+        """Pengganti kamera yang mencatat pemakaian; bukan hardware."""
+
+        def __init__(self) -> None:
+            self.reads = 0
+            self.closed = False
+
+        def read(self):
+            self.reads += 1
+            # Kontrak cv2.VideoCapture: (ok, image). Pipeline di tes ini
+            # sengaja tidak pernah menerima frame.
+            return False, None
+
+        def close(self) -> None:
+            self.closed = True
+
+        def release(self) -> None:
+            self.closed = True
+
+        # Atribut capture yang dipakai OpenCvCameraSource / view.
+        def isOpened(self) -> bool:
+            return not self.closed
+
+        def getBackendName(self) -> str:
+            return "test"
+
+    class PabrikKamera:
+        """Pengganti OpenCvCameraSource: membangun kamera baru = ini bug."""
+
+        def __init__(self, *args, **kwargs) -> None:
+            raise AssertionError("Start tidak boleh membuka kamera kedua")
+
+    shared = KameraRekam()
+    results = CheckResults([("kamera", True, "siap")], camera=shared)
+
+    seen_camera: list[object] = []
+    original = Pipeline.__init__
+
+    def spy(self, *args, **kwargs):
+        # camera dikirim keyword, jadi self.camera belum ada saat __init__
+        # asli berjalan — baca dari kwargs, bukan dari self.
+        seen_camera.append(kwargs.get("camera"))
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Pipeline, "__init__", spy)
+    monkeypatch.setattr(
+        check_task, "run_checks_async", lambda index, done: done(results)
+    )
+    monkeypatch.setattr(check_task, "OpenCvCameraSource", PabrikKamera)
+    monkeypatch.setattr(
+        check_task,
+        "_build_speech",
+        lambda config: type(
+            "S", (), {"feed": lambda self, label: None, "warm_up": lambda self, labels: []}
+        )(),
+    )
+
+    view = DebugView(config())
+    view._on_start()
+
+    assert seen_camera, "Pipeline tidak dibangun oleh finish_checks"
+    assert seen_camera[0] is not None, "Pipeline dibangun tanpa kamera"
+    # Kamera pra-cek dibungkus _SharedCameraSource: handel aslinya harus
+    # tetap objek yang sama, bukan kamera hasil acquisisi kedua.
+    assert seen_camera[0]._capture is shared, (
+        "Pipeline menerima kamera baru, bukan handel dari pra-cek"
+    )
+    assert shared.closed is False, "kamera pra-cek tidak boleh ditutup saat dipakai"
+
+    if view._pipeline is not None:
+        view._pipeline.stop()
+        view._pipeline = None
+    view.close()

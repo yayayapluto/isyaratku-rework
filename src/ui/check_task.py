@@ -12,8 +12,8 @@ from collections.abc import Callable
 
 import PySide6.QtCore as qc
 
-from ..adapters.checks import run_checks
 from ..adapters.camera import OpenCvCameraSource
+from ..adapters.checks import _SharedCameraSource, run_checks
 from ..adapters.virtual_camera import VirtualCameraSink
 from ..core.pipeline import Frame, Pipeline
 from ..adapters.landmark import MediaPipeLandmarkExtractor
@@ -45,6 +45,10 @@ class CheckRunner(qc.QRunnable):
             self.signals.finished.emit(results)
         except RuntimeError:
             # View penerima sudah ditutup; tidak ada yang perlu diberi tahu.
+            # Hasilnya ikut musnah, jadi kamera pra-cek dilepas di sini —
+            # kalau tidak, device tetap tersandera sampai proses keluar.
+            if hasattr(results, "release_camera"):
+                results.release_camera()
             _ACTIVE.discard(self.signals)
 
 
@@ -107,11 +111,21 @@ def finish_checks(view, results, details, renderer) -> object | None:
     view._check_task = None
     view._start_button.setEnabled(True)
     if any(not ok for _, ok, _ in results):
+        _release_shared_camera(results)
         _report_failure(view, results, details)
         return None
     pipeline = None
+    camera = None
     try:
-        camera = OpenCvCameraSource(view._config)
+        # Kamera yang SUDAH dibuka saat pra-cek dipakai lagi: acquisisi kedua
+        # memakan ~27 s di mesin ini (terukur), dan itu yang membuat Start
+        # terasa menggantung. Hasil boleh berupa list biasa (test, atau
+        # pemanggil lain) — di sana pemeriksaan kamera tidak membawa handle.
+        camera = _take_shared_camera(results)
+        if camera is not None:
+            camera = _SharedCameraSource(camera)
+        else:
+            camera = OpenCvCameraSource(view._config)
         sink = VirtualCameraSink(
             view._config,
             view._config.camera_width,
@@ -148,6 +162,10 @@ def finish_checks(view, results, details, renderer) -> object | None:
             on_label=speech.feed,
         )
     except Exception as exc:
+        # Pipeline gagal dibangun tapi kamera pra-cek tetap hidup: tanpa close
+        # di sini device tersandera sampai proses keluar, dan Start berikutnya
+        # gagal membuka kamera.
+        _close_quietly(camera)
         view._set_status(*view.STATUS_ERROR)
         if details is not None:
             details.setText(f"Pipeline gagal start: {exc}")
@@ -167,6 +185,33 @@ def _report_failure(view, results, details) -> None:
             f"Perbaiki masalah berikut lalu tekan Start lagi:\n{summary}"
         )
     view._message_warning("Pemeriksaan awal gagal", summary)
+
+
+def _take_shared_camera(results) -> object | None:
+    """Ambil kamera pra-cek dari hasil; ``None`` bila tidak ada.
+
+    Hasil berupa ``CheckResults`` membawa handle hidup. Hasil berupa list
+    polos (test, atau pemanggil lain) tidak punya handle, dan pipeline lalu
+    membuka kameranya sendiri.
+    """
+    return getattr(results, "camera", None)
+
+
+def _close_quietly(camera) -> None:
+    """Tutup kamera tanpa membiarkan galat close menutupi galat asli."""
+    if camera is None:
+        return
+    try:
+        camera.close()
+    except Exception:
+        pass
+
+
+def _release_shared_camera(results) -> None:
+    """Lepas kamera pra-cek bila pemeriksaan berakhir tanpa pipeline."""
+    release = getattr(results, "release_camera", None)
+    if release is not None:
+        release()
 
 
 def make_renderer(text: str, raw_sink, draw: Callable[[Frame, str], Frame]):

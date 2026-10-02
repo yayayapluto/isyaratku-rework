@@ -65,8 +65,12 @@ def _run_headless(seconds: float) -> int:
     )
 
     print("\nPemeriksaan awal:")
-    for name, ok, message in run_checks(config.camera_device_index):
+    results = run_checks(config.camera_device_index)
+    for name, ok, message in results:
         print(f"  [{'OK' if ok else 'GAGAL'}] {name}: {message}")
+    # Smoke headless memakai kamera fake; handle kamera nyata yang dibuka
+    # pemeriksaan tidak dipakai, jadi lepaskan agar tidak menahan device.
+    results.release_camera()
 
     sink = FakeVirtualCameraSink(config)
     camera = FakeCameraSource(config)

@@ -40,6 +40,12 @@ _CONTRACT: tuple[tuple[str, str, str, Any], ...] = (
     ("queue", "max_size", "int", 4),
     ("pipeline", "stats_window", "int", 240),
     ("pipeline", "stop_timeout_seconds", "float", 2.0),
+    # read() yang kembali None bukan selalu kamera mati: transien (mis.
+    # MF_E_HW_MFT_UNAVAILABLE pada MSMF) pulih sendiri dalam ratusan
+    # milidetik. Ambang EKSPRESI DURASI, bukan jumlah gagal: read gagal
+    # kembali dalam ~0,1 ms di mesin ini, jadi batas jumlah habis tak
+    # berarti.
+    ("pipeline", "read_failure_timeout_seconds", "float", 5.0),
     ("tts", "device_name", "str", "CABLE Output"),
     ("tts", "rate", "int", 160),
     ("tts", "enabled", "bool", True),
@@ -66,6 +72,7 @@ _POSITIVE = frozenset({
     "queue.max_size",
     "pipeline.stats_window",
     "pipeline.stop_timeout_seconds",
+    "pipeline.read_failure_timeout_seconds",
     "tts.rate",
 })
 _NON_NEGATIVE = frozenset({"camera.device_index", "tts.speak_cooldown_seconds"})
@@ -91,6 +98,7 @@ class AppConfig:
     queue_max_size: int
     pipeline_stats_window: int
     pipeline_stop_timeout_seconds: float
+    pipeline_read_failure_timeout_seconds: float
     tts_device_name: str
     tts_rate: int
     tts_enabled: bool

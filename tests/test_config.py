@@ -141,6 +141,7 @@ def test_contract_key_names_are_documented_exactly() -> None:
         "queue.max_size",
         "pipeline.stats_window",
         "pipeline.stop_timeout_seconds",
+        "pipeline.read_failure_timeout_seconds",
         "tts.device_name",
         "tts.rate",
         "tts.enabled",
