@@ -70,8 +70,14 @@ class _DatedFileHandler(logging.FileHandler):
     def __init__(self) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         self._day = _date()
+        # Eager open: tanpa ``delay=True``, berkas dibuka DI SINI supaya
+        # kegagalan (read-only, dipakai proses lain) naik ke try/except
+        # ``setup_logging`` dan fallback stderr benar-benar terjangkau.
+        # Efek samping yang diinginkan: berkas log sudah ada setelah setup.
+        # Jangan tambahkan ``delay=True`` "supaya cepat": itu memindahkan
+        # kegagalan ke emit() pertama, tempat logging menelannya diam-diam.
         super().__init__(
-            filename=str(_today_path()), mode="a", encoding="utf-8", delay=True
+            filename=str(_today_path()), mode="a", encoding="utf-8"
         )
 
     def emit(self, record: logging.LogRecord) -> None:
