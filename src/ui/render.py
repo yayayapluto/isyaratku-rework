@@ -41,11 +41,18 @@ NORMALIZED_LANDMARK = drawing_utils.landmark_module.NormalizedLandmark
 
 
 def draw_overlay(frame: Frame, text: str) -> Frame:
-    """Gambar strip gelap semi-transparan kiri-atas berisi ``text``."""
-    if not text:
+    """Gambar strip gelap semi-transparan kiri-atas berisi teks frame.
+
+    Teks yang sudah menempel di ``frame.text`` (label hasil predictor) menang
+    atas ``text`` placeholder; placeholder hanya dipakai bila predictor belum
+    menghasilkan apa pun. Yang digambar ditulis kembali ke ``frame.text``
+    supaya overlay dan teks frame tidak pernah berbeda.
+    """
+    drawn = frame.text or text
+    if not drawn:
         return frame
     image = frame.image
-    (width, height), _ = cv2.getTextSize(text, FONT, FONT_SCALE, FONT_THICKNESS)
+    (width, height), _ = cv2.getTextSize(drawn, FONT, FONT_SCALE, FONT_THICKNESS)
     x0 = MARGIN
     y0 = MARGIN
     x1 = min(MARGIN + width + 2 * PADDING, image.shape[1])
@@ -53,7 +60,7 @@ def draw_overlay(frame: Frame, text: str) -> Frame:
     _blend_strip(image, x0, y0, x1, y1, STRIP_ALPHA)
     cv2.putText(
         image,
-        text,
+        drawn,
         (x0 + PADDING, y1 - PADDING - BASELINE),
         FONT,
         FONT_SCALE,
@@ -61,7 +68,7 @@ def draw_overlay(frame: Frame, text: str) -> Frame:
         FONT_THICKNESS,
         cv2.LINE_AA,
     )
-    frame.text = text
+    frame.text = drawn
     return frame
 
 
