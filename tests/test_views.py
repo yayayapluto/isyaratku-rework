@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import time
 
+import cv2
 import numpy as np
 import pytest
+import PySide6.QtCore as qc
+import PySide6.QtWidgets as qw
 from PySide6.QtWidgets import QApplication
 
 from src.adapters.camera import FakeCameraSource
@@ -16,7 +19,13 @@ from src.ui import check_task
 from src.ui.check_task import finish_checks, make_renderer
 from src.ui.debug_view import PLACEHOLDER_TEXT, DebugView
 from src.ui.ready_view import ReadyView
-from src.ui.render import draw_overlay
+from src.ui.render import (
+    BOTTOM_GAP,
+    FONT,
+    FONT_SCALE,
+    FONT_THICKNESS,
+    draw_overlay,
+)
 
 NO_FILE = "berkas-yang-tidak-ada.toml"
 
@@ -994,3 +1003,86 @@ def test_stop_saat_pra_cek_melepas_kamera_dan_tidak_menyalakan_pipeline(qapp) ->
             )
         finally:
             view.close()
+
+
+# ---------------------------------------------------------------------------
+# Regresi: pratinjau tidak boleh memotong frame — subtitle bawah render.py
+# (y = frame_h - BOTTOM_GAP - baseline) harus ikut naik ke layar.
+# ---------------------------------------------------------------------------
+
+
+def _frame_bermarker_bawah() -> np.ndarray:
+    """Frame 640x480 ala kamera; strip terbawah diisi warna penanda."""
+    _, baseline = cv2.getTextSize("MAKAN", FONT, FONT_SCALE, FONT_THICKNESS)
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    frame[480 - BOTTOM_GAP - baseline:] = 255
+    return frame
+
+
+def _assert_tak_memotong(label: qw.QLabel, target: qc.QSize) -> None:
+    """Pixmap tak boleh melewati kotak; melewati = QLabel memotong baris frame."""
+    pixmap = label.pixmap()
+    assert pixmap is not None, f"pratinjau tidak pernah digambar: {label}"
+    for sisi, nilai, kotak in (
+        ("lebar", pixmap.width(), target.width()),
+        ("tinggi", pixmap.height(), target.height()),
+    ):
+        assert nilai <= kotak + 1, (
+            f"{sisi} pixmap {nilai} > kotak {kotak}: mode pemotong aktif "
+            f"({pixmap.width()}x{pixmap.height()} vs "
+            f"{target.width()}x{target.height()})"
+        )
+    # Skala KeepAspectRatio: sisi yang kena batas kotak berisi kotak tepat,
+    # sisi lainnya dihitung dari rasio frame 640:480 (4:3).
+    skala_w = target.width() / 640
+    skala_h = target.height() / 480
+    if skala_w < skala_h:
+        assert abs(pixmap.width() - target.width()) <= 1, (
+            f"lebar {pixmap.width()} bukan {target.width()}: "
+            f"frame tidak diskalakan KeepAspectRatio"
+        )
+        assert abs(pixmap.height() - round(480 * skala_w)) <= 1, (
+            f"tinggi {pixmap.height()} bukan skala utuh "
+            f"{round(480 * skala_w)}: frame tidak diskalakan KeepAspectRatio"
+        )
+    else:
+        assert abs(pixmap.height() - target.height()) <= 1, (
+            f"tinggi {pixmap.height()} bukan {target.height()}: "
+            f"frame tidak diskalakan KeepAspectRatio"
+        )
+        assert abs(pixmap.width() - round(640 * skala_h)) <= 1, (
+            f"lebar {pixmap.width()} bukan skala utuh "
+            f"{round(640 * skala_h)}: frame tidak diskalakan KeepAspectRatio"
+        )
+
+
+def test_pratinjau_tidak_memotong_deretan_bawah_frame(qapp) -> None:
+    """Regresi: mode memotong membuang ~118 dari 480 baris frame kamera."""
+    debug = DebugView(config())
+    ready = ReadyView(config())
+    try:
+        debug.show()
+        ready.show()
+        QApplication.processEvents()
+
+        frame = Frame(_frame_bermarker_bawah().copy(), 0.0, 0)
+        pipeline = Pipeline(
+            camera=_KameraSkrip(), sink=_SinkSkrip(), config=config()
+        )
+
+        # Jalur nyata debug: tick -> _paint(panel, image).
+        debug._pipeline = pipeline
+        debug._newest_frame = frame
+        debug._paint_preview()
+        screen = debug._overlay_panel._screen
+        _assert_tak_memotong(screen, screen.contentsRect().size())
+
+        # Jalur nyata mode siap pakai: tick -> setPixmap(self._preview).
+        ready._pipeline = pipeline
+        ready._newest_frame = frame
+        ready._paint_preview()
+        _assert_tak_memotong(ready._preview, ready._preview.contentsRect().size())
+    finally:
+        debug.close()
+        ready.close()
+

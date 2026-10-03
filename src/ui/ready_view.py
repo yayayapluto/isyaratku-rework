@@ -248,15 +248,18 @@ class ReadyView(qw.QMainWindow):
                     f"{_format_speech_errors(self)}"
                 )
             return
-        # Isi seluruh box pratinjau: rasio aspek dipertahankan dengan
-        # memperluas, sisanya dipotong QLabel. Tanpa ini frame tampil
-        # mengecil di dalam box (pillarbox). Kamera tidak dicerminkan:
-        # capture tidak pernah flip, gambar tampil apa adanya.
+        # Seluruh frame harus tetap terlihat: subtitle digambar render.py di
+        # dasar frame (y = frame_h - BOTTOM_GAP - baseline, BOTTOM_GAP=24),
+        # jadi baris terbawah tidak boleh hilang. KeepAspectRatioByExpanding
+        # terukur memotong ~107 dari 480 baris frame dan mendorong subtitle
+        # itu keluar area tampil; sisa ruang di kotak widescreen jadi
+        # letterbox / pillarbox yang diterima.
+        # Kamera tidak dicerminkan: capture tidak pernah flip, gambar tampil
+        # apa adanya.
         # contentsRect(), bukan size(): margin/frame QLabel ikut dihitung.
-        # Tanpa setScaledContents: pixmap diskalakan TEPAT SEKALI di sini,
-        # QLabel hanya memotong kelebihannya. Jangan pasang
-        # setScaledContents — itu me-resample ulang pixmap yang sudah
-        # diskalakan (stretch ganda).
+        # Tanpa setScaledContents: pixmap diskalakan TEPAT SEKALI di sini.
+        # Jangan pasang setScaledContents — itu me-resample ulang pixmap yang
+        # sudah diskalakan (stretch ganda).
         target = self._preview.contentsRect().size()
         if target.isEmpty():
             # Frame pertama sebelum window punya geometri: hasil non-null.
@@ -264,7 +267,7 @@ class ReadyView(qw.QMainWindow):
         self._preview.setPixmap(
             pixmap_bgr(frame.image).scaled(
                 target,
-                qc.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                qc.Qt.AspectRatioMode.KeepAspectRatio,
                 qc.Qt.TransformationMode.SmoothTransformation,
             )
         )

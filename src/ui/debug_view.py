@@ -464,14 +464,18 @@ def _metric_row(title: str) -> qw.QLabel:
 
 def _paint(panel: qw.QFrame, image: np.ndarray) -> None:
     screen = panel._screen
-    # Isi seluruh panel: rasio aspek dipertahankan dengan cara memperluas,
-    # lalu QLabel memotong sisanya. Tanpa ini frame tampil mengecil di dalam
-    # box (pillarbox). Kamera tidak dicerminakan: capture (src/adapters/
-    # camera.py) tidak pernah flip, jadi gambar tampil apa adanya.
+    # Seluruh frame harus tetap terlihat: subtitle digambar render.py di
+    # dasar frame (y = frame_h - BOTTOM_GAP - baseline, BOTTOM_GAP=24),
+    # jadi baris terbawah tidak boleh hilang. KeepAspectRatioByExpanding
+    # terukur memotong ~118 dari 480 baris frame dan mendorong subtitle itu
+    # keluar area tampil; sisa ruang di kotak widescreen jadi letterbox /
+    # pillarbox yang diterima.
+    # Kamera tidak dicerminakan: capture (src/adapters/camera.py) tidak
+    # pernah flip, jadi gambar tampil apa adanya.
     # contentsRect(), bukan size(): margin/frame QLabel ikut dihitung.
-    # Tanpa setScaledContents: pixmap diskalakan TEPAT SEKALI di sini, dan
-    # QLabel hanya memotong kelebihannya. Jangan pasang setScaledContents —
-    # itu me-resample ulang pixmap yang sudah diskalakan (stretch ganda).
+    # Tanpa setScaledContents: pixmap diskalakan TEPAT SEKALI di sini. Jangan
+    # pasang setScaledContents — itu me-resample ulang pixmap yang sudah
+    # diskalakan (stretch ganda).
     target = screen.contentsRect().size()
     if target.isEmpty():
         # Frame pertama sebelum window punya geometri: hasil non-null dulu.
@@ -479,7 +483,7 @@ def _paint(panel: qw.QFrame, image: np.ndarray) -> None:
     screen.setPixmap(
         pixmap_bgr(image).scaled(
             target,
-            qc.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            qc.Qt.AspectRatioMode.KeepAspectRatio,
             qc.Qt.TransformationMode.SmoothTransformation,
         )
     )
