@@ -44,14 +44,14 @@ Arah tunggal: `ui -> core <- adapters`.
 - Setiap perubahan wajib di-commit segera, sekecil apa pun. Tidak boleh ada perubahan menggantung saat menyerahkan hasil. Commit kecil lebih baik daripada satu commit besar.
 - Branch utama: `main`. Semua development dikerjakan di `dev`. Tidak ada branch baru (tidak ada feature branch); cukup `dev`.
 - `main` hanya menerima hasil yang sudah jadi dan terverifikasi lewat merge dari `dev`. Langsung commit ke `main` dilarang.
-- Remote sudah ada: `origin` = `https://github.com/yayayapluto/isyaratku-rework.git` (fetch dan push). `dev` melacak `origin/dev`, tapi belum pernah di-push; `main` lokal masih level dengan `dev`.
+- Remote sudah ada: `origin` = `https://github.com/<owner>/isyaratku-rework.git` (fetch dan push). `dev` melacak `origin/dev`, tapi belum pernah di-push; `main` lokal masih level dengan `dev`.
 - Pesan commit: Conventional Commits dengan deskripsi imperatif Bahasa Indonesia (mis. `feat: tambah normalisasi landmark`, `fix: ...`, `docs: ...`, `chore: ...`). Commit root/inisiasi boleh tanpa prefix.
 - `data/` tidak masuk git (`.gitignore`). Artefak model di `models/` MASUK git — model adalah bagian deliverable demo. Pengecualian: `models/tts/` (voice piper 62 MB) TIDAK masuk git, diunduh sekali lewat `python -m training.setup_voice`; artefak runtime seperti `models/tts/cache/` juga tidak masuk git.
 
 ### Identitas commit
 
-- Identitas commit diambil dari `.git/config` repo-local (`user.name=yayayapluto`, `user.email=mfarrasashshiddiqi@gmail.com`); mesin ini tidak punya config git global.
-- Commit awal (sebelum `4f22345`, 43 commit) memakai identitas repo-local yang dulu berbeda: `Lucif <lucif@local>`. Identitas membeku di objek commit, jadi tidak ikut berubah saat config diganti.
+- Identitas commit diambil dari `.git/config` repo-local; nilai nama dan email tidak dicetak di docs demi privasi. Mesin ini tidak punya config git global.
+- Commit awal (sebelum `4f22345`, 43 commit) memakai identitas repo-local yang dulu berbeda; identitas itu membeku di objek commit, jadi tidak berubah saat config diganti.
 - `.mailmap` di root repo memetakan identitas lama ke identitas sekarang, sehingga `git log` dan `git shortlog` menampilkan satu nama saja.
 - Commit baru mengikuti `.git/config`. Jangan set `GIT_AUTHOR_*` atau `GIT_COMMITTER_*` manual.
 

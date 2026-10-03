@@ -24,14 +24,14 @@ Dokumen ini berisi fakta lingkungan development hasil rekon slice 0 pada commit 
 | `python --version` | `Python 3.14.6` |
 | `python3 --version` | `Python 3.14.6` |
 | `py --version` | `Python 3.14.6` |
-| `which python python3 py git bash` | `C:\Users\mfarr\AppData\Local\Microsoft\WindowsApps\python.exe` untuk python; `...\python3.exe`; `...\py.exe`; `C:\Program Files\Git\ucrt64\bin\git.exe`; `C:\Program Files\Git\usr\bin\bash.exe` |
+| `which python python3 py git bash` | `python.exe` di PATH adalah shim launcher Microsoft Store, `python3.exe` dan `py.exe` serupa; `git.exe` dan `bash.exe` dari Git for Windows (`C:\Program Files\Git\...`) |
 | `$OSTYPE` | `windows` |
-| `python -m pip --version` | `pip 26.1.2 from C:\Users\mfarr\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\pip (python 3.14)` |
+| `python -m pip --version` | `pip 26.1.2 from <python-install>\Lib\site-packages\pip (python 3.14)` |
 | `python -m venv --help` baris pertama | `usage: python.exe -m venv [-h] [--system-site-packages [--symlinks | --copies] [--clear] [--upgrade-deps] [--without-pip] [--prompt PROMPT] [--without-scm-ignore-files]` |
 | `git --version` | `git version 2.56.0.windows.1` |
 | `python -c "import platform; print(platform.machine(), platform.system(), platform.version())"` | `AMD64 Windows 10.0.26200` |
 
-Catatan: `python` di PATH adalah shim launcher Microsoft Store, bukan tanda Python tidak terpasang. Interpreter nyata ada di `C:\Users\mfarr\AppData\Local\Python\pythoncore-3.14-64`, sesuai lokasi yang dilaporkan `pip --version`.
+Catatan: `python` di PATH adalah shim launcher Microsoft Store, bukan tanda Python tidak terpasang; interpreter nyata berada di luar PATH. Lokasi absolut interpreter sengaja tidak dicetak di repo ini. Syarat lingkungan: `python` harus menunjuk Python 3.14 dengan seluruh dependensi `requirements.txt` terpasang.
 
 ## Paket Python
 
@@ -326,8 +326,7 @@ Cara baca hasilnya, penting supaya tidak salah tafsir:
 Jadi kecepatan inferensi MediaPipe di CPU mesin ini **masih tidak dapat diverifikasi**. Prasyaratnya satu: berkas model `hand_landmarker.task` (dan setara untuk pose) harus tersedia lebih dulu. Temuan itu dicatat di bawah.
 
 ### Berkas model MediaPipe yang dibundel
-
-Isi direktori paket `C:\Users\mfarr\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\mediapipe`:
+Isi direktori paket site-packages `mediapipe`:
 
 ```text
 __init__.py
@@ -338,7 +337,7 @@ tasks
 
 Direktori `modules` hanya punya satu subdirektori `hand_landmark`, dan isinya nol berkas. Direktori `tasks` berisi keluaran Python `tasks/python/...` dsb.
 
-Pencarian `*.task`, `*.tflite`, dan `*.binarypb` di seluruh direktori paket: **nol berkas**. Total isi paket 233 berkas dan semuanya `.py` atau `.pyc`. Pencarian di `C:\Users\mfarr` dan seluruh drive `D:` juga menghasilkan nol berkas `.task`.
+Pencarian `*.task`, `*.tflite`, dan `*.binarypb` di seluruh direktori paket: **nol berkas**. Total isi paket 233 berkas dan semuanya `.py` atau `.pyc`. Pencarian di seluruh direktori situs-interpreter Python dan seluruh drive data juga menghasilkan nol berkas `.task`.
 
 Kesimpulan: paket `mediapipe` 1.0.1 di lingkungan ini mengirim kode tanpa aset model. API yang tersedia adalah **Tasks API**, bukan `mp.solutions`:
 
