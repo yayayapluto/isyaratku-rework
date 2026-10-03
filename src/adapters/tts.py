@@ -27,6 +27,10 @@ Pencocokan endpoint audio VB-Cabel lihat ``match_cable_device()``:
 nama perangkat SAMA ("CABLE Output") adalah endpoint CAPTURE
 (``max_output_channels == 0``), jadi cocokkan nama kabel pada endpoint
 yang output-nya lebih besar dari nol.
+
+Resolution speaker LOKAL (mode debug) lihat ``resolve_local_speaker()``:
+kabel virtual punya nama yang menyamar jadi "Speakers", jadi endpoint
+kabel dikecualikan eksplisit saat mencari speaker ruangan.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ import threading
 import time
 import wave
 from collections.abc import Callable
+from functools import lru_cache
 from pathlib import Path
 
 from piper import PiperVoice
@@ -95,6 +100,72 @@ def match_cable_device(devices: list[dict], want: str) -> int | None:
     return None
 
 
+def resolve_local_speaker(devices: list[dict] | None = None) -> int | None:
+    """Indeks SPEAKER LOKAL: supaya mode debug terdengar di ruangan.
+
+    Kabel virtual menamai endpoint pemutarnya nampak seperti speaker
+    ("Speakers (2- VB-Audio Virtual C)"), jadi endpoint kabel WAJIB
+    dikecualikan — kalau tidak demo memutar dua kali ke endpoint yang
+    sama dan ruangan tetap diam.
+
+    Urutan: nama ("speakers") pada endpoint PEMUTAR; bila tak ada, output
+    default sistem (``sd.default.device[1]``) asal bukan kabel. Panggilan
+    tanpa daftar device di-cache: ``query_devices`` jalan paling banyak
+    sekali per proses. ``None`` = jangan putar lokal.
+    """
+    if devices is None:
+        return _resolve_local_speaker_cached()
+    return _match_local_speaker(devices)
+
+
+def _match_local_speaker(devices: list[dict]) -> int | None:
+    """Endpoint output pertama yang speaker fisik: nama + bukan kabel."""
+    for index, device in enumerate(devices):
+        name = str(device.get("name", "")).lower()
+        if (
+            "speakers" in name
+            and "cable" not in name
+            and "vb-audio" not in name
+            and int(device.get("max_output_channels", 0)) > 0
+        ):
+            return index
+    return _default_local_speaker()
+
+
+def _default_local_speaker() -> int | None:
+    """Output default sistem; ``None`` kalau itu endpoint kabel atau tak ada."""
+    import sounddevice as sd
+
+    try:
+        index = int(sd.default.device[1])
+        device = sd.query_devices(index)
+    except Exception:  # backend audio tidak terinisialisasi
+        return None
+    name = str(device.get("name", "")).lower()
+    if "cable" in name or "vb-audio" in name:
+        return None
+    if int(device.get("max_output_channels", 0)) <= 0:
+        return None
+    return index
+
+
+@lru_cache(maxsize=1)
+def _resolve_local_speaker_cached() -> int | None:
+    """Hasil pencarian speaker lokal, sekali per proses (indeks stabil)."""
+    import sounddevice as sd
+
+    try:
+        devices = sd.query_devices()
+    except Exception:  # backend audio tidak terinisialisasi
+        return None
+    return _match_local_speaker(devices)
+
+
+def _reset_local_speaker_cache() -> None:
+    """Bersihkan cache resolver (test; perangkat bisa dicabut/dipasang)."""
+    _resolve_local_speaker_cached.cache_clear()
+
+
 class PiperTts:
     """Sintesis + cache WAV per label + pemutaran ke VB-Cabel."""
 
@@ -103,12 +174,16 @@ class PiperTts:
         config: AppConfig,
         voice_path: str | Path = DEFAULT_VOICE,
         cache_dir: str | Path | None = None,
+        local_device: int | None = None,
     ) -> None:
         self._config = config
         self._voice_path = Path(voice_path)
         self._cache_dir = (
             Path(cache_dir) if cache_dir is not None else self._voice_path.parent / "cache"
         )
+        #: Indeks speaker lokal; ``None`` = tidak memutar ke ruangan
+        #: (perilaku mode siap pakai: hanya kabel).
+        self._local_device = local_device
         self._voice: PiperVoice | None = None
         #: Indeks endpoint pemutar kabel, diisi saat pertama dibutuhkan.
         self._device: int | None = None
@@ -142,6 +217,11 @@ class PiperTts:
     def voice_model_available(self) -> bool:
         """True hanya bila artifact voice benar-benar ada di disk."""
         return self._voice_path.is_file()
+
+    @property
+    def local_device(self) -> int | None:
+        """Indeks speaker lokal; ``None`` = tidak diputar ke ruangan."""
+        return self._local_device
 
     # -- sintesis -------------------------------------------------------
     def _load(self) -> PiperVoice:
@@ -247,6 +327,11 @@ class PiperTts:
         Pemutaran memegang gerbang audio supaya tidak berimpit dengan
         muat voice (lihat ``_load``), dan menyilangkan alokasi/pelepasan
         stream ke thread yang sama (BUG 2: PortAudio heap 0xc0000374).
+
+        Dengan ``local_device`` terisi (mode debug), ucapan yang SAMA
+        diputar dua kali: kabel (OBS/Zoom) lalu speaker ruangan. Dua
+         ``sd.play`` tetap di dalam satu ``sd.wait`` masing-masing
+        sehingga tak ada alokasi PortAudio yang berimpit.
         """
         import numpy as np
         import sounddevice as sd
@@ -263,6 +348,12 @@ class PiperTts:
         with self._audio_gate:
             sd.play(audio, rate, device=device)
             sd.wait()
+            if self._local_device is not None:
+                # Kedua pemutaran masuk satu gate: sd.play alokasi buffer
+                # PortAudio, dan dua panggilan tak sinkron pernah merusak
+                # heap (0xc0000374). Putar lokal, diamkan sampai selesai.
+                sd.play(audio, rate, device=self._local_device)
+                sd.wait()
         return len(audio) / rate
 
     def _resolve_device(self) -> int | None:

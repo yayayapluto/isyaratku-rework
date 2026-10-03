@@ -22,6 +22,7 @@ from src.adapters.tts import (
     PiperTts,
     TtsUnavailableError,
     match_cable_device,
+    resolve_local_speaker,
 )
 from src.core.config import load_config
 
@@ -44,6 +45,28 @@ class _VoicePalsu:
         wav_file.setsampwidth(2)
         wav_file.setframerate(22050)
         wav_file.writeframes(b"\x01\x00" * 220)
+
+
+@pytest.fixture
+def sd_palsu(monkeypatch):
+    """sounddevice palsu: query_devices/play/wait, tanpa perangkat keras.
+
+    Urutan panggilan dicatat supaya tes bisa membuktikan bahwa setiap
+    ``sd.play`` diikuti ``sd.wait`` SEBELUM ``sd.play`` berikutnya.
+    """
+    import sounddevice as sd
+
+    urutan: list[tuple] = []
+    monkeypatch.setattr(sd, "query_devices", lambda: TABEL_DEVICES)
+
+    monkeypatch.setattr(
+        sd,
+        "play",
+        lambda audio, rate, device=None: urutan.append(("play", device)),
+        raising=True,
+    )
+    monkeypatch.setattr(sd, "wait", lambda *a, **k: urutan.append(("wait",)))
+    return urutan
 
 
 @pytest.fixture
@@ -376,3 +399,147 @@ def test_check_exit_code_nol_bila_voice_nyata_ada(capsys) -> None:
             f"python -m training.setup_voice. Tes ini sengaja "
             f"tidak lolos palsu."
         )
+
+
+# -- mode debug: satu ucapan, dua tujuan (kabel + speaker ruangan) --------
+
+
+# Indeks speaker ruangan di TABEL_DEVICES: endpoint "Speakers" pertama
+# yang BUKAN kabel virtual (lihat resolve_local_speaker).
+INDEKS_SPEAKER_LOKAL = 1
+
+
+def test_play_tanpa_local_device_hanya_satu_panggilan_kabel(
+    tts_dengan_voice, sd_palsu, monkeypatch
+) -> None:
+    """Mode siap pakai: SAMA SEKALI sd.play, ke endpoint kabel saja."""
+    tts_obj = tts_dengan_voice
+    monkeypatch.setattr(
+        tts_obj, "resolve_device", lambda: INDEKS_PUTAR_KABEL, raising=True
+    )
+
+    tts_obj.play(LABEL)
+
+    assert sd_palsu == [("play", INDEKS_PUTAR_KABEL), ("wait",)], (
+        f"mode siap pakai harus putar hanya ke kabel: {sd_palsu}"
+    )
+
+
+def test_play_dengan_local_device_dua_panggilan_antarsinkron(
+    tts_dengan_voice, sd_palsu, monkeypatch
+) -> None:
+    """Mode debug: ucapan SAMA ke kabel lalu speaker, urut, tanpa tumpang.
+
+    Bukti gerbang: setiap ``sd.play`` diikuti ``sd.wait`` SEBELUM
+    ``sd.play`` berikutnya, dan payload audio yang sama dipakai dua kali
+    (bukan dua pembacaan WAV).
+    """
+    tts_obj = tts_dengan_voice
+    tts_obj._local_device = INDEKS_SPEAKER_LOKAL
+    monkeypatch.setattr(
+        tts_obj, "resolve_device", lambda: INDEKS_PUTAR_KABEL, raising=True
+    )
+
+    tts_obj.play(LABEL)
+
+    assert sd_palsu == [
+        ("play", INDEKS_PUTAR_KABEL),
+        ("wait",),
+        ("play", INDEKS_SPEAKER_LOKAL),
+        ("wait",),
+    ], f"urutan gerbang audio salah: {sd_palsu}"
+
+
+def test_resolve_local_speaker_mengabaikan_endpoint_kabel() -> None:
+    """Endpoint kabel bernama "Speakers ..." TIDAK dipilih: ruangan diam."""
+    assert resolve_local_speaker(TABEL_DEVICES) == INDEKS_SPEAKER_LOKAL
+
+
+def test_resolve_local_speaker_jatuh_ke_output_default(monkeypatch) -> None:
+    """Nama speaker tak cocok (mis. headset): default output non-kabel."""
+    import sounddevice as sd
+
+    perangkat = [
+        {"name": "Headset Earphone", "max_output_channels": 2},
+        {"name": "USB Speakers", "max_output_channels": 2},
+        {"name": "CABLE Input", "max_output_channels": 16},
+    ]
+
+    class _Default:
+        device = (0, 1)
+
+    monkeypatch.setattr(sd, "default", _Default())
+    monkeypatch.setattr(sd, "query_devices", lambda index=None: perangkat[index])
+    assert resolve_local_speaker(perangkat) == 1
+
+
+def test_resolve_local_speaker_default_yang_kabel_ditolak(monkeypatch) -> None:
+    """Default sistem berupa endpoint kabel: None, bukan double-play."""
+    import sounddevice as sd
+
+    kabel_saja = [{"name": "CABLE Input", "max_output_channels": 16}]
+
+    class _Default:
+        device = (0, 0)
+
+    monkeypatch.setattr(sd, "default", _Default())
+    monkeypatch.setattr(sd, "query_devices", lambda index=None: kabel_saja[index])
+    assert resolve_local_speaker(kabel_saja) is None
+
+
+def test_resolve_local_speaker_di_cache_satu_query_per_proses(monkeypatch) -> None:
+    """query_devices tanpa daftar: sekali per proses, indeks di-cache."""
+    import sounddevice as sd
+
+    from src.adapters.tts import _reset_local_speaker_cache
+
+    hitungan = {"n": 0}
+
+    def _devices():
+        hitungan["n"] += 1
+        return TABEL_DEVICES
+
+    monkeypatch.setattr(sd, "query_devices", _devices)
+    _reset_local_speaker_cache()
+    try:
+        assert resolve_local_speaker() == INDEKS_SPEAKER_LOKAL
+        assert resolve_local_speaker() == INDEKS_SPEAKER_LOKAL
+        assert hitungan["n"] == 1, f"query_devices dipanggil {hitungan['n']} kali"
+    finally:
+        _reset_local_speaker_cache()
+
+
+def test_build_speech_local_speech_menyalurkan_local_device(monkeypatch) -> None:
+    """Wiring GUI (pekerja lain): ``local_speech=True`` -> local_device int.
+
+    ``finish_checks``/``_build_speech``/``debug_view`` sengaja TIDAK diedit
+    di sini (pekerja lain memegangnya). Tes ini jadi pagar: begitu wiring
+    masuk, parameter harus mengalir sampai ``local_device`` TTS.
+    """
+    import inspect
+
+    from src.ui.check_task import _build_speech
+
+    sertaan = inspect.signature(_build_speech).parameters
+    if "local_speech" not in sertaan:
+        pytest.skip(
+            "wiring local_speech belum diterapkan pada _build_speech "
+            "(pekerja lain memegang src/ui/check_task.py)"
+        )
+    diambil: dict[str, object] = {}
+
+    class TtsRekam:
+        voice_model_available = True
+
+        def __init__(self, config, **kwargs):
+            diambil["local_device"] = kwargs.get("local_device", "TIDAK-DIKIRIM")
+
+    monkeypatch.setattr("src.adapters.tts.PiperTts", TtsRekam, raising=True)
+    _build_speech(cfg(), local_speech=True)
+    assert isinstance(diambil["local_device"], int), (
+        f"local_speech=True harus memberi indeks int, dapat {diambil['local_device']!r}"
+    )
+    _build_speech(cfg())
+    assert diambil["local_device"] is None, (
+        f"tanpa local_speech harus None, dapat {diambil['local_device']!r}"
+    )

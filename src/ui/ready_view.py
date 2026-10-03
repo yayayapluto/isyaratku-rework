@@ -157,10 +157,11 @@ class ReadyView(qw.QMainWindow):
             self,
             results,
             self._details,
-            # Renderer yang sama dengan mode debug: teks overlay selalu
-            # frame.text (label predictor); placeholder hanya tampil sebelum
-            # label pertama. Tanpa raw sink: view ini tak punya panel mentah.
-            make_renderer(PLACEHOLDER_TEXT),
+            # Mode siap pakai memakai frame yang sama dengan mode debug
+            # kecuali (1) tanpa raw sink — view ini tak punya panel mentah,
+            # (2) tanpa titik/garis landmark — permintaan user, mode siap
+            # pakai hanya menampilkan frame dan subtitle.
+            make_renderer(PLACEHOLDER_TEXT, mirror=True, landmarks=False),
         )
         if camera is not None and self._alive:
             self._details.setText(
@@ -254,8 +255,12 @@ class ReadyView(qw.QMainWindow):
         # terukur memotong ~107 dari 480 baris frame dan mendorong subtitle
         # itu keluar area tampil; sisa ruang di kotak widescreen jadi
         # letterbox / pillarbox yang diterima.
-        # Kamera tidak dicerminkan: capture tidak pernah flip, gambar tampil
-        # apa adanya.
+        # Capture (src/adapters/camera.py) tidak pernah flip: extractor dan
+        # predictor tunggal frame asli, jadi cermin terjadi di JALUR RENDER
+        # (make_renderer(mirror=True) -> render.mirror_image, terukur 0,041
+        # ms/frame = 0,12% budget 30 FPS). Preview dan OBS ikut cermin,
+        # sementara input model tidak disentuh; subtitle tetap terbaca karena
+        # digambar sesudah flip.
         # contentsRect(), bukan size(): margin/frame QLabel ikut dihitung.
         # Tanpa setScaledContents: pixmap diskalakan TEPAT SEKALI di sini.
         # Jangan pasang setScaledContents — itu me-resample ulang pixmap yang

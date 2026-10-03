@@ -39,6 +39,17 @@ BOTTOM_GAP = 24
 #: panjang keluar frame.
 MIN_FONT_SCALE = 0.5
 
+
+def mirror_image(image: np.ndarray) -> np.ndarray:
+    """Cermin horizontal untuk jalur tampilan; array BARU, kontigu.
+
+    Bukan ``img[:, ::-1]`` (strides negatif bikin cv2/QImage bisa salah baca),
+    jadi lewat ``cv2.flip``. Diletakkan di render.py biar cv2 tetap di satu
+    modul tampilan.
+    """
+    return cv2.flip(image, 1)
+
+
 # Warna BGR: tangan hijau, pose jingga. Ketebalan dan radius dibuat sama agar
 # dua lapisan tak saling menimpa.
 HAND_STYLE = drawing_utils.DrawingSpec(
@@ -114,28 +125,37 @@ def draw_overlay(frame: Frame, text: str) -> Frame:
     return frame
 
 
-def draw_landmarks(frame: Frame, landmarks) -> Frame:
+def draw_landmarks(frame: Frame, landmarks, mirror: bool = False) -> Frame:
     """Gambar landmark tangan dan pose di atas frame, lewat helper MediaPipe.
 
     Dipanggil setelah ``draw_overlay``; titik tanpa ``present`` dilewati (hasil
     zero-fill di ``src/core/landmarks.py``). Frame tanpa landmark dilewati tanpa
     galat supaya pipeline tanpa ekstraksi memakai renderer yang sama.
+
+    ``mirror=True`` hanya memindahkan x setiap titik (``1 - x``, koordinat
+    ternormalisasi 0..1 sesuai ``src/core/landmarks.py``) supaya titik ikut
+    frame yang sudah dicerminkan; landmark itu sendiri tidak diubah.
     """
     if landmarks is None:
         return frame
     image = frame.image
     for hand in landmarks.hands:
         if hand.present:
-            _draw(image, hand.coords, HAND_CONNECTIONS, HAND_STYLE)
+            _draw(image, hand.coords, HAND_CONNECTIONS, HAND_STYLE, mirror)
     if landmarks.pose.present:
-        _draw(image, landmarks.pose.coords, POSE_CONNECTIONS, POSE_STYLE)
+        _draw(image, landmarks.pose.coords, POSE_CONNECTIONS, POSE_STYLE, mirror)
     return frame
 
 
-def _draw(image, coords, connections, style) -> None:
+def _draw(image, coords, connections, style, mirror: bool = False) -> None:
     """Gambar satu tumpukan landmark lewat drawing_utils, in place di ``image``."""
     points = [
-        NORMALIZED_LANDMARK(x=float(row[0]), y=float(row[1]), z=0.0) for row in coords
+        NORMALIZED_LANDMARK(
+            x=(1.0 - float(row[0]) if mirror else float(row[0])),
+            y=float(row[1]),
+            z=0.0,
+        )
+        for row in coords
     ]
     drawing_utils.draw_landmarks(
         image,

@@ -97,7 +97,7 @@ The TOML file holds only the keys you want to override, for example `camera.devi
 
 ## Testing
 
-- 225 tests, `python -m pytest -q -p no:cacheprovider`, all passing.
+- 236 tests, `python -m pytest -q -p no:cacheprovider`, all passing.
 - Tests run offscreen (`QT_QPA_PLATFORM=offscreen`) using fake adapters, so CI or a laptop without a webcam can still run them.
 - One real-device path that cannot be tested automatically (Zoom/Meet end-to-end) still has to be proven manually.
 

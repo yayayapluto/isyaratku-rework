@@ -175,9 +175,14 @@ class DebugView(qw.QMainWindow):
             results,
             details=None,
             # Salinan piksel mentah disimpan SEBELUM draw_overlay menimpa
-            # frame. Teks overlay selalu frame.text (label predictor);
-            # placeholder hanya tampil sebelum label pertama.
-            renderer=make_renderer(PLACEHOLDER_TEXT, self._store_raw),
+            # frame; turutannya sudah dicerminkan supaya kedua panel debug
+            # tampak sama (selfie), bedanya hanya overlay. Teks overlay selalu
+            # frame.text (label predictor); placeholder hanya tampil sebelum
+            # label pertama.
+            renderer=make_renderer(PLACEHOLDER_TEXT, self._store_raw, mirror=True),
+            # Mode debug: ucapan yang sama juga ke speaker ruangan supaya
+            # terdengar saat demo; kabel tetap jalan untuk OBS/Zoom.
+            local_speech=True,
         )
 
     def _store_raw(self, image: np.ndarray) -> None:
@@ -470,8 +475,12 @@ def _paint(panel: qw.QFrame, image: np.ndarray) -> None:
     # terukur memotong ~118 dari 480 baris frame dan mendorong subtitle itu
     # keluar area tampil; sisa ruang di kotak widescreen jadi letterbox /
     # pillarbox yang diterima.
-    # Kamera tidak dicerminakan: capture (src/adapters/camera.py) tidak
-    # pernah flip, jadi gambar tampil apa adanya.
+    # Capture (src/adapters/camera.py) tidak pernah flip: extractor dan
+    # predictor tunggal frame asli, jadi cermin terjadi di JALUR RENDER
+    # (make_renderer(mirror=True) -> render.mirror_image, terukur 0,041
+    # ms/frame = 0,12% budget 30 FPS). Preview dan OBS ikut cermin,
+    # sementara input model tidak disentuh; subtitle tetap terbaca karena
+    # digambar sesudah flip.
     # contentsRect(), bukan size(): margin/frame QLabel ikut dihitung.
     # Tanpa setScaledContents: pixmap diskalakan TEPAT SEKALI di sini. Jangan
     # pasang setScaledContents — itu me-resample ulang pixmap yang sudah

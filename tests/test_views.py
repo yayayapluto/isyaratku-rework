@@ -224,7 +224,7 @@ def test_finish_checks_wires_real_predictor_into_pipeline(qapp, monkeypatch) -> 
     monkeypatch.setattr(
         check_task,
         "_build_speech",
-        lambda config: type("S", (), {"feed": lambda self, label: None, "warm_up": lambda self, labels: []})(),
+        lambda config, local_speech=False: type("S", (), {"feed": lambda self, label: None, "warm_up": lambda self, labels: []})(),
     )
 
     view = DebugView(config())
@@ -273,7 +273,11 @@ def test_finish_checks_warms_up_all_model_labels_before_pipeline(qapp, monkeypat
     monkeypatch.setattr(
         check_task, "run_checks_async", lambda index, done: done([("ok", True, "")])
     )
-    monkeypatch.setattr(check_task, "_build_speech", lambda config: RecordingSpeech())
+    monkeypatch.setattr(
+        check_task,
+        "_build_speech",
+        lambda config, local_speech=False: RecordingSpeech(),
+    )
 
     view = DebugView(config())
     view._on_start()
@@ -359,7 +363,7 @@ def test_finish_checks_reuses_the_checks_camera(qapp, monkeypatch) -> None:
     monkeypatch.setattr(
         check_task,
         "_build_speech",
-        lambda config: type(
+        lambda config, local_speech=False: type(
             "S", (), {"feed": lambda self, label: None, "warm_up": lambda self, labels: []}
         )(),
     )
@@ -437,7 +441,7 @@ def test_checks_signal_carries_results_camera_to_the_view(qapp, monkeypatch) -> 
     monkeypatch.setattr(
         check_task,
         "_build_speech",
-        lambda config: type(
+        lambda config, local_speech=False: type(
             "S", (), {"feed": lambda self, label: None, "warm_up": lambda self, labels: []}
         )(),
     )
@@ -667,7 +671,9 @@ def test_finish_checks_forwards_labels_to_speech_and_view(qapp, monkeypatch) -> 
         check_task, "run_checks_async", lambda index, done: done(results)
     )
     monkeypatch.setattr(check_task, "OpenCvCameraSource", PabrikKamera)
-    monkeypatch.setattr(check_task, "_build_speech", lambda config: speech)
+    monkeypatch.setattr(
+        check_task, "_build_speech", lambda config, local_speech=False: speech
+    )
 
     # DebugView asli: inilah yang membuktikan label MUNCUL di log panel,
     # bukan hanya sampai ke objek speech.

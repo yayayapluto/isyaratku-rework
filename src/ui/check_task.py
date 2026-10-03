@@ -20,7 +20,7 @@ from ..adapters.landmark import MediaPipeLandmarkExtractor
 from ..adapters.predictor import TrainedPredictor
 from ..adapters.virtual_camera import VirtualCameraSink
 from ..core.pipeline import Frame, Pipeline
-from .render import draw_landmarks, draw_overlay
+from .render import draw_landmarks, draw_overlay, mirror_image
 from .prediction_probe import PredictionProbe
 
 
@@ -136,12 +136,16 @@ def start_checks(view, details) -> bool:
     return True
 
 
-def finish_checks(view, results, details, renderer) -> object | None:
+def finish_checks(
+    view, results, details, renderer, local_speech: bool = False
+) -> object | None:
     """Tuntaskan pemeriksaan: laporkan galat, atau bangun lalu jalankan pipeline.
 
     Kembalikan objek kamera bila pipeline berjalan, ``None`` bila gagal. Satu
     jalur dipakai kedua view; perbedaan hanya ``details`` (None untuk view
-    tanpa label rincian) dan ``renderer`` yang disuntikkan view.
+    tanpa label rincian) dan ``renderer`` yang disuntikkan view. Parameter
+    ``local_speech`` hanya dikirim mode debug agar ucapan ikut keluar ke
+    speaker ruangan; mode siap pakai tetap hanya kabel.
     """
     t0 = time.monotonic()
     logger.info("finish_checks mulai (%d hasil pemeriksaan)", len(results))
@@ -193,7 +197,7 @@ def finish_checks(view, results, details, renderer) -> object | None:
         # muncul sebagai galat pemeriksaan, bukan thread yang mati
         # sepinya di tengah demo. PiperTts ganti FakeTTS bila voice ada.
         step = _Langkah("speech sink")
-        speech = _build_speech(view._config)
+        speech = _build_speech(view._config, local_speech=local_speech)
         step.selesai()
         # Pra-sintesis seluruh label model di fase pra-cek: feed() tidak lagi
         # mensintesis di thread capture, jadi tanpa warm_up kata pertama
@@ -298,7 +302,12 @@ def _release_shared_camera(results) -> None:
         release()
 
 
-def make_renderer(placeholder: str = "", raw_sink=None) -> Callable[[Frame], Frame]:
+def make_renderer(
+    placeholder: str = "",
+    raw_sink=None,
+    mirror: bool = False,
+    landmarks: bool = True,
+) -> Callable[[Frame], Frame]:
     """Renderer overlay: subtitle lengket + landmark.
 
     Subtitle = label predictor TERAKHIR yang pernah terlihat, diingat di
@@ -318,6 +327,16 @@ def make_renderer(placeholder: str = "", raw_sink=None) -> Callable[[Frame], Fra
     menimpa ``frame.image`` in place, jadi salinan di ``on_frame`` selalu
     terlambat. View tanpa panel mentah memakai ``raw_sink=None``.
 
+    ``mirror=True`` cerminkan frame DI JALUR RENDER saja (loop output,
+    ``Pipeline`` memanggil ``renderer``), jadi preview dan OBS Virtual Camera
+    tampil seperti cermin sementara capture/extractor/predictor tidak disentuh
+    — input terbalik akan mengubah handedness MediaPipe dan merusak model.
+    Subtitle tetap terbaca karena digambar SETELAH flip; kalau teks digambar
+    dulu lalu frame dibalik, subtitle ikut terbalik.
+
+    ``landmarks=False``: mode siap (ready) tanpa titik dan garis sama sekali,
+    frame tetap tampil dengan subtitle saja.
+
     Landmark digambar paling akhir supaya titik tetap terlihat; frame tanpa
     ekstraksi landmark dilewati tanpa galat.
     """
@@ -326,27 +345,38 @@ def make_renderer(placeholder: str = "", raw_sink=None) -> Callable[[Frame], Fra
     def renderer(frame: Frame) -> Frame:
         if frame.text:
             holder[0] = frame.text
+        if mirror:
+            frame.image = mirror_image(frame.image)
         if raw_sink is not None:
             raw_sink(frame.image.copy())
         draw_overlay(frame, holder[0] or placeholder)
-        draw_landmarks(frame, frame.landmarks)
+        if landmarks:
+            draw_landmarks(frame, frame.landmarks, mirror=mirror)
         return frame
-
     return renderer
 
 
-def _build_speech(config) -> object:
+def _build_speech(config, local_speech: bool = False) -> object:
     """Speech sink sesuai config: PiperTts bila voice ada, FakeTTS bila tidak.
 
     Voice tidak ada bukan alasan gagal start: pipeline tetap jalan tanpa
     suara dan UI melaporkan lewat pemeriksaan awal. ``tts.enabled = false``
     memakai FakeTTS apa adanya — video tetap jalan, audio tidak.
+    ``local_speech=True`` (mode debug) menambahkan pemutaran ke speaker lokal
+    — indeksnya dicari lewat ``resolve_local_speaker()``, bukan angka tetap,
+    dan tetap di bawah gerbang audio yang sama.
     """
-    from ..adapters.tts import FakeTTS, PiperTts, SpeechSink
+    from ..adapters.tts import (
+        FakeTTS,
+        PiperTts,
+        SpeechSink,
+        resolve_local_speaker,
+    )
 
     if not config.tts_enabled:
         return SpeechSink(FakeTTS(config), enabled=False, config=config)
-    tts = PiperTts(config)
+    lokal = resolve_local_speaker() if local_speech else None
+    tts = PiperTts(config, local_device=lokal)
     if not tts.voice_model_available:
         tts = FakeTTS(config)
     return SpeechSink(tts, config=config)
