@@ -52,7 +52,7 @@ Arah tunggal: `ui -> core <- adapters`.
 
 - Identitas commit diambil dari `.git/config` repo-local; nilai nama dan email tidak dicetak di docs demi privasi. Mesin ini tidak punya config git global.
 - Commit awal (sebelum `4f22345`, 43 commit) memakai identitas repo-local yang dulu berbeda; identitas itu membeku di objek commit, jadi tidak berubah saat config diganti.
-- `.mailmap` di root repo memetakan identitas lama ke identitas sekarang, sehingga `git log` dan `git shortlog` menampilkan satu nama saja.
+- `.mailmap` adalah berkas lokal yang diabaikan git (masuk `.gitignore`, tidak pernah di-commit): ia memetakan identitas lama ke identitas sekarang supaya `git log` dan `git shortlog` menampilkan satu nama saja.
 - Commit baru mengikuti `.git/config`. Jangan set `GIT_AUTHOR_*` atau `GIT_COMMITTER_*` manual.
 
 ## Kebenaran data
