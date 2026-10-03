@@ -1,14 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_data_files
-from PyInstaller.utils.hooks import collect_dynamic_libs
 from PyInstaller.utils.hooks import collect_submodules
 
-datas = [('configs/app.toml', 'configs'), ('models/huruf.npz', 'models'), ('models/angka.npz', 'models'), ('models/mediapipe/hand_landmarker.task', 'models/mediapipe'), ('models/mediapipe/pose_landmarker_lite.task', 'models/mediapipe')]
+datas = [('configs/app.toml', 'configs')]
 binaries = []
-hiddenimports = ['cv2', 'numpy', 'sklearn', 'sklearn.ensemble', 'sklearn.linear_model']
-datas += collect_data_files('mediapipe')
-binaries += collect_dynamic_libs('mediapipe')
-hiddenimports += collect_submodules('mediapipe')
+hiddenimports = ['numpy', 'sklearn', 'sklearn.linear_model', 'sklearn.pipeline', 'sklearn.preprocessing']
 hiddenimports += collect_submodules('src')
 
 
@@ -21,7 +16,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['torch', 'torchvision', 'tensorboard', 'sounddevice', 'piper'],
+    excludes=['torch', 'torchvision', 'tensorboard', 'sounddevice', 'piper', 'mediapipe', 'cv2'],
     noarchive=False,
     optimize=0,
 )
