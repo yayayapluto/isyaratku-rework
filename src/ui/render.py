@@ -71,13 +71,19 @@ def draw_overlay(frame: Frame, text: str) -> Frame:
     """Gambar subtitle putih bergaris hitam tipis di tengah bawah frame.
 
     Subtitle tanpa strip gelap: huruf putih dengan outline hitam tipis biar
-    tetap terbaca di atas video. Teks yang sudah menempel di ``frame.text``
-    (label hasil predictor) menang atas ``text`` placeholder; placeholder hanya
-    dipakai bila predictor belum menghasilkan apa pun. Yang digambar ditulis
-    kembali ke ``frame.text`` supaya overlay dan teks frame tidak pernah
-    berbeda.
+    tetap terbaca di atas video. ``text`` YANG DIPAKAI menggambar — ia
+    adalah subtitle lengkap yang sudah disusun pemanggil (label kata +
+    huruf/angka statis pada satu baris). ``frame.text`` hanya jadi
+    fallback untuk pemanggil yang tidak memberi teks apa pun (mis. headless
+    smoke: ``draw_overlay(frame, "Smoke test headless."``), supaya perilaku
+    itu tidak berubah.
+
+    ``drawn`` diteruskan ke proses menggambar apa adanya. ``frame.text``
+    TIDAK dilewatkan ke ``return``; pemanggil mengirimkan teks lengkap, dan
+    menulis ulang ``frame.text`` di sini hanya akan mencampur keduanya
+    tanpa manfaat.
     """
-    drawn = frame.text or text
+    drawn = text or frame.text
     if not drawn:
         return frame
     image = frame.image
@@ -121,7 +127,6 @@ def draw_overlay(frame: Frame, text: str) -> Frame:
         FONT_THICKNESS,
         cv2.LINE_AA,
     )
-    frame.text = drawn
     return frame
 
 

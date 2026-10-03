@@ -16,7 +16,12 @@ import PySide6.QtWidgets as qw
 from ..core.config import AppConfig, load_config
 from ..core.landmarks import IncompleteTracker
 from ..core.pipeline import Frame, Pipeline, Stats
-from .check_task import finish_checks, make_renderer, start_checks
+from .check_task import (
+    compose_subtitle,
+    finish_checks,
+    make_renderer,
+    start_checks,
+)
 from .ready_view import (
     STATUS_CHECKING,
     STATUS_ERROR,
@@ -244,27 +249,29 @@ class DebugView(qw.QMainWindow):
 
         Teks prediksi dibaca dari ``frame.text`` jalur kata DAN
         ``frame.static_text`` jalur huruf/angka — satu kali per frame yang
-        ditampilkan, bukan sekali per window prediksi. Keduanya bisa datang
-        berurutan tanpa pipeline berhenti di antaranya, jadi yang tampil
-        adalah yang terbaru. Placeholder subtitle bukan prediksi, jadi
-        tidak pernah dipakai di sini. Urutan dua teratas dibaca dari probe
-        predictor, bukan dari pipeline, karena pipeline membuang
-        ``Prediction.ranked``.
+        ditampilkan, bukan sekali per window prediksi. Keduanya bisa hidup
+        bersamaan (kata stabil sementara huruf masih disusun), jadi panel
+        menampilkan keduanya pada satu baris dengan urutan dan pemisah yang
+        sama seperti subtitle: label kata dulu, lalu huruf/angka statis.
+        Placeholder subtitle bukan prediksi, jadi tidak pernah dipakai di
+        sini. Urutan dua teratas dibaca dari probe predictor, bukan dari
+        pipeline, karena pipeline membuang ``Prediction.ranked``.
         """
         if not self._alive:
             return
         self._newest_frame = frame
-        # Jalur kata (frame.text) dan jalur statis (frame.static_text)
-        # beda jalur prediksi tapi satu panel: yang tampil yang terbaru.
-        # Placeholder overlay bukan prediksi, jadi diabaikan di keduanya.
-        statis = (frame.static_text or "").strip()
-        text = (frame.text or "").strip()
-        if statis and statis != PLACEHOLDER_TEXT:
-            text = statis
-        elif text == PLACEHOLDER_TEXT:
-            text = ""
-        if text:
-            self._newest_predictions = f"Top prediksi: {text}"
+        # Panel memakai SUSUNAN YANG SAMA dengan subtitle
+        # (``compose_subtitle``), dari dua sumber yang sama. ``frame.text``
+        # masih label jalur kata dan ``frame.static_text`` masih jalur
+        # statis: ``draw_overlay`` tidak lagi menulis ulang ``frame.text``,
+        # jadi gabungan tidak mungkin muncul dua kali di panel.
+        panel = compose_subtitle(
+            frame.text, frame.static_text, PLACEHOLDER_TEXT
+        )
+        # Kedua sumber kosong = compose_subtitle mengembalikan placeholder;
+        # placeholder bukan prediksi, jadi panel tidak ikut berubah.
+        if panel and panel != PLACEHOLDER_TEXT:
+            self._newest_predictions = f"Top prediksi: {panel}"
         self._newest_ranked = self._read_ranked()
         if _on_gui_thread():
             # Pemanggil sinkron (tes, CLI): panel perlu terisi sekarang.

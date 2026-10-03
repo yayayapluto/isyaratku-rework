@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
+from collections.abc import Iterator
 
 import cv2
 import numpy as np
@@ -63,6 +65,29 @@ def _wait_frames(sink: CapturingSink, target: int, timeout: float = 2.0) -> bool
     while len(sink.frames) < target and time.monotonic() < deadline:
         time.sleep(0.01)
     return len(sink.frames) >= target
+
+
+@contextmanager
+def _capture_drawn_text() -> Iterator[list[str]]:
+    """Teks yang benar-benar digambar overlay, ditangkap dari ``cv2.putText``.
+
+    ``draw_overlay`` tidak mengembalikan teksnya dan tidak lagi menulisnya ke
+    ``frame.text``, jadi satu-satunya cara melihat subtitle adalah apa yang
+    masuk ke ``putText``. Dipakai bersama supaya tes overlay tidak menyalin
+    mekanisme tangkapnya berulang.
+    """
+    tertangkap: list[str] = []
+    asli = cv2.putText
+
+    def putText(image, text, *args, **kwargs):  # noqa: N802 — nama API cv2
+        tertangkap.append(text)
+        return asli(image, text, *args, **kwargs)
+
+    cv2.putText = putText
+    try:
+        yield tertangkap
+    finally:
+        cv2.putText = asli
 
 
 def test_both_views_construct_offscreen(qapp) -> None:
@@ -145,58 +170,67 @@ def test_renderer_keeps_last_label_on_screen() -> None:
     ``Smoother`` menekan label identik selama cooldown supaya TTS tidak
     mengulang kata yang sama tiap window. Subtitle tidak boleh mewarisi itu:
     kata terakhir tetap digambar sampai kata baru datang. Yang diamati orang
-    adalah teks di layar, jadi di situ asersinya.
+    adalah piksel di layar, jadi yang di-assert adalah teks yang benar-benar
+    digambar — bukan ``frame.text``, yang bukan lagi tempat
+    ``draw_overlay`` menaruh apa pun.
     """
     renderer = make_renderer("Menunggu prediksi...")
-    berlabel = Frame(
-        image=np.zeros((100, 400, 3), dtype=np.uint8),
-        timestamp=0.0,
-        index=0,
-        text="satu",
-    )
-    assert renderer(berlabel).text == "satu", (
-        "label predictor harus menang atas placeholder"
-    )
-    # Frame tanpa label baru: kata terakhir TETAP tampil.
-    kosong = Frame(
-        image=np.zeros((100, 400, 3), dtype=np.uint8),
-        timestamp=0.0,
-        index=1,
-        text="",
-    )
-    assert renderer(kosong).text == "satu", (
-        "subtitle hilang setelah cooldown: label terakhir harus tetap tampil"
-    )
-    # Kata baru menggantikan yang lama.
-    lain = Frame(
-        image=np.zeros((100, 400, 3), dtype=np.uint8),
-        timestamp=0.0,
-        index=2,
-        text="dua",
-    )
-    assert renderer(lain).text == "dua", "kata baru harus menggantikan yang lama"
+    with _capture_drawn_text() as tertangkap:
+        frame = Frame(
+            image=np.zeros((100, 400, 3), dtype=np.uint8),
+            timestamp=0.0,
+            index=0,
+            text="satu",
+        )
+        renderer(frame)
+        assert tertangkap[-1] == "satu", (
+            "label predictor harus menang atas placeholder"
+        )
+        # Frame tanpa label baru: kata terakhir TETAP tampil.
+        kosong = Frame(
+            image=np.zeros((100, 400, 3), dtype=np.uint8),
+            timestamp=0.0,
+            index=1,
+            text="",
+        )
+        renderer(kosong)
+        assert tertangkap[-1] == "satu", (
+            "subtitle hilang setelah cooldown: label terakhir harus tetap tampil"
+        )
+        # Kata baru menggantikan yang lama.
+        lain = Frame(
+            image=np.zeros((100, 400, 3), dtype=np.uint8),
+            timestamp=0.0,
+            index=2,
+            text="dua",
+        )
+        renderer(lain)
+        assert tertangkap[-1] == "dua", "kata baru harus menggantikan yang lama"
 
 
 def test_each_make_renderer_has_its_own_subtitle() -> None:
     """Holder subtitle per instance: dua renderer tidak pernah berbagi."""
     pertama = make_renderer("Menunggu prediksi...")
     kedua = make_renderer("Menunggu prediksi...")
-    frame = Frame(
-        image=np.zeros((100, 400, 3), dtype=np.uint8),
-        timestamp=0.0,
-        index=0,
-        text="satu",
-    )
-    assert pertama(frame).text == "satu"
-    kosong = Frame(
-        image=np.zeros((100, 400, 3), dtype=np.uint8),
-        timestamp=0.0,
-        index=1,
-        text="",
-    )
-    assert kedua(kosong).text == "Menunggu prediksi...", (
-        "renderer lain ikut menampilkan label: state bocor antar instance"
-    )
+    with _capture_drawn_text() as tertangkap:
+        frame = Frame(
+            image=np.zeros((100, 400, 3), dtype=np.uint8),
+            timestamp=0.0,
+            index=0,
+            text="satu",
+        )
+        pertama(frame)
+        assert tertangkap[-1] == "satu"
+        kosong = Frame(
+            image=np.zeros((100, 400, 3), dtype=np.uint8),
+            timestamp=0.0,
+            index=1,
+            text="",
+        )
+        kedua(kosong)
+        assert tertangkap[-1] == "Menunggu prediksi...", (
+            "renderer lain ikut menampilkan label: state bocor antar instance"
+        )
 
 def test_finish_checks_wires_real_predictor_into_pipeline(qapp, monkeypatch) -> None:
     """Regresi bug 1: jalur Start harus memasang predictor asli.
@@ -745,9 +779,9 @@ def test_debug_prediction_panel_shows_static_letters(qapp) -> None:
     """Huruf/angka yang sedang disusun ikut panel prediksi; placeholder tidak.
 
     ``frame.static_text`` ditulis thread capture tiap frame statis; panel
-    yang sama dengan ``frame.text``. Yang tampil adalah yang terbaru,
-    supaya huruf yang baru masuk menggantikan kata lama — bukan keduanya
-    numpang, bukan juga diam.
+    yang sama dengan ``frame.text``. Keduanya bisa hidup bersamaan: kata
+    stabil dan huruf yang masih disusun tampil pada SATU baris, urutan
+    dan pemisahnya sama seperti subtitle.
     """
     debug = DebugView(config())
     try:
@@ -773,6 +807,94 @@ def test_debug_prediction_panel_shows_static_letters(qapp) -> None:
         assert debug._predictions.text() == "Top prediksi: SA"
     finally:
         debug.close()
+
+
+def test_debug_prediction_panel_shows_word_and_static_on_one_line(qapp) -> None:
+    """Regresi: kata stabil + huruf statis wajib tampil bersamaan.
+
+    Sebelum perubahan ini panel memilih salah satu sumber: ``frame.text``
+    kalau ada, kalau tidak ``frame.static_text``. Hasilnya panel
+    berkedip antara kata dan huruf, dan kata stabil menyembunyikan huruf
+    yang sedang disusun. Panel harus menyamai subtitle: keduanya satu
+    baris, label kata dulu lalu huruf/angka, dipisah satu spasi.
+    """
+    debug = DebugView(config())
+    try:
+        frame = Frame(np.zeros((4, 4, 3), dtype=np.uint8), 0.0, 0)
+        frame.text = "MAKAN"
+        frame.static_text = "SA"
+        debug._on_frame(frame)
+        assert debug._predictions.text() == "Top prediksi: MAKAN SA"
+
+        # Huruf baru menggantikan huruf lama, kata tetap di baris yang sama.
+        frame.static_text = "SATU"
+        debug._on_frame(frame)
+        assert debug._predictions.text() == "Top prediksi: MAKAN SATU"
+
+        # Placeholder bukan prediksi, dari kedua sumber sekalipun.
+        frame.text = PLACEHOLDER_TEXT
+        frame.static_text = PLACEHOLDER_TEXT
+        debug._on_frame(frame)
+        assert debug._predictions.text() == "Top prediksi: MAKAN SATU"
+    finally:
+        debug.close()
+
+
+def test_subtitle_composes_word_and_static_on_one_line() -> None:
+    """Regresi user: kata stabil + huruf statis, satu baris, urutan tetap.
+
+    Urutan: label kata dulu, lalu huruf/angka statis, satu spasi. Keduanya
+    jalur prediksi berbeda yang BISA hidup bersamaan, dan masing-masing
+    lengket. Yang di-assert adalah apa yang benar-benar digambar overlay,
+    bukan field di frame.
+    """
+    with _capture_drawn_text() as tertangkap:
+        renderer = make_renderer(PLACEHOLDER_TEXT)
+        # Hanya jalur kata yang memberi label.
+        renderer(Frame(np.zeros((100, 400, 3), np.uint8), 0.0, 0, text="MAKAN"))
+        assert tertangkap[-1] == "MAKAN", (
+            f"word-only harus menggambar 'MAKAN': {tertangkap[-1]!r}"
+        )
+        # Urutan: renderer baru supaya 'MAKAN' tidak ikut menguji static.
+        with _capture_drawn_text() as hanya_statis:
+            hanya = make_renderer(PLACEHOLDER_TEXT)
+            hanya(Frame(np.zeros((100, 400, 3), np.uint8), 0.0, 0, static_text="F"))
+            assert hanya_statis[-1] == "F", (
+                f"static-only harus menggambar 'F': {hanya_statis[-1]!r}"
+            )
+        # Keduanya lengket — ini kasus yang dilaporkan user: label kata
+        # sudah stabil sementara huruf masih menumpuk.
+        renderer(Frame(np.zeros((100, 400, 3), np.uint8), 0.0, 1, static_text="F"))
+        assert tertangkap[-1] == "MAKAN F", (
+            f"gabungan harus 'MAKAN F': {tertangkap[-1]!r}"
+        )
+        # Placeholder tidak pernah masuk ke baris yang sudah ada isinya.
+        assert PLACEHOLDER_TEXT not in tertangkap[-1], (
+            "placeholder ikut digabung ke baris yang sudah ada isinya"
+        )
+        # Frame tanpa teks baru: tidak menghapus, tidak menggandakan.
+        for _ in range(3):
+            renderer(Frame(np.zeros((100, 400, 3), np.uint8), 0.0, 2))
+        assert tertangkap[-1] == "MAKAN F", (
+            f"frame tanpa teks baru harus tetap 'MAKAN F': {tertangkap[-1]!r}"
+        )
+
+
+def test_subtitle_placeholder_only_when_both_sources_empty() -> None:
+    """Renderer baru: belum ada sumber apa pun, subtitle = placeholder."""
+    with _capture_drawn_text() as tertangkap:
+        renderer = make_renderer(PLACEHOLDER_TEXT)
+        renderer(Frame(np.zeros((100, 400, 3), np.uint8), 0.0, 0))
+        # Satu teks = 8 geseran outline + 1 isian; semuanya placeholder.
+        assert tertangkap and set(tertangkap) == {PLACEHOLDER_TEXT}, (
+            f"kedua sumber kosong harus menggambar placeholder: {tertangkap!r}"
+        )
+        # Frame kosong lagi: placeholder tetap, bukan string kosong.
+        renderer(Frame(np.zeros((100, 400, 3), np.uint8), 0.0, 0))
+        assert tertangkap[-1] == PLACEHOLDER_TEXT
+        assert tertangkap[-1] != "", (
+            "frame tanpa teks baru menghapus subtitle placeholder"
+        )
 
 
 def test_stop_nulls_the_static_hooks_on_both_views(qapp) -> None:

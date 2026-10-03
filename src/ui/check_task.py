@@ -351,6 +351,38 @@ def _release_shared_camera(results) -> None:
         release()
 
 
+#: Pemisah antara label kata stabil dan huruf/angka statis pada satu baris
+#: subtitle — kebijakan format, bukan angka bebas, jadi konstanta bernama.
+SUBTITLE_SEPARATOR = " "
+
+
+def compose_subtitle(
+    word_text: str, static_text: str, placeholder: str = ""
+) -> str:
+    """Susun satu baris subtitle dari dua jalur prediksi.
+
+    Urutan tetap: label kata stabil DULU, lalu huruf/angka statis yang
+    sedang disusun, dipisah satu spasi. ``compose_subtitle`` adalah SATU
+    sumber kebenaran untuk subtitle overlay dan panel prediksi debug, jadi
+    keduanya tidak mungkin lagi berbeda.
+
+    Placeholder bukan sumber. Ia hanya mengisi baris bila KEDUA sumber
+    kosong; kalau ikut di-join saat salah satu sumber sudah ada, baris jadi
+    "Menunggu prediksi... F R" — lebih buruk daripada salah satu sumber
+    sendiri. Karena itu bagian yang sama persis dengan ``placeholder``
+    juga disingkirkan dari join; pemanggil yang mengirim ``placeholder=""``
+    tidak pernah menyentuh aturan ini.
+    """
+    bagian = [
+        (word_text or "").strip(),
+        (static_text or "").strip(),
+    ]
+    bagian = [teks for teks in bagian if teks and teks != placeholder]
+    if not bagian:
+        return placeholder
+    return SUBTITLE_SEPARATOR.join(bagian)
+
+
 def make_renderer(
     placeholder: str = "",
     raw_sink=None,
@@ -401,10 +433,15 @@ def make_renderer(
             frame.image = mirror_image(frame.image)
         if raw_sink is not None:
             raw_sink(frame.image.copy())
-        # Subtitle: label kata stabil (holder), lalu huruf/kata statis yang
-        # sedang disusun, baru placeholder. Semuanya lengket — frame tanpa
-        # label baru tidak menghapus teks yang sudah tampil.
-        draw_overlay(frame, holder[0] or static_holder[0] or placeholder)
+        # Subtitle: label kata stabil (holder) lalu huruf/angka statis yang
+        # sedang disusun — SATU BARIS, dipisah satu spasi. Keduanya jalur
+        # prediksi berbeda, bisa hidup bersamaan (kata stabil sementara
+        # huruf masih menumpuk), dan masing-masing lengket: frame tanpa
+        # teks baru tidak menghapus yang sudah tampil. Susunan dan
+        # placeholder dijamin satu fungsi dengan panel prediksi debug.
+        draw_overlay(
+            frame, compose_subtitle(holder[0], static_holder[0], placeholder)
+        )
         if landmarks:
             draw_landmarks(frame, frame.landmarks, mirror=mirror)
         return frame

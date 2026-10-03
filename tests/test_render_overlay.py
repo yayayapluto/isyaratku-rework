@@ -63,26 +63,76 @@ def painted_bounds(before: np.ndarray, after: np.ndarray) -> tuple[np.ndarray, i
     return rows, int(cols.min()), int(cols.max())
 
 
-def test_predictor_label_beats_placeholder_overlay_text() -> None:
-    """Frame yang sudah membawa label predictor: label yang digambar."""
+@pytest.fixture
+def drawn_text():
+    """Teks yang benar-benar digambar, ditangkap dari ``cv2.putText``.
+
+    ``draw_overlay`` tidak mengembalikan apa yang digambar, jadi yang
+    diassert adalah piksel: tanpa ini tes hanya bisa membaca ``frame.text``,
+    tepatnya field yang dulunya merupakan kebenaran ganda.
+    """
+    from src.ui import render
+
+    tertangkap: list[str] = []
+    asli = render.cv2.putText
+
+    def putText(image, text, *args, **kwargs):  # noqa: N802 — nama API cv2
+        tertangkap.append(text)
+        return asli(image, text, *args, **kwargs)
+
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(render.cv2, "putText", putText)
+    yield tertangkap
+    monkey.undo()
+
+
+def test_caller_subtitle_wins_over_frame_text(drawn_text) -> None:
+    """Argumen pemanggil menggambar; ``frame.text`` tidak menimpanya.
+
+    Sebelum perubahan, ``draw_overlay(frame, subtitle)`` menghitung
+    ``drawn = frame.text or text`` — jadi setiap kali ``frame.text``
+    terisi (selalu, mulai label pertama), subtitle gabungan kata + huruf
+    statis dibuang dan yang tampil hanya label kata itu (laporan user:
+    "subtitle juga tidak menampilkan huruf"). Pemanggil MENYERAHKAN baris
+    yang sudah lengkap; argumen itulah yang wajib digambar.
+    """
     frame = frame_with_text(LABEL)
-    result = draw_overlay(frame, PLACEHOLDER)
-    assert result.text == LABEL, "label predictor harus menang atas placeholder"
+    draw_overlay(frame, "MAKAN SA")
+    assert frame.text == LABEL, (
+        "frame.text tetap label jalur kata: overlay tidak menulisnya"
+    )
+    assert drawn_text, "overlay tidak menggambar apa pun"
+    assert drawn_text[0] == "MAKAN SA", (
+        "subtitle gabungan harus menggambar: argumen pemanggil dikalahkan "
+        "frame.text"
+    )
 
 
-def test_placeholder_drawn_when_frame_text_is_empty() -> None:
-    """Frame belum punya label: placeholder tetap tergambar."""
-    frame = frame_with_text("")
-    result = draw_overlay(frame, PLACEHOLDER)
-    assert result.text == PLACEHOLDER
+def test_frame_text_is_the_fallback_when_argument_is_empty(drawn_text) -> None:
+    """Pemanggil tanpa teks (headless smoke): ``frame.text`` tetap dipakai."""
+    frame = frame_with_text(LABEL)
+    result = draw_overlay(frame, "")
+    assert result.text == LABEL, (
+        "argumen kosong harus jatuh ke frame.text, bukan menggambar kosong"
+    )
+    assert drawn_text and drawn_text[0] == LABEL, (
+        "fallback frame.text tidak digambar"
+    )
 
 
-def test_drawn_text_matches_frame_text_after_overlay() -> None:
-    """Yang digambar dan ``frame.text`` tidak boleh berbeda setelah overlay."""
-    for given in (LABEL, PLACEHOLDER, ""):
+def test_drawn_text_never_leaks_into_frame_text() -> None:
+    """Overlay tidak menulis ulang ``frame.text``.
+
+    Panel prediksi membaca ``frame.text`` SETELAH renderer jalan, jadi
+    menulis balik subtitle gabungan akan membuat panel menampilkan huruf
+    dua kali. ``frame.text`` tetap milik jalur kata untuk semua konsumen.
+    """
+    for given, kirim in ((LABEL, ""), (LABEL, "MAKAN SA"), ("", PLACEHOLDER)):
         frame = frame_with_text(given)
-        out = draw_overlay(frame, PLACEHOLDER)
-        assert out.text == (given or PLACEHOLDER)
+        out = draw_overlay(frame, kirim)
+        assert out.text == given, (
+            f"overlay mengubah frame.text {given!r} -> {out.text!r}"
+        )
 
 
 def test_empty_text_and_empty_placeholder_draw_nothing() -> None:
