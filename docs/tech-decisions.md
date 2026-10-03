@@ -210,7 +210,7 @@ gambar bergerak dari pipeline bukan layar hitam atau noise beku R1, dan
 | Inference realtime di CPU atau butuh GPU | Bergantung ukuran model. Angka target 25 hingga 30 FPS harus diuji di CPU dulu; keperluan GPU diperiksa pada slice 4. |
 | Bahasa GUI | Asumsi: Bahasa Indonesia, belum dikonfirmasi user. |
 | Pemisahan modul dalam satu file atau beberapa file | Ditetapkan per direktori saat slice dikerjakan, tidak harus didahului. |
-| Definisi pengukuran latensi prediksi | Pipeline kontinu tidak bisa mengamati 'isyarat selesai'. Kandidat: dihitung dari akhir window (atau frame gerakan terakhir) sampai teks overlay dirender / pemutakan TTS dimulai. Belum diputuskan; pencatatan p50/p95 dilakukan di slice 5. |
+| Definisi pengukuran latensi prediksi | DIPUTUSKAN slice 5 (2026-10-03): selang waktu dari Smoother mengeluarkan label stabil di thread capture sampai frame yang membawa label itu sampai ke `on_frame` di worker output ("label stabil -> tampil"). Definisi penuh, mekanisme minimal, dan angka terukur ada di bagian "Latensi label stabil -> tampil" lebih bawah. Yang BELUM terukur dan tidak diklaim: label sampai suara terdengar di VB-Cable, itu butuh jalur loopback audio. |
 | Mesin TTS dan penyimpanan voice Indonesia | DIPUTUSKAN slice 5: mesin `piper-tts` 1.8.0 lewat library (bukan subprocess — subprocess muat model 63 MB tiap panggilan); voice `id_ID-news_tts-medium` 62.95 MB TIDAK masuk git, setup sekali pakai `python -m training.setup_voice`; Git LFS ditolak karena clone tanpa `lfs install` menghasilkan pointer file sehingga demo rusak senyap. |
 
 ## Asumsi yang dipakai di dokumen ini
@@ -221,3 +221,69 @@ Asumsi adalah penalaran sementara. Setiap asumsi harus diganti keputusan user se
 - Cloud TTS tidak dipakai sama sekali karena syarat offline.
 - Daftar kata awal akan diambil dari kelas dataset, bukan ditulis manual lebih dulu.
 - Dataset yang dipakai bertahap: huruf dulu dari landmark `.csv` yang sudah ada, baru kata dari video.
+
+
+## Slice 6, dasbor debug (2026-10-03)
+
+"Tiga prediksi teratas beserta confidence" (docs/architecture.md:93) tidak bisa
+dibaca dari pipeline: `Pipeline._run_predictor` (`src/core/pipeline.py:278`)
+membuang objek `Prediction` dan hanya menyimpan label hasil smoothing. Karena
+pipeline read-only di kerja ini, predictor dibungkus `PredictionProbe`
+(`src/ui/prediction_probe.py`) yang dipasang di `finish_checks`
+(`src/ui/check_task.py:186` sebagai pengganti `TrainedPredictor`) dan
+disuntikkan sebagai `predictor=` pipeline. Pembungkus itu passthrough
+transparan: `predict()` mengembalikan objek `Prediction` yang sama, `labels`
+diteruskan ke `speech.warm_up`, galat predictor tidak ditelan; satu slot ranked
+terakhir saja (tanpa riwayat, tanpa lock — satu thread capture memanggil
+`predict`). Panel `_ranked` dibaca dari `pipeline.predictor.read_ranked()` di
+`_on_frame` dan menampilkan tiga baris `1. Label 0.42 | ...`; `-` bila belum ada.
+
+"FPS per tahap" (docs/architecture.md:93) adalah gap yang DIDOKUMENTASIKAN,
+bukan dibuat: `Stats` (`src/core/pipeline.py:50-62`) hanya punya `fps` = laju
+frame TERKIRIM di worker output (`(len(sent_at)-1)/span`), `frames_captured`,
+`frames_sent`, `frames_dropped`, `elapsed_seconds`. Tidak ada cap waktu per
+tahap (capture / ekstraksi landmark / predict / render+sink), dan tidak ada
+titik sampling yang bisa direkonstruksi dari `Frame` (hanya `timestamp`
+capture). Karena itu label diubah jujur dari "FPS terkirim" menjadi
+"FPS terkirim (jalur output) [belum per-tahap, lihat docs]". Angka per-tahap
+TIDAK dihitung dari fps end-to-end dibagi jumlah tahap (itu fabrikasi). Supaya
+metrik ini nyata, `Stats` perlu kolom cap waktu per tahap di
+`src/core/pipeline.py` — itu pemilik pipeline, bukan panel debug.
+
+## Latensi label stabil -> tampil (2026-10-03)
+
+Kriteria slice 5 dan slice 6 menuntut latensi TERUKUR, bukan diklaim.
+Definisinya diputuskan di sini (mengisi baris "Definisi pengukuran latensi
+prediksi" sebelumnya):
+
+**Selang waktu dari Smoother mengeluarkan label stabil di thread capture
+sampai frame yang membawa label itu sampai ke `on_frame` di worker
+output** — dengan kata lain waktu label sampai gambar masuk ke view.
+Titik awal: satu `time.monotonic()` di `_run_predictor` tepat ketika
+Smoother mengembalikan label. Titik akhir: satu pengurangan di
+`_output_loop` tepat sebelum `on_frame(frame)`. Tidak menunggu render
+Qt selesai, tidak sampai pemutakan TTS dimulai.
+
+Cara mengukurnya minimal: satu cap waktu per label terbit (bukan per
+frame) dan satu pengurangan per frame, tanpa lock baru di jalur panas.
+Sampel disimpan di deque ber-`maxlen = pipeline.stats_window`, jadi memori
+terbatas. Persentil memakai nearest-rank sederhana
+(`sorted(v)[ceil(p*n)-1]`) yang nilai harapannya bisa dihitung tangan di
+test — bukan pustaka statistik. Properti `Pipeline.label_latency`
+membaca `{"count", "p50_ms", "p95_ms", "max_ms"}`; `count` 0 sebelum ada
+label. View `ready_view` menampilkannya di baris detail mode siap pakai
+sebagai ` label->tampil p50 X ms p95 Y ms` (`-` sebelum ada sampel).
+
+**Angka terukur di mesin ini** (jalur nyata: kamera skrip 30 FPS, landmark
+sintetis, `FakePredictor` label stabil, `queue_max_size=4`): sampel 3,
+p50 0.19 ms, p95 0.32 ms, maks 0.32 ms. Ukuran ini mengukur antrean
+internal pipeline saja; jalur render dan perangkat tampak butuh
+pengukuran tersendiri.
+
+**Yang TIDAK diklaim di sini**: interval dari label sampai SUARA terdengar
+di VB-Cable. Tanpa jalur loopback audio (rekam output lalu ukur selang
+waktu) angka itu tidak bisa diukur, dan menaruh angka apa pun di atasnya
+adalah fabrikasi. Yang sudah terukur dan dicatat terpisah adalah latensi
+predictor itu sendiri: p50 0.066 ms, p95 0.084 ms, maks 0.191 ms
+(bagian "Diagnosa slice 4b" di atas). Latensi label ke TTS membutuhkan
+pengukuran baru, bukan angka pinjaman.

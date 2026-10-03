@@ -232,6 +232,37 @@ def test_warm_up_sink_tanpa_adapter_warm_up_tidak_galat() -> None:
     assert sink.sent == []
 
 
+def test_sink_tts_gagal_terlihat_di_log_bukan_diam(caplog) -> None:
+    """Galat TTS waktu jalan harus MUNCUL di log, bukan hilang ke stderr.
+
+    Regresi: ``print(..., file=sys.stderr)``. ``setup_logging`` hanya
+    memasang handler BERKAS, jadi galat playback (device hilang, VB-Cabel
+    copot) tak pernah masuk ``logs/*.log`` dan user melihat tak ada apa pun.
+    """
+    import logging
+
+    from src.adapters.tts import SpeechSink
+
+    class TtsGalat:
+        voice_model_available = True
+
+        def speak(self, label: str):
+            raise RuntimeError("device hilang")
+
+        def play(self, label: str):
+            raise RuntimeError("device hilang")
+
+    speech = SpeechSink(TtsGalat(), cooldown_seconds=0.0)
+    with caplog.at_level(logging.WARNING, logger="src.adapters.tts"):
+        speech.feed("Sore")  # tidak boleh melempar
+        for thread in speech._threads:
+            thread.join(timeout=5.0)
+
+    assert isinstance(speech.last_error, RuntimeError)
+    assert "Galat TTS dicatat, streaming lanjut" in caplog.text
+    assert "'device hilang'" in caplog.text
+
+
 # -- klaim dengan artefak NYATA (models/tts/*.onnx) ---------------------
 
 def _voice_nyata_ada() -> bool:

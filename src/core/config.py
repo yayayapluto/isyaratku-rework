@@ -7,12 +7,14 @@ menambah satu baris di tabel itu saja.
 
 from __future__ import annotations
 
+import logging
 import os
-import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 ENV_CONFIG_PATH = "ISYARATKU_CONFIG"
 DEFAULT_CONFIG_PATH = "configs/app.toml"
@@ -191,4 +193,4 @@ def _dotted(field: str) -> str:
 
 
 def _warn(key: str) -> None:
-    print(f"Peringatan: key config tak dikenal '{key}' diabaikan.", file=sys.stderr)
+    logger.warning("Peringatan: key config tak dikenal '%s' diabaikan.", key)

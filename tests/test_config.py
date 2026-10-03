@@ -80,7 +80,7 @@ def test_non_positive_stop_timeout_raises_naming_the_key(tmp_path) -> None:
 
 
 # -- unknown keys ------------------------------------------------------------
-def test_unknown_key_warns_and_does_not_raise(tmp_path, capsys) -> None:
+def test_unknown_key_warns_and_does_not_raise(tmp_path, caplog) -> None:
     path = tmp_path / "asing.toml"
     path.write_text(
         "[kamera]\ntidak_dikenal = 3\n\n[camera]\nngawur = 'apa'\n",
@@ -88,9 +88,10 @@ def test_unknown_key_warns_and_does_not_raise(tmp_path, capsys) -> None:
     )
     config = load_config(str(path))
     assert config.camera_width == 640
-    printed = capsys.readouterr().err
-    assert "camera.ngawur" in printed
-    assert "kamera" in printed
+    assert "key config tak dikenal" in caplog.text
+    assert "camera.ngawur" in caplog.text
+    assert "kamera" in caplog.text
+    assert [r.levelname for r in caplog.records] == ["WARNING", "WARNING"]
 
 
 # -- env var -----------------------------------------------------------------

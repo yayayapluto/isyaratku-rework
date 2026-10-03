@@ -6,7 +6,6 @@ adalah konstanta modul ini supaya core tidak tahu soal tampilan.
 """
 
 import cv2
-import numpy as np
 from mediapipe.tasks.python.vision import drawing_utils
 from mediapipe.tasks.python.vision.hand_landmarker import HandLandmarksConnections
 from mediapipe.tasks.python.vision.pose_landmarker import PoseLandmarksConnections
@@ -15,13 +14,30 @@ from ..core.pipeline import Frame
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 FONT_SCALE = 0.9
+# cv2 5.0.0 menolak ketebalan Hershey > 2 (t=3 dirender sama dengan t=2),
+# jadi outline tipis dibuat dari geseran putText, bukan dari ketebalan.
 FONT_THICKNESS = 2
 TEXT_COLOR = (255, 255, 255)
-STRIP_COLOR = (0, 0, 0)
-STRIP_ALPHA = 0.55
-MARGIN = 12
-PADDING = 10
-BASELINE = 6
+TEXT_COLOR_STROKE = (0, 0, 0)
+#: Geser outline hitam: satu piksel ke delapan arah, garis tipis mengelilingi
+#: huruf putih tanpa strip gelap.
+STROKE_OFFSETS = (
+    (-1, 0),
+    (1, 0),
+    (0, -1),
+    (0, 1),
+    (-1, -1),
+    (1, -1),
+    (-1, 1),
+    (1, 1),
+)
+
+#: Jarak teks dari tepi bawah frame; bikin subtitle terbaca mirip subtitle
+#: film: jelas di dalam frame, jelas terpisah dari tepi bawah.
+BOTTOM_GAP = 24
+#: Pemendek skala huruf saat teks lebih lebar dari frame; tanpa clamp teks
+#: panjang keluar frame.
+MIN_FONT_SCALE = 0.5
 
 # Warna BGR: tangan hijau, pose jingga. Ketebalan dan radius dibuat sama agar
 # dua lapisan tak saling menimpa.
@@ -41,29 +57,55 @@ NORMALIZED_LANDMARK = drawing_utils.landmark_module.NormalizedLandmark
 
 
 def draw_overlay(frame: Frame, text: str) -> Frame:
-    """Gambar strip gelap semi-transparan kiri-atas berisi teks frame.
+    """Gambar subtitle putih bergaris hitam tipis di tengah bawah frame.
 
-    Teks yang sudah menempel di ``frame.text`` (label hasil predictor) menang
-    atas ``text`` placeholder; placeholder hanya dipakai bila predictor belum
-    menghasilkan apa pun. Yang digambar ditulis kembali ke ``frame.text``
-    supaya overlay dan teks frame tidak pernah berbeda.
+    Subtitle tanpa strip gelap: huruf putih dengan outline hitam tipis biar
+    tetap terbaca di atas video. Teks yang sudah menempel di ``frame.text``
+    (label hasil predictor) menang atas ``text`` placeholder; placeholder hanya
+    dipakai bila predictor belum menghasilkan apa pun. Yang digambar ditulis
+    kembali ke ``frame.text`` supaya overlay dan teks frame tidak pernah
+    berbeda.
     """
     drawn = frame.text or text
     if not drawn:
         return frame
     image = frame.image
-    (width, height), _ = cv2.getTextSize(drawn, FONT, FONT_SCALE, FONT_THICKNESS)
-    x0 = MARGIN
-    y0 = MARGIN
-    x1 = min(MARGIN + width + 2 * PADDING, image.shape[1])
-    y1 = min(MARGIN + height + 2 * PADDING + BASELINE, image.shape[0])
-    _blend_strip(image, x0, y0, x1, y1, STRIP_ALPHA)
+    frame_h, frame_w = image.shape[:2]
+
+    # Teks bisa lebih lebar dari frame: kecilkan skala huruf sampai muat,
+    # bukan diklaim muat lalu keluar frame.
+    scale = FONT_SCALE
+    (text_w, text_h), baseline = cv2.getTextSize(drawn, FONT, scale, FONT_THICKNESS)
+    while text_w > frame_w and scale > MIN_FONT_SCALE:
+        scale = max(scale * frame_w / text_w, MIN_FONT_SCALE)
+        (text_w, text_h), baseline = cv2.getTextSize(
+            drawn, FONT, scale, FONT_THICKNESS
+        )
+
+    x = max((frame_w - text_w) // 2, 0)
+    y = frame_h - BOTTOM_GAP - baseline
+    if y < text_h:
+        y = min(text_h, frame_h - 1)
+
+    # Outline: hitam digeser 1 px ke delapan arah, lalu putih di posisi asli
+    # menutup tengahnya. Urutan ini yang bikin garis tipis tetap terlihat.
+    for dx, dy in STROKE_OFFSETS:
+        cv2.putText(
+            image,
+            drawn,
+            (x + dx, y + dy),
+            FONT,
+            scale,
+            TEXT_COLOR_STROKE,
+            FONT_THICKNESS,
+            cv2.LINE_AA,
+        )
     cv2.putText(
         image,
         drawn,
-        (x0 + PADDING, y1 - PADDING - BASELINE),
+        (x, y),
         FONT,
-        FONT_SCALE,
+        scale,
         TEXT_COLOR,
         FONT_THICKNESS,
         cv2.LINE_AA,
@@ -104,10 +146,3 @@ def _draw(image, coords, connections, style) -> None:
     )
 
 
-def _blend_strip(image, x0: int, y0: int, x1: int, y1: int, alpha: float) -> None:
-    region = image[y0:y1, x0:x1]
-    if region.size == 0:
-        return
-    region[:] = cv2.addWeighted(
-        region, 1 - alpha, np.full_like(region, STRIP_COLOR), alpha, 0
-    )

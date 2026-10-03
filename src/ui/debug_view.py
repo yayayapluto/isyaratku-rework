@@ -8,6 +8,7 @@ panel yang tidak ada di mode siap pakai, bukan mencabang di dalam satu view.
 from __future__ import annotations
 
 import logging
+import threading
 import numpy as np
 import PySide6.QtCore as qc
 import PySide6.QtWidgets as qw
@@ -21,8 +22,10 @@ from .ready_view import (
     STATUS_ERROR,
     STATUS_IDLE,
     STATUS_RUNNING,
+    _on_gui_thread,
     pixmap_bgr,
 )
+from .prediction_probe import format_ranked
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +47,23 @@ class DebugView(qw.QMainWindow):
         self._pipeline: Pipeline | None = None
         self._check_task = None
         self._newest_frame: Frame | None = None
+        self._newest_ranked = ""
+        self._newest_predictions = ""
+        self._newest_stats: Stats | None = None
+        self._pending_labels: list[str] = []
+        self._labels_lock = threading.Lock()
+        self._newest_landmarks = None
+        # False sejak closeEvent: semua hook jadi no-op. Pipeline.join bisa
+        # kehabisan waktu, jadi ini lapis pertahanan setelah hook di-null.
+        self._alive = True
+        # Stop ditekan saat pemeriksaan awal masih hidup: hasil yang datang
+        # nanti tidak boleh menyalakan pipeline (kamera tersandera).
+        self._stop_requested = False
         self._raw_image: np.ndarray | None = None
         self._incomplete = IncompleteTracker()
 
         self.setWindowTitle("IsyaratKu Cam — Mode Debug")
-        self.resize(1180, 780)
+        self.setFixedSize(1180, 780)
 
         central = qw.QWidget(self)
         root = qw.QVBoxLayout(central)
@@ -92,7 +107,7 @@ class DebugView(qw.QMainWindow):
         return row
 
     def _build_metrics(self) -> qw.QLayout:
-        self._fps_label = _metric_row("FPS terkirim")
+        self._fps_label = _metric_row("FPS terkirim (jalur output)")
         self._sent_label = _metric_row("Frame dikirim")
         self._dropped_label = _metric_row("Frame dibuang")
         self._window_label = _metric_row("Jendela FPS")
@@ -109,17 +124,22 @@ class DebugView(qw.QMainWindow):
 
     def _build_model_panels(self) -> qw.QLayout:
         self._predictions = qw.QLabel(
-            "Prediksi teratas: belum ada, model slice 4 belum dibuat."
+            "Prediksi teratas: belum ada (belum start)."
         )
+        self._ranked = qw.QLabel("Tiga prediksi teratas: -")
         self._voting = qw.QLabel("Status voting dan cooldown: belum aktif.")
         self._landmarks = qw.QLabel(
-            "Persentase frame landmark tidak lengkap: 0.0% (ekstraksi landmark slice 2 aktif.)"
+            "Persentase frame landmark tidak lengkap: -"
         )
         self._spoken_words = qw.QListWidget()
-        self._spoken_words.addItem("Log kata yang diucapkan: kosong (TTS slice 5).")
+        self._spoken_words.addItem(
+            "Log kata yang diucapkan: kosong (TTS slice 5)."
+        )
+        self._spoken_log_started = False
         for widget in (self._predictions, self._voting, self._landmarks):
             widget.setWordWrap(True)
         layout = qw.QVBoxLayout()
+        layout.addWidget(self._ranked)
         layout.addWidget(self._predictions)
         layout.addWidget(self._voting)
         layout.addWidget(self._landmarks)
@@ -137,6 +157,17 @@ class DebugView(qw.QMainWindow):
         self._newest_frame = None
         self._raw_image = None
         self._incomplete = IncompleteTracker()
+        release = getattr(results, "release_camera", None)
+        if not self._alive or self._stop_requested:
+            # View sudah ditutup, atau Stop ditekan sebelum pemeriksaan
+            # selesai: jangan bangun pipeline. Kamera pra-cek diambil dari
+            # hasil di sini, jadi lepas di sini juga.
+            logger.info("hasil pemeriksaan dibuang; kamera pra-cek dilepas")
+            if release is not None:
+                release()
+            if self._alive:
+                self._stop_requested = False
+            return
         finish_checks(
             self,
             results,
@@ -150,49 +181,151 @@ class DebugView(qw.QMainWindow):
     def _store_raw(self, image: np.ndarray) -> None:
         self._raw_image = image
 
+    def _release_camera(self) -> None:
+        """Hentikan pipeline lalu pastikan perangkat kamera bebas.
+
+        Pipeline.stop() sudah memanggil camera.close() dan sink.close()
+        (pipeline.py:197-198). Hook pipeline di-null setelahnya: join
+        punya batas waktu, callback yang masih hidup harus berhenti
+        sebelum view melepas widgetnya.
+        """
+        pipeline = self._pipeline
+        self._pipeline = None
+        if pipeline is None:
+            return
+        pipeline.stop()
+        for hook in ("on_frame", "on_stats", "on_landmarks", "on_label"):
+            try:
+                setattr(pipeline, hook, None)
+            except Exception:
+                pass
+
     def _on_stop(self) -> None:
         logger.info("Stop diklik (mode debug)")
+        self._stop_requested = True
         self._timer.stop()
-        if self._pipeline is not None:
-            self._pipeline.stop()
-            self._pipeline = None
+        self._release_camera()
+        self._newest_frame = None
+        self._raw_image = None
+        self._newest_stats = None
+        self._newest_landmarks = None
+        self._newest_predictions = ""
+        self._newest_ranked = ""
+        with self._labels_lock:
+            self._pending_labels.clear()
         self._set_status(*STATUS_IDLE)
 
     def _message_warning(self, title: str, text: str) -> None:
         qw.QMessageBox.warning(self, title, text)
 
     def _on_frame(self, frame: Frame) -> None:
-        """Simpan frame terbaru untuk panel overlay.
+        """Simpan frame terbaru; teks prediksi ikut tampil di panel.
 
         Piksel mentah tidak disalin di sini: pipeline memanggil renderer
         lebih dulu, jadi pada titik ini overlay sudah menimpa ``frame.image``
         in place. Salinannya terjadi di ``_store_raw`` lewat renderer.
+
+        Teks prediksi dibaca dari ``frame.text`` — satu kali per frame yang
+        ditampilkan, bukan sekali per window prediksi. Placeholder subtitle
+        bukan prediksi, jadi tidak pernah dipakai di sini. Urutan tiga
+        teratas dibaca dari probe predictor, bukan dari pipeline, karena
+        pipeline membuang ``Prediction.ranked``.
         """
+        if not self._alive:
+            return
         self._newest_frame = frame
+        text = (frame.text or "").strip()
+        if text and text != PLACEHOLDER_TEXT:
+            self._newest_predictions = f"Prediksi teratas: {text}"
+        self._newest_ranked = self._read_ranked()
+        if _on_gui_thread():
+            # Pemanggil sinkron (tes, CLI): panel perlu terisi sekarang.
+            self._flush_panels()
+
+    def _read_ranked(self) -> str:
+        """Baris ranked dari probe predictor; ``-`` tanpa probe.
+
+        Tanpa probe (pipeline tanpa predictor yang dibungkus) berarti
+        memang tidak ada data ranked: tampil ``-``, bukan angka lama.
+        Pembacaan murni data, aman dari thread pipeline; penulisannya
+        (``setText``) yang hanya boleh di GUI thread.
+        """
+        probe = getattr(self._pipeline, "predictor", None)
+        reader = getattr(probe, "read_ranked", None)
+        if reader is None:
+            return "Tiga prediksi teratas: -"
+        return f"Tiga prediksi teratas: {format_ranked(reader())}"
 
     def _on_stats(self, stats: Stats) -> None:
-        """Angka pengukuran; berhenti tampil begitu pipeline menyatakan galat."""
-        if self._pipeline is None or self._pipeline.error is not None:
+        """Statistik hanya disimpan; penulisan widget di tick 40 ms.
+
+        Pipeline memanggil ini dari thread output. ``smoother_status``
+        dibaca DI SINI, sedang pipeline masih hidup — tick nanti bisa
+        jalan setelah pipeline dinull-kan oleh Stop.
+        """
+        if not self._alive or self._pipeline is None:
             return
-        self._fps_label.setText(f"FPS terkirim: {stats.fps:5.1f}")
+        self._newest_stats = (stats, self._pipeline.smoother_status)
+        if _on_gui_thread():
+            self._flush_stats()
+
+    def _flush_stats(self) -> None:
+        """Tulis angka pengukuran + status voting; GUI thread saja."""
+        pending = self._newest_stats
+        self._newest_stats = None
+        if pending is None or self._pipeline is None:
+            return
+        stats, status = pending
+        self._fps_label.setText(
+            f"FPS terkirim (jalur output) "
+            f"[belum per-tahap, lihat docs]: {stats.fps:5.1f}"
+        )
         self._sent_label.setText(f"Frame dikirim: {stats.frames_sent}")
         self._dropped_label.setText(f"Frame dibuang: {stats.frames_dropped}")
         self._window_label.setText(
             f"Jendela FPS: {stats.elapsed_seconds:5.1f} s"
         )
+        if not status:
+            self._voting.setText(
+                "Status voting dan cooldown: belum aktif."
+            )
+        else:
+            self._voting.setText(
+                "Status voting: "
+                f"kandidat={status.get('candidate')} "
+                f"streak={status.get('streak')}/{status.get('vote_count')} "
+                f"cooldown={status.get('cooldown_seconds')}s"
+            )
 
+    def _on_label(self, label: str) -> None:
+        """Label stabil masuk daftar tertahan; widget diisi di tick.
+
+        Pipeline memanggil ini dari thread capture, jadi QListWidget
+        hanya disentuh di tick 40 ms. Daftar tertahan dilindungi lock:
+        thread capture dan GUI thread bisa jalan bersamaan. Kegagalan di
+        sini tidak boleh membunuh jalur TTS: pemanggil
+        (``finish_checks``) membungkus pemanggilan ini dalam try/except.
+        """
+        text = str(label)
+        if not text or not self._alive:
+            return
+        with self._labels_lock:
+            self._pending_labels.append(text)
+        if _on_gui_thread():
+            self._flush_labels()
 
     def _on_landmarks(self, landmarks) -> None:
-        """Catat persentase frame tidak lengkap untuk panel model.
+        """Landmark ditahan; persentase dihitung dan ditulis di tick.
 
-        Angkanya dihitung oleh IncompleteTracker, bukan di sini, supaya logika
-        pengukuran bisa diuji tanpa GUI.
+        ``IncompleteTracker.add()`` murni, jadi dipanggil langsung dari
+        thread pipeline; yang tidak aman adalah ``setText``.
         """
+        if not self._alive:
+            return
         self._incomplete.add(landmarks)
-        self._landmarks.setText(
-            "Persentase frame landmark tidak lengkap: "
-            f"{self._incomplete.percentage():5.1f}%"
-        )
+        self._newest_landmarks = self._incomplete.percentage()
+        if _on_gui_thread():
+            self._flush_landmarks()
 
     def _set_status(self, state: str, style: str) -> None:
         logger.info("status -> %s", state)
@@ -200,7 +333,13 @@ class DebugView(qw.QMainWindow):
         self._status.setStyleSheet(style)
 
     def _paint_preview(self) -> None:
-        """Frame terbaru saja yang digambar; frame di antaranya dibuang."""
+        """Satu-satunya tempat widget disentuh: frame terbaru saja.
+
+        Semua hook pipeline memasang data; tick 40 ms inilah yang menulis
+        panel. Frame di antaranya dibuang. Pemeriksaan ``pipeline.error``
+        tetap lebih dulu: pipeline galat berarti tidak ada panel yang
+        perlu diperbarui.
+        """
         pipeline = self._pipeline
         if pipeline is None:
             return
@@ -210,17 +349,58 @@ class DebugView(qw.QMainWindow):
             return
         frame = self._newest_frame
         self._newest_frame = None
+        self._flush_labels()
+        self._flush_stats()
+        self._flush_landmarks()
+        self._flush_panels()
         if frame is None:
             return
         if self._raw_image is not None:
             _paint(self._raw_panel, self._raw_image)
         _paint(self._overlay_panel, frame.image)
 
+    def _flush_panels(self) -> None:
+        """Tulis teks prediksi + baris ranked; GUI thread saja."""
+        if self._newest_predictions:
+            self._predictions.setText(self._newest_predictions)
+        self._ranked.setText(self._newest_ranked)
+
+    def _flush_labels(self) -> None:
+        """Pindahkan label tertahan ke QListWidget; GUI thread saja."""
+        with self._labels_lock:
+            pending = self._pending_labels
+            self._pending_labels = []
+        if not pending:
+            return
+        if not self._spoken_log_started:
+            placeholder = self._spoken_words.item(0)
+            if placeholder is not None:
+                self._spoken_words.takeItem(0)
+            self._spoken_log_started = True
+        for text in pending:
+            last = self._spoken_words.item(self._spoken_words.count() - 1)
+            if last is not None and last.text() == text:
+                continue
+            self._spoken_words.addItem(text)
+            while self._spoken_words.count() > 50:
+                self._spoken_words.takeItem(0)
+
+    def _flush_landmarks(self) -> None:
+        """Tulis persentase landmark; GUI thread saja."""
+        if self._newest_landmarks is None:
+            return
+        self._landmarks.setText(
+            "Persentase frame landmark tidak lengkap: "
+            f"{self._newest_landmarks:5.1f}%"
+        )
+
     def _stop_timer_on_error(self, fail: Exception) -> None:
         self._timer.stop()
-        if self._pipeline is not None:
-            self._pipeline.stop()
-            self._pipeline = None
+        self._newest_stats = None
+        self._newest_landmarks = None
+        with self._labels_lock:
+            self._pending_labels.clear()
+        self._release_camera()
         self._set_status(*STATUS_ERROR)
         qw.QMessageBox.warning(
             self,
@@ -229,6 +409,10 @@ class DebugView(qw.QMainWindow):
         )
 
     def closeEvent(self, event) -> None:
+        # _alive lebih dulu: hook jadi no-op sebelum widget dilepas,
+        # sehingga callback pipeline yang masih hidup tidak pernah
+        # menyentuh widget yang sudah musnah.
+        self._alive = False
         self._on_stop()
         super().closeEvent(event)
 

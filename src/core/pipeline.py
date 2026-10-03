@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import collections
 import logging
+import math
 import queue
-import sys
 import threading
 import time
 from collections.abc import Callable
@@ -23,13 +23,37 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .config import AppConfig
+from .predictor import Prediction
+
 
 logger = logging.getLogger(__name__)
+
+
+def _percentile(ordered: list[float], fraction: float) -> float:
+    """Persentil nearest-rank atas daftar yang SUDAH terurut.
+
+    Sengaja bukan pustaka statistik: satu indeks bulat naik, tanpa
+    interpolasi, jadi nilai yang diharapkan bisa dihitung tangan di test
+    dan tidak ada dependensi baru untuk dua angka. ``fraction`` 0.5 =
+    p50, 0.95 = p95.
+    """
+    index = max(0, math.ceil(fraction * len(ordered)) - 1)
+    return ordered[index]
 
 
 def _clock() -> float:
     """Cap waktu sistem; hanya untuk jalur runtime, test menyuntiknya."""
     return time.monotonic()
+
+
+def _has_prediction_stage(pipeline: Pipeline) -> bool:
+    """True bila pipeline ini memasang predictor (jalur label aktif)."""
+    return pipeline.predictor is not None
+
+
+def _as_int(error: Exception | None) -> int:
+    """1 bila ada galat non-fatal, 0 bila bersih."""
+    return 0 if error is None else 1
 
 
 @dataclass
@@ -46,6 +70,12 @@ class Frame:
     index: int
     text: str = ""
     landmarks: object | None = None
+
+    #: Waktu monotonic saat label stabil TERAKHIR terbit di thread capture;
+    #: None bila frame ini tidak membawa label. Diisi sekali saat Smoother
+    #: mengeluarkan label, dibaca sekali oleh worker output untuk menghitung
+    #: latensi label -> layar.
+    label_emitted_at: float | None = None
 
 
 @dataclass
@@ -108,6 +138,13 @@ class Pipeline:
         self._sent_at: collections.deque[float] = collections.deque(
             maxlen=self.config.pipeline_stats_window
         )
+
+        # Sampel latensi label stabil -> frame sampai ke ``on_frame``.
+        # maxlen mengikuti ``pipeline.stats_window`` seperti ``_sent_at``:
+        # memori tetap terbatas dan persentil selalu dari sampel terkini.
+        self._label_latencies: collections.deque[float] = collections.deque(
+            maxlen=self.config.pipeline_stats_window
+        )
         self._lock = threading.RLock()
         self._fatal: Exception | None = None
         # Jalur predictor dibangun lazily di thread capture, bukan di sini:
@@ -125,6 +162,18 @@ class Pipeline:
         self._read_failed_since: float | None = None
         self._last_read_error: Exception | None = None
         self._read_warned = False
+        # Penghitung jalur label. Ditulis HANYA oleh thread capture — satu
+        # publisher: ``_capture_loop`` -> ``_run_predictor`` — dan dibaca
+        # oleh ``stats()``/``stop()`` SETELAH thread itu join (``stop()``
+        # memanggil ``join`` lebih dulu), jadi plain int tanpa lock: satu
+        # kata yang ditulis satu thread dan dibaca setelah join tidak butuh
+        # sinkronisasi dan jalur panas tetap bersih.
+        self._windows_fed = 0
+        self._label_emissions = 0
+        self._blocked_low_confidence = 0
+        self._blocked_short_streak = 0
+        self._blocked_cooldown = 0
+        self._last_logged_label: str | None = None
 
     # -- kontrol -----------------------------------------------------------------
     def start(self) -> None:
@@ -147,13 +196,41 @@ class Pipeline:
         self._output_thread = None
         self.camera.close()
         self.sink.close()
-        logger.info(
-            "pipeline stop: dibaca=%d dikirim=%d dibuang=%d galat=%r",
-            self._captured,
-            self._sent,
-            self._dropped,
-            self._fatal,
-        )
+        logger.info("pipeline stop: %s", self._stop_info())
+
+    def _stop_info(self) -> str:
+        """Baris statistik stop: fatal + non-fatal dalam satu string.
+
+        Format field fatal TIDAK berubah (``galat=%r``); yang ditambah hanya
+        penanda label dan hitungan galat non-fatal. Tanpa itu, run 34 s yang
+        gagal sepihak di jalur predictor hanya tampak sebagai ``galat=None``
+        dan tak menyisakan jejak di berkas log.
+        """
+        info = [
+            f"dibaca={self._captured}",
+            f"dikirim={self._sent}",
+            f"dibuang={self._dropped}",
+        ]
+        if _has_prediction_stage(self):
+            info.append(f"label={self._label_emissions}")
+            info.append(
+                "jalur_label="
+                f"window={self._windows_fed} "
+                f"keyakinan_rendah={self._blocked_low_confidence} "
+                f"streak_pendek={self._blocked_short_streak} "
+                f"cooldown={self._blocked_cooldown}"
+            )
+        with self._lock:
+            prediction_error = self._last_prediction_error
+            label_error = self._last_label_error
+            read_error = self._last_read_error
+            fatal = self._fatal
+        info.append(f"galat={fatal!r}")
+        info.append(f"prediksi_gagal={_as_int(prediction_error)}")
+        info.append(f"label_gagal={_as_int(label_error)}")
+        if read_error is not None:
+            info.append(f"read_gagal_toleran={read_error!r}")
+        return " ".join(info)
 
     @property
     def error(self) -> Exception | None:
@@ -201,12 +278,12 @@ class Pipeline:
             if within:
                 if not self._read_warned:
                     self._read_warned = True
-                    print(
-                        f"Kamera belum mengirim frame (read() None), toleransi "
-                        f"{self.config.pipeline_read_failure_timeout_seconds}s "
-                        f"yang lalu; pipeline tetap hidup.",
-                        file=sys.stderr,
+                    logger.warning(
+                        "Kamera belum mengirim frame (read() None), toleransi "
+                        "%ss yang lalu; pipeline tetap hidup.",
+                        self.config.pipeline_read_failure_timeout_seconds,
                     )
+
         return within
 
     def _poll_read_failure(self) -> None:
@@ -282,20 +359,90 @@ class Pipeline:
         try:
             row = self._feature_extractor.feed(frame.landmarks)
             for window in self._windower.feed(row):
+                self._windows_fed += 1
                 predicted = self.predictor.predict(window)
                 label = self._smoother.feed(predicted, frame.timestamp)
                 if label is not None:
                     frame.text = label
+                    # Satu cap waktu per label terbit; selisihnya dihitung
+                    # worker output ketika frame yang sama sampai ke view.
+                    frame.label_emitted_at = _clock()
                     with self._lock:
                         self._predicted_frames += 1
+                    self._record_emission(frame, predicted, label)
                     self._emit_label(label)
+                else:
+                    self._count_blocker(predicted)
         except Exception as exc:
             # Galat predict dicatat tanpa mematikan capture; frame tetap jalan
-            # dengan teks apa adanya (biasanya kosong).
+            # dengan teks apa adanya (biasanya kosong). Warning, bukan print
+            # stderr: setup_logging hanya memasang handler BERKAS, jadi
+            # stderr tidak pernah sampai ke log mana pun.
             with self._lock:
                 if self._last_prediction_error is None:
                     self._last_prediction_error = exc
-            print(f"Galat predictor diabaikan: {exc!r}", file=sys.stderr)
+            logger.warning(
+                "Galat predictor diabaikan: stage=predict frame.index=%s exc=%r",
+                frame.index,
+                exc,
+            )
+
+    def _count_blocker(self, predicted: Prediction) -> None:
+        """Atribusi alasan satu window tidak jadi label; murah dan non-fatal.
+
+        Urutan penahanan sama dengan ``Smoother.feed``: threshold lebih dulu,
+        lalu streak voting, lalu cooldown. Confidence dan status diambil dari
+        snapshot yang SUDAH ada — tanpa logika baru, tanpa per-frame logging.
+        """
+        status = self._smoother_status_snapshot()
+        threshold = float(self.config.smoothing_confidence_threshold)
+        confidence = float(getattr(predicted, "confidence", 0.0))
+        streak = int(status.get("streak") or 0)
+        vote_count = int(status.get("vote_count") or 0)
+        if confidence < threshold:
+            self._blocked_low_confidence += 1
+        elif streak < vote_count:
+            self._blocked_short_streak += 1
+        else:
+            self._blocked_cooldown += 1
+
+    def _record_emission(self, frame: Frame, predicted: Prediction, label: str) -> None:
+        """Log siklus hidup label: emisi pertama, dan setiap label BARU.
+
+        Sengaja TIDAK per window: 154 window tidak boleh jadi 154 baris log.
+        Dua baris INFO saja — pertama dan per label baru — yang keduanya
+        menjawab pertanyaan diagnosis: jalan atau tidak jalur prediksi, dan
+        label apa yang benar-benar lolos ke pemakai.
+        """
+        self._label_emissions += 1
+        if self._label_emissions == 1:
+            logger.info(
+                "label pertama: label=%s keyakinan=%.2f frame.index=%s "
+                "frame_berlabel=%d",
+                label,
+                float(getattr(predicted, "confidence", 0.0)),
+                frame.index,
+                self._predicted_frames,
+            )
+        if label != self._last_logged_label:
+            self._last_logged_label = label
+            logger.info(
+                "label baru: label=%s frame.index=%s frame_berlabel=%d",
+                label,
+                frame.index,
+                self._predicted_frames,
+            )
+
+    def _smoother_status_snapshot(self) -> dict[str, object]:
+        """Status smoother sekarang; ``{}`` bila jalur prediksi belum ada.
+
+        Dipisah dari properti ``smoother_status`` supaya penjelasan jalur
+        panas tetap ringkas dan properti publik tidak berubah artinya.
+        """
+        smoother = self._smoother
+        if smoother is None:
+            return {}
+        return smoother.status()
 
     def _emit_label(self, label: str) -> None:
         """Beritahu subscriber label stabil; kegagalannya tidak fatal.
@@ -313,7 +460,13 @@ class Pipeline:
             with self._lock:
                 if self._last_label_error is None:
                     self._last_label_error = exc
-            print(f"Galat listener label diabaikan: {exc!r}", file=sys.stderr)
+            # Warning, bukan print stderr: handler berkas adalah satu-satunya
+            # handler yang dipasang setup_logging, jadi stderr tak terbaca.
+            logger.warning(
+                "Galat listener label diabaikan: label=%s exc=%r",
+                label,
+                exc,
+            )
 
     def _build_prediction_stage(self) -> None:
         """Bangun extractor fitur, window, dan smoother dari config."""
@@ -326,6 +479,21 @@ class Pipeline:
             stride=self.config.window_stride,
         )
         self._smoother = Smoother(self.config)
+
+    @property
+    def smoother_status(self) -> dict[str, object]:
+        """Snapshot status voting/cooldown Smoother; kosong bila belum jalan.
+
+        Smoother dibangun lazily di ``_build_prediction_stage`` saat prediksi
+        pertama, jadi sebelum prediksi apa pun nilainya ``{}``. Hanya-baca:
+        dipakai panel mode debug untuk menampilkan kandidat, streak, dan sisa
+        cooldown — tidak ada yang mengubah state di sini.
+        """
+        with self._lock:
+            smoother = self._smoother
+        if smoother is None:
+            return {}
+        return smoother.status()
 
     @property
     def predicted_frames(self) -> int:
@@ -344,6 +512,41 @@ class Pipeline:
         """Galat terakhir dari listener label (non-fatal); None bila bersih."""
         with self._lock:
             return self._last_label_error
+
+    def _record_label_latency(self, seconds: float) -> None:
+        """Catat satu sampel latensi label -> frame sampai view.
+
+        Dipanggil dari worker output di dalam ``self._lock`` yang sudah
+        dipegangnya, jadi tidak ada sinkronisasi baru di jalur panas;
+        deque ber-``maxlen`` memotong sampel terlama sendiri sehingga
+        memori tetap terbatas walau pipeline jalan berjam-jam.
+        """
+        self._label_latencies.append(seconds)
+
+    @property
+    def label_latency(self) -> dict[str, float]:
+        """Persentil latensi label stabil -> frame sampai ke ``on_frame``.
+
+        Definisi: satu ``time.monotonic()`` saat Smoother mengeluarkan
+        label stabil di thread capture, satu pengurangan saat frame yang
+        sama sampai ke ``on_frame`` di worker output. Jadi selang waktu
+        label sampai gambar terlihat di view, sampai pintu masuk view.
+
+        BUKAN latensi audio: interval sampai suara terdengar di VB-Cable
+        tidak dapat diukur tanpa jalur loopback audio, dan nilainya tidak
+        diklaim di sini. Nol sampel berarti belum ada label — ``count`` 0,
+        bukan angka palsu.
+        """
+        with self._lock:
+            ordered = sorted(self._label_latencies)
+        if not ordered:
+            return {"count": 0}
+        return {
+            "count": len(ordered),
+            "p50_ms": _percentile(ordered, 0.50) * 1000.0,
+            "p95_ms": _percentile(ordered, 0.95) * 1000.0,
+            "max_ms": ordered[-1] * 1000.0,
+        }
 
     @property
     def read_error(self) -> Exception | None:
@@ -387,6 +590,10 @@ class Pipeline:
             with self._lock:
                 self._sent += 1
                 self._sent_at.append(frame.timestamp)
+                if frame.label_emitted_at is not None:
+                    self._record_label_latency(
+                        _clock() - frame.label_emitted_at
+                    )
             if self.on_frame is not None:
                 self.on_frame(frame)
             if self.on_stats is not None:

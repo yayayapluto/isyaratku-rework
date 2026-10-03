@@ -1,29 +1,30 @@
 # isyaratku
 
-Penerjemah bahasa isyarat BISINDO real-time untuk percakapan sehari-hari. Aplikasi membaca bahasa isyarat dari webcam, menampilkan hasilnya sebagai teks di layar, dan mengucapkannya sebagai suara lewat pengeras suara virtual (VB-Cabel) supaya peserta meeting mendengarnya. Masalah yang disasar: komunikasi dua arah antara penutur tunarungu dan penutur dengar — penutur dengar memakai kamera aplikasi sebagai gambar wajah di meeting, dan TTS offline mengubah label isyarat menjadi kata yang terdengar.
+Real-time BISINDO sign language translator for everyday conversation. The app reads sign language from a webcam, shows the result as text on screen, and speaks it as audio through a virtual speaker (VB-Cabel) so meeting participants can hear it. Targeted problem: two-way communication between deaf speakers and hearing speakers — the hearing speaker uses the app's camera as their face image in a meeting, and offline TTS turns sign labels into audible words.
 
-Hari ini yang benar-benar berjalan: pipeline kamera → landmark → prediksi → smoothing → overlay + virtual camera, dan label → TTS → kabel. Akurasi prediksinya **masih rendah** dan belum pernah diuji end-to-end bersama Zoom/Meet — lihat bagian status.
+What actually runs today: the camera → landmark → prediction → smoothing → overlay + virtual camera pipeline, and label → TTS → cable. Prediction accuracy is **still low** and it has never been tested end-to-end with Zoom/Meet — see the status section.
 
-## Status jujur
+## Honest status
 
-**Sudah berjalan dan terverifikasi:**
+**Working and verified:**
 
-- Pipeline lengkap: kamera → landmark MediaPipe → windowing → prediksi → smoothing → overlay → OBS Virtual Camera.
-- Suara: TTS piper offline memutar label yang berdiri stabil ke kabel audio; terukur RMS kabel 0.1047 dan durasi audio 18,61 s untuk 8 label (`docs/environment.md:110-124`).
-- Dua mode antarmuka PySide6: siap pakai (Start/Stop) dan debug (dasbor dengan panel FPS, drop, window, landmark, log kata).
-- Start tidak lagi membekukan: perbaikan regresi `Signal(list)` → `Signal(object)` di `src/ui/check_task.py` menjaga `CheckResults` utuh melewati batas sinyal, sehingga pre-cek tidak membuka kamera kedua di thread GUI (aquire kamera kedua terukur ~27,5 s memblok thread GUI).
-- Latensi predictor p50 0,066 ms (`docs/tech-decisions.md:178-181`); jalur headless lolos (`Headless smoke: LOLOS`).
+- Full pipeline: camera → MediaPipe landmarks → windowing → prediction → smoothing → overlay → OBS Virtual Camera.
+- Audio: offline piper TTS plays stable labels to the audio cable; measured cable RMS 0.1047 and audio duration 18.61 s for 8 labels (`docs/environment.md:110-124`).
+- Two PySide6 interface modes: ready to use (Start/Stop) and debug (dashboard with FPS, drop, window, landmark, and word log panels).
+- Start no longer freezes: a regression fix for `Signal(list)` → `Signal(object)` in `src/ui/check_task.py` keeps `CheckResults` intact across the signal boundary, so the pre-check no longer opens a second camera on the GUI thread (second camera acquire measured at ~27.5 s blocking the GUI thread).
+- Predictor p50 latency 0.066 ms (`docs/tech-decisions.md:178-181`); the headless path passes (`Headless smoke: LOLOS`).
+- Silent failures now log: every `print(..., file=sys.stderr)` site in the app never reached the log, because the logging setup in `src/core/logging.py` installs only a file handler, so a failing predictor or a failing TTS was completely silent. All those sites now log through `logger.warning` in `src/core/pipeline.py`, so both failure and success leave traces in `logs/isyaratku-<date>.log`. The stopping line now reports `dibaca=… dikirim=… dibuang=… label=… jalur_label=window=… galat=… prediksi_gagal=… label_gagal=…`.
 
-**Belum / keterbatasan:**
+**Not done / limitations:**
 
-- **Akurasi rendah.** Akurasi seluruh window 0,5745, tetapi akurasi pada window bertangan saja hanya 0,0856 pada test signer3 (`docs/tech-decisions.md:47`). Model baseline mengenali signer yang ikut rekaman, bukan isyaratnya secara umum — leave-one-signer-out hanya 0,0806–0,6058, sementara split acak dalam satu signer mencapai 0,9799 (`docs/tech-decisions.md:50`). Angka ambang utuh ada di bagian kejujuran model.
-- **Belum pernah diuji dengan aplikasi meeting.** Zoom/Meet tidak pernah dijalankan bersama feed ini: apakah perangkat muncul di daftar kamera meeting, dan apakah peserta lain melihat gambar bergerak, masih belum terbukti (`docs/tech-decisions.md` bagian "Status slice 1: yang belum terbukti"). Yang terbukti baru round trip dua proses lokal.
-- **Hanya kata.** Dataset ANGKA dan HURUF belum diunduh; slice 7 (angka, lalu huruf) masih terbuka.
-- **Beban CPU:** ekstraksi landmark MediaPipe adalah bagian terberat pipeline; pada mesin pengembang kamera backend MSMF terukur 28,56 fps capture (`configs/app.toml:43`), jadi fps video keluar bergantung pada beban mesin saat demo.
+- **Low accuracy.** Whole-window accuracy is 0.5745, but accuracy on hands-only windows is only 0.0856 on test signer3 (`docs/tech-decisions.md:47`). The baseline model recognizes the signer who took part in the recording, not the signs in general — leave-one-signer-out is only 0.0806–0.6058, while a random split within a single signer reaches 0.9799 (`docs/tech-decisions.md:50`). Full threshold numbers are in the model honesty section.
+- **Never tested with a meeting app.** Zoom/Meet has never been run together with this feed: whether the device appears in the meeting camera list, and whether other participants see moving images, is still unproven (`docs/tech-decisions.md` section "Status slice 1: yang belum terbukti"). Only a local two-process round trip is proven.
+- **Words only.** The ANGKA and HURUF datasets have not been downloaded; slice 7 (numbers, then letters) is still open.
+- **CPU load:** MediaPipe landmark extraction is the heaviest part of the pipeline; on the developer machine the MSMF camera backend measures 28.56 fps capture (`configs/app.toml:43`), so output video fps depends on machine load during the demo.
 
-## Cara jalan
+## How to run
 
-Prasyarat: Python 3.14 (repo ini dikembangkan dan diuji di Python 3.14.6). Proyek ini tidak punya virtualenv di mesin pengembang — jalankan langsung dengan interpreter sistem.
+Prerequisites: Python 3.14 (this repo is developed and tested on Python 3.14.6). The project has no virtualenv on the developer machine — run directly with the system interpreter.
 
 ```bash
 git clone https://github.com/yayayapluto/isyaratku-rework.git
@@ -34,35 +35,37 @@ python -m training.train         # bangun artefak model di models/baseline.npz
 python -m src.ui.app             # mode siap pakai
 ```
 
-Opsi:
+Options:
 
 ```bash
 python -m src.ui.app --mode debug      # dasbor debug satu jendela
 python -m src.ui.app --headless --seconds 5   # smoke test tanpa GUI (camera+sink fake)
 ```
 
-`python -m training.train` membutuhkan dataset KATA di `data/raw/`; `data/` tidak masuk git. `python -m training.setup_voice` juga bisa dipakai sendiri: `--warm-cache` untuk memenuhi cache WAV sebelum demo, `--check` untuk memastikan voice ada tanpa jaringan.
+`python -m training.train` needs the KATA dataset in `data/raw/`; `data/` is not tracked by git. `python -m training.setup_voice` can also be used on its own: `--warm-cache` to fill the WAV cache before a demo, `--check` to confirm a voice is present without network access.
 
-Test:
+Tests:
 
 ```bash
 python -m pytest -q -p no:cacheprovider
 ```
 
-`-p no:cacheprovider` tidak opsional: run sebelumnya menghabiskan waktu sampai menyebabkan timeout harness. Jalur test memakai `QT_QPA_PLATFORM=offscreen`, jadi tidak perlu tampilan.
+`-p no:cacheprovider` is not optional: a previous run consumed enough time to cause harness timeouts. The test path uses `QT_QPA_PLATFORM=offscreen`, so no display is needed.
 
-## Cara pakai demo
+## How to run the demo
 
-1. Buka aplikasi meeting (Zoom, Google Meet, dan sebagainya).
-2. Di pengaturan kamera peserta, pilih **OBS Virtual Camera** sebagai perangkat kamera. Gambar wajah penutur diganti output pipeline aplikasi.
-3. Jalankan `python -m src.ui.app`, tekan **Start**, dan tunggu status menjadi "berjalan".
-4. Untuk peserta meeting **mendengar** suara: pilih mikrofon **CABLE In 16 Ch (VB-Audio Virtual Cable)** di aplikasi meeting. Aplikasi mengarahkan keluaran TTS ke pemutar kabel, dan aplikasi meeting menangkap endpoint capture kabel sebagai mikrofon.
+1. Open the meeting app (Zoom, Google Meet, and so on).
+2. In your meeting camera settings, choose **OBS Virtual Camera** as the camera device. The speaker's face image is replaced by the app pipeline output.
+3. Run `python -m src.ui.app`, press **Start**, and wait for the status to read "berjalan".
+4. For meeting participants to **hear** you: choose the microphone **CABLE In 16 Ch (VB-Audio Virtual Cable)** in the meeting app. The app routes TTS output to the cable player, and the meeting app captures the cable capture endpoint as a microphone.
 
-VB-Cabel dan OBS Virtual Camera harus sudah terpasang di sistem; pemeriksaan otomatis saat Start memeriksa kamera, virtual camera, dan kabel, lalu menampilkan galat yang spesifik bila salah satunya belum siap.
+VB-Cabel and OBS Virtual Camera must already be installed on the system; the automatic check at Start verifies the camera, the virtual camera, and the cable, then reports a specific error if one of them is not ready.
 
-## Arsitektur
+Pressing **Start** used to take ~25-33 seconds: `cv2.VideoCapture`'s width/height/fps `set()` calls ran before the first frame read, and with the MSMF backend each property forced a full stream re-init (~6-7 s each). The camera now reads its first frame first and only sets a property when the stream does not already match the config, bringing Start down to roughly 6 s on this machine (`src/adapters/camera.py`, `warm_up`, `FRAME_WARMUP_MAX`). MSMF remains the default backend (28.56 fps).
 
-Alur data:
+## Architecture
+
+Data flow:
 
 ```
 kamera ─┐
@@ -79,69 +82,69 @@ kamera ─┘                                                        │
               OBS Virtual Camera (pesan ke meeting)                    piper-tts offline ─ VB-Cabel
 ```
 
-Aturan dependensi: `ui -> core <- adapters`. `src/core/` tidak boleh mengimpor pustaka GUI, hardware, atau model; ia hanya berisi pipeline, konfigurasi, dan tipe data. Semua akses ke perangkat keras hidup di `src/adapters/`, dan setiap adapter punya pasangan fake (`FakeCameraSource`, `FakeLandmarkExtractor`, `FakeVirtualCameraSink`, `FakeTTS`) yang dipakai test dan jalur headless tanpa perangkat nyata.
+Dependency rule: `ui -> core <- adapters`. `src/core/` must not import GUI, hardware, or model libraries; it holds only the pipeline, configuration, and data types. All hardware access lives in `src/adapters/`, and every adapter has a fake counterpart (`FakeCameraSource`, `FakeLandmarkExtractor`, `FakeVirtualCameraSink`, `FakeTTS`) used by tests and by the headless path without real devices.
 
-## Konfigurasi
+## Configuration
 
-Semua angka tuning terpusat di `_CONTRACT` pada `src/core/config.py` (23 key `section.key`, defaultnya ikut di sana). `configs/app.toml` sengaja hanya berisi komentar: dokumentasi default dan hasil ukur, tanpa key aktif. Menimpa nilai tertentu lewat variabel lingkungan:
+All tuning numbers are centralized in `_CONTRACT` in `src/core/config.py` (23 `section.key` keys, defaults included there). `configs/app.toml` deliberately contains only comments: documentation of defaults and measured results, with no active keys. Override individual values through an environment variable:
 
 ```bash
 set ISYARATKU_CONFIG=D:\jalur\ke\app.toml    # Windows
 python -m src.ui.app
 ```
 
-Isi TOML hanya key yang ingin ditimpa, misalnya `camera.device_index = 2`. Key selain yang ada di kontrak akan ditolak `load_config()`, dan `tests/test_config.py` menjaga kontrak tetap sinkron dengan field `AppConfig`.
+The TOML file holds only the keys you want to override, for example `camera.device_index = 2`. Keys other than those in the contract are rejected by `load_config()`, and `tests/test_config.py` keeps the contract in sync with the `AppConfig` fields.
 
 ## Testing
 
-- 166 test, `python -m pytest -q -p no:cacheprovider`, semua lolos.
-- Test dijalankan offscreen (`QT_QPA_PLATFORM=offscreen`), memakai fake adapter, jadi CI atau laptop tanpa webcam tetap bisa menjalankannya.
-- Satu jalur perangkat nyata yang tidak bisa ditest otomatis (Zoom/Meet end-to-end) tetap harus dibuktikan manual.
+- 217 tests, `python -m pytest -q -p no:cacheprovider`, all passing.
+- Tests run offscreen (`QT_QPA_PLATFORM=offscreen`) using fake adapters, so CI or a laptop without a webcam can still run them.
+- One real-device path that cannot be tested automatically (Zoom/Meet end-to-end) still has to be proven manually.
 
-## Kejujuran model
+## Model honesty
 
-Angka-angkaku ini, semuanya terukur, bukan klaim:
+These are my numbers, all measured, not claims:
 
-| Metrik | Nilai |
+| Metric | Value |
 | --- | --- |
-| Akurasi seluruh window (test signer3) | 0,5745 |
-| Akurasi window bertangan saja (test signer3) | **0,0856** |
-| Gloss argmax-nya "Sore" | 12 dari 32 |
-| Gloss dengan ≤10 window test bertangan | 10 dari 32 |
-| Predictor p50 | 0,066 ms |
+| Whole-window accuracy (test signer3) | 0.5745 |
+| Hands-only window accuracy (test signer3) | **0.0856** |
+| Gloss with argmax "Sore" | 12 of 32 |
+| Gloss with ≤10 hands-only test windows | 10 of 32 |
+| Predictor p50 | 0.066 ms |
 
-Akurasi menyeluruh 7x lebih tinggi daripada kenyataan karena 924 dari 1718 window test berlabel "tidak ada isyarat"; kelas itulah yang mendominasi. Pola kesalahan satu arah: "Sore" menyerap 251 window dan "Bagaimana" 196 window, kebalikannya hampir nol — penanda bias signer, bukan kata yang mirip.
+Overall accuracy is 7x higher than reality because 924 of 1718 test windows are labeled "tidak ada isyarat"; that class is what dominates. The error pattern is one-directional: "Sore" absorbs 251 windows and "Bagaimana" 196 windows, while the reverse is nearly zero — the mark of signer bias, not of similar words.
 
-Untuk angka lengkap per kelas:
+For full per-class numbers:
 
 - `docs/confusion-baseline.csv` — confusion matrix per gloss (test signer3)
-- `docs/tech-decisions.md` — patokan, ambang yang ditolak, dan diagnosa akurasi
-- `docs/implementation-plan.md` — kriteria selesai per slice, termasuk yang belum tercentang
+- `docs/tech-decisions.md` — benchmarks, rejected thresholds, and the accuracy diagnosis
+- `docs/implementation-plan.md` — per-slice completion criteria, including unchecked ones
 
-Dampak praktis untuk demo: model ini masih sangat bergantung pada signer tertentu. Masuk akal dipakai hanya untuk signer0–3 sampai kalibrasi per pengguna dilakukan.
+Practical impact for the demo: this model still depends heavily on one signer. Use is only reasonable for signer0–3 until per-user calibration is done.
 
-## Dokumentasi lain dan atribusi
+## Other documentation and attribution
 
-Dokumen pendukung di `docs/`:
+Supporting documents in `docs/`:
 
-| Berkas | Isi |
+| File | Contents |
 | --- | --- |
-| `docs/architecture.md` | Alur pipeline, kontrak config, batas modul |
-| `docs/tech-decisions.md` | Keputusan yang terukur, ambang yang ditolak, latensi |
-| `docs/implementation-plan.md` | Kriteria selesai tiap slice, termasuk yang belum |
-| `docs/dataset-notes.md` | Dataset kandidat dan lisensinya |
-| `docs/environment.md` | Fakta lingkungan terverifikasi (Python, paket, VB-Cabel, OBS) |
-| `docs/project-overview.md` | Gambaran proyek |
+| `docs/architecture.md` | Pipeline flow, config contract, module boundaries |
+| `docs/tech-decisions.md` | Measured decisions, rejected thresholds, latency |
+| `docs/implementation-plan.md` | Per-slice completion criteria, including unchecked ones |
+| `docs/dataset-notes.md` | Candidate datasets and their licenses |
+| `docs/environment.md` | Verified environment facts (Python, packages, VB-Cabel, OBS) |
+| `docs/project-overview.md` | Project overview |
 
-Atribusi (nama dan lisensi dibaca dari repo/docs; lisensi komponen perangkat lunak perlu dicek ulang sebelum publikasi):
+Attribution (names and licenses read from the repo/docs; software component licenses need to be rechecked before publication):
 
-- Dataset KATA: `glennleonali/wl-bisindo` (Kaggle), tercatat **CC BY-NC 4.0** di `docs/dataset-notes.md:30` — pakai non-komersial sesuai lisensinya, atribusi perlu dicek untuk pemakaian lomba.
-- MediaPipe Tasks (hand + pose landmarker), `google/mediapipe` — lisensi perlu dicek.
-- piper-tts dan voice Indonesia `rhasspy/piper-voices` (`id_ID-news_tts-medium.onnx`) — lisensi perlu dicek.
-- BISINDO sebagai bahasa isyarat komunitas; sumber kamus isyarat perlu dicek.
+- KATA dataset: `glennleonali/wl-bisindo` (Kaggle), recorded as **CC BY-NC 4.0** in `docs/dataset-notes.md:30` — non-commercial use per its license, attribution needs checking for competition use.
+- MediaPipe Tasks (hand + pose landmarker), `google/mediapipe` — license needs checking.
+- piper-tts and the Indonesian voice `rhasspy/piper-voices` (`id_ID-news_tts-medium.onnx`) — license needs checking.
+- BISINDO as a community sign language; sign dictionary sources need checking.
 
 ## Roadmap
 
-1. **Slice 6 — penyelesaian mode siap pakai dan dasbor debug** (sedang berjalan): stabilisasi dua mode, pemeriksaan otomatis saat Start, pesan galat yang actionable, indikator status.
-2. **Slice 7 — angka**, lalu **huruf** bila waktu cukup, dengan syarat slice 6 stabil dan pipeline yang sama tidak bercabang khusus tiap jenis isyarat.
-3. **Sesudah angka benar-benar stabil:** kalibrasi per pengguna (beberapa repetisi per gloss sebelum demo), yang prasyarat minimumnya sudah didokumentasikan di `docs/tech-decisions.md:50`.
+1. **Slice 6 — completing the ready-to-use mode and the debug dashboard** (in progress): stabilizing both modes, the automatic check at Start, actionable error messages, status indicators.
+2. **Slice 7 — numbers**, then **letters** if there is enough time, on the condition that slice 6 is stable and the same pipeline does not branch specially per sign type.
+3. **Once numbers are truly stable:** per-user calibration (several repetitions per gloss before a demo), whose minimum prerequisites are already documented in `docs/tech-decisions.md:50`.

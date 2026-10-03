@@ -26,6 +26,63 @@ from ..core.pipeline import Frame
 CAMERA_BACKEND = cv2.CAP_MSMF
 
 
+#: Batas read saat membuka kamera, supaya stream yang tak pernah mengirim
+#: frame tidak menggantung Start. Terukur di mesin ini frame pertama datang
+#: pada read ke-1 (~0,5 s), dan 20 read berikutnya = 667 ms / 28,6 FPS
+#: (probe `_probe_cam.py`, sudah dihapus), jadi 5 read ≈ 0,2 s: murah untuk
+#: kamera yang lambat warm-up, tetap jatuh tempo untuk kamera yang mati.
+FRAME_WARMUP_MAX = 5
+
+
+def _read_once(capture) -> tuple[bool, object | None]:
+    """Satu read dari capture mentah; ``cv2.error`` berarti "belum ada frame"."""
+    try:
+        ok, image = capture.read()
+    except cv2.error:
+        return False, None
+    if not ok or image is None:
+        return False, None
+    return True, image
+
+
+def warm_up(capture, config: AppConfig) -> bool:
+    """Baca frame pertama (dengan batas), lalu terapkan ukuran config.
+
+    **Kenapa urutannya penting.** Terukur di mesin ini dengan probe
+    (`_probe_cam3.py`, `_probe_cam4.py`, sudah dihapus): urutan lama
+    ``VideoCapture(idx, MSMF)`` lalu ``set()`` W/H/FPS **sebelum** ``read()``
+    pertama = **25-33 s**. ``set()`` membatalkan dan membangun ulang stream
+    MSMF, jadi setiap properti membayar re-init penuh (~6-7 s per properti,
+    ~18-22 s untuk tiga). Kalau ``read()`` lebih dulu, ``set()`` yang sama
+    jatuh tempo sampai ~0,5 ms; dan ``get()`` sebelum ``read()`` sudah
+    melaporkan 640x480 (`_probe_cam6.py`), jadi jalur normal tidak perlu
+    ``set()`` ukuran sama sekali. Total sekarang ~6 s: terbuka ~5-6 s +
+    read pertama ~0,5 s. Itu yang membuat ``kamera pra-cek selesai dalam
+    25-33 s`` di logs/isyaratku-2026-10-03.log turun.
+
+    Kembali ``False`` bila tak ada satu pun frame dalam
+    ``FRAME_WARMUP_MAX`` read — pemanggil (``_check_camera``) lalu melepas
+    handle, bukan menggantung.
+    """
+    for _ in range(FRAME_WARMUP_MAX):
+        ok, _frame = _read_once(capture)
+        if ok:
+            break
+    else:
+        return False
+    # set() hanya bila stream belum memakai nilai config: nilai SAMA di
+    # panggil pembuka tetap membayar re-init MSMF (~6-7 s per properti,
+    # terukur di probe _probe_cam3.py), jadi harus dibuang, bukan dilanjut.
+    for prop, wanted in (
+        (cv2.CAP_PROP_FRAME_WIDTH, config.camera_width),
+        (cv2.CAP_PROP_FRAME_HEIGHT, config.camera_height),
+        (cv2.CAP_PROP_FPS, config.camera_fps),
+    ):
+        if capture.get(prop) != wanted:
+            capture.set(prop, wanted)
+    return True
+
+
 class OpenCvCameraSource:
     """Kamera nyata lewat OpenCV; backend default MSMF, bisa ditimpa."""
 
@@ -34,10 +91,8 @@ class OpenCvCameraSource:
             config.camera_device_index,
             CAMERA_BACKEND if backend is None else backend,
         )
-        self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, config.camera_width)
-        self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, config.camera_height)
-        self._capture.set(cv2.CAP_PROP_FPS, config.camera_fps)
         self._index = 0
+        warm_up(self._capture, config)
 
     @property
     def opened(self) -> bool:

@@ -21,6 +21,8 @@ from ..adapters.predictor import TrainedPredictor
 from ..adapters.virtual_camera import VirtualCameraSink
 from ..core.pipeline import Frame, Pipeline
 from .render import draw_landmarks, draw_overlay
+from .prediction_probe import PredictionProbe
+
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +183,7 @@ def finish_checks(view, results, details, renderer) -> object | None:
         # Predictor asli dibangun di sini juga: model hilang harus muncul
         # sebagai galat pemeriksaan, bukan demo yang diam tanpa teks.
         step = _Langkah("predictor")
-        predictor = TrainedPredictor(view._config)
+        predictor = PredictionProbe(TrainedPredictor(view._config))
         step.selesai()
         # TTS: speech sink dibuat lebih dulu supaya VoiceModel hilang
         # muncul sebagai galat pemeriksaan, bukan thread yang mati
@@ -208,7 +210,7 @@ def finish_checks(view, results, details, renderer) -> object | None:
             predictor=predictor,
             # Tracker landmark hidup di view (punya labelnya), diisi per frame.
             on_landmarks=getattr(view, "_on_landmarks", None),
-            on_label=speech.feed,
+            on_label=_make_label_fanout(speech, view),
         )
     except Exception as exc:
         # Pipeline gagal dibangun tapi kamera pra-cek tetap hidup: tanpa close
@@ -257,6 +259,28 @@ def _close_quietly(camera) -> None:
         camera.close()
     except Exception:
         pass
+
+
+def _make_label_fanout(speech, view) -> Callable[[str], None]:
+    """Label stabil mengalir ke TTS dan ke view, untuk label yang sama.
+
+    TTS lebih dulu: kegagalan view tidak boleh menghentikan pemutaran suara,
+    jadi panggilan view dibungkus try/except sempit dan hanya dicatat.
+    Galat TTS sendiri tetap naik — pipeline sudah menoleransi galat listener
+    label, dan error speech bukan hal yang boleh didiamkan.
+    """
+    view_hook = getattr(view, "_on_label", None)
+    if view_hook is None:
+        return speech.feed
+
+    def fanout(label: str) -> None:
+        speech.feed(label)
+        try:
+            view_hook(label)
+        except Exception as exc:
+            logger.warning("view _on_label gagal: %r", exc)
+
+    return fanout
 
 
 def _release_shared_camera(results) -> None:

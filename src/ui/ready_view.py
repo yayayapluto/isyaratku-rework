@@ -23,6 +23,34 @@ STATUS_ERROR = ("error", "color: #b91c1c; font-weight: 600;")
 STATUS_CHECKING = ("memeriksa...", "color: #b45309; font-weight: 600;")
 
 
+def _format_label_latency(latency: dict) -> str:
+    """Baris latensi label stabil -> tampil; "-" sebelum ada satu sampel.
+
+    Angkanya milik pipeline (bukan UI), view hanya memformat: nol sampel
+    berarti pipeline belum pernah mengeluarkan label, jadi tanda pisah
+    lebih jujur daripada p50 0.0 yang menyesatkan.
+    """
+    if not latency or not latency.get("count"):
+        return "label->tampil -"
+    return (
+        f"label->tampil p50 {latency['p50_ms']:.1f} ms "
+        f"p95 {latency['p95_ms']:.1f} ms"
+    )
+
+
+def _on_gui_thread() -> bool:
+    """True bila kode ini jalan di thread GUI (bukan thread pipeline).
+
+    Hook pipeline dipanggil dari thread capture/output. Pengecualian hanya
+    untuk pemanggil sinkron (tes dan CLI) yang memang sudah di GUI thread —
+    di sana flush langsung supaya perilaku lama tetap sama.
+    """
+    app = qw.QApplication.instance()
+    if app is None:
+        return False
+    return qc.QThread.currentThread() is app.thread()
+
+
 class ReadyView(qw.QMainWindow):
     """Jendela utama mode siap pakai: dua tombol, satu pratinjau, satu status."""
 
@@ -37,9 +65,17 @@ class ReadyView(qw.QMainWindow):
         self._pipeline: Pipeline | None = None
         self._check_task = None
         self._newest_frame: Frame | None = None
+        self._newest_stats: Stats | None = None
+        # False sejak closeEvent: semua hook jadi no-op. Pipeline.join bisa
+        # kehabisan waktu (config.pipeline_stop_timeout_seconds), jadi pemeriksaan
+        # ini lapis pertahanan kedua setelah hook pipeline di-null.
+        self._alive = True
+        # Stop ditekan saat pemeriksaan awal masih hidup: hasilnya datang
+        # nanti tidak boleh menyalakan pipeline (kamera tersandera).
+        self._stop_requested = False
 
         self.setWindowTitle("IsyaratKu Cam — Siap Pakai")
-        self.resize(900, 620)
+        self.setFixedSize(900, 620)
 
         central = qw.QWidget(self)
         layout = qw.QVBoxLayout(central)
@@ -90,6 +126,18 @@ class ReadyView(qw.QMainWindow):
 
     def _on_checks_done(self, results) -> None:
         """Dipanggil di GUI thread saat pemeriksaan selesai."""
+        release = getattr(results, "release_camera", None)
+        if not self._alive or self._stop_requested:
+            # View sudah ditutup, atau Stop ditekan sebelum pemeriksaan
+            # selesai: jangan bangun pipeline. Kamera pra-cek diambil dari
+            # hasil di sini, jadi lepas di sini juga — kalau tidak device
+            # tersandera sampai proses keluar.
+            logger.info("hasil pemeriksaan dibuang; kamera pra-cek dilepas")
+            if release is not None:
+                release()
+            if self._alive:
+                self._stop_requested = False
+            return
         camera = finish_checks(
             self,
             results,
@@ -99,35 +147,60 @@ class ReadyView(qw.QMainWindow):
             # label pertama. Tanpa raw sink: view ini tak punya panel mentah.
             make_renderer(PLACEHOLDER_TEXT),
         )
-        if camera is not None:
+        if camera is not None and self._alive:
             self._details.setText(
                 f"Kamera {camera.backend} {self._config.camera_width}x"
                 f"{self._config.camera_height} -> OBS Virtual Camera."
             )
+
+    def _release_camera(self) -> None:
+        """Hentikan pipeline lalu pastikan perangkat kamera bebas.
+
+        Pipeline.stop() sudah memanggil camera.close() dan sink.close()
+        (pipeline.py:197-198), dipanggil dari sini setelah kedua worker
+        thread join. stop() dipanggil SERTA hook pipeline di-null di sini:
+        join punya batas waktu, jadi callback yang masih tersisa harus
+        berhenti sebelum view lepas widgetnya.
+        """
+        pipeline = self._pipeline
+        self._pipeline = None
+        if pipeline is None:
+            return
+        pipeline.stop()
+        for hook in ("on_frame", "on_stats", "on_landmarks", "on_label"):
+            try:
+                setattr(pipeline, hook, None)
+            except Exception:
+                pass
 
     def _message_warning(self, title: str, text: str) -> None:
         qw.QMessageBox.warning(self, title, text)
 
     def _on_stop(self) -> None:
         logger.info("Stop diklik (mode siap pakai)")
+        self._stop_requested = True
         self._timer.stop()
-        if self._pipeline is not None:
-            self._pipeline.stop()
-            self._pipeline = None
+        self._release_camera()
+        self._newest_frame = None
+        self._newest_stats = None
         self._set_status(*STATUS_IDLE)
         self._details.setText("")
 
     def _on_frame(self, frame: Frame) -> None:
+        if not self._alive:
+            return
         self._newest_frame = frame
 
     def _on_stats(self, stats: Stats) -> None:
-        """Angka pengukuran; berhenti tampil begitu pipeline menyatakan galat."""
-        if self._pipeline is None or self._pipeline.error is not None:
+        """Statistik hanya disimpan; wartanya ditulis di tick 40 ms.
+
+        Pipeline memanggil ini dari thread output — setText di sana adalah
+        mutasi widget di luar GUI thread. Tick _paint_preview yang
+        melakukan semua penulisan widget.
+        """
+        if not self._alive or self._pipeline is None:
             return
-        self._details.setText(
-            f"FPS terkirim {stats.fps:5.1f} | dikirim {stats.frames_sent} | "
-            f"dibuang {stats.frames_dropped} | dibaca {stats.frames_captured}"
-        )
+        self._newest_stats = stats
 
     def _set_status(self, state: str, style: str) -> None:
         self._status.setText(f"Status: {state}")
@@ -144,9 +217,20 @@ class ReadyView(qw.QMainWindow):
         if fail is not None:
             self._stop_timer_on_error(fail)
             return
+        # Semua penulisan widget dari thread pipeline terjadi di sini:
+        # frame terbaru dan statistik terakhir. Frame tanpa widget baru
+        # tetap melewati baris statistik di bawah.
+        stats = self._newest_stats
+        self._newest_stats = None
         frame = self._newest_frame
         self._newest_frame = None
         if frame is None:
+            if stats is not None:
+                self._details.setText(
+                    f"FPS terkirim {stats.fps:5.1f} | dikirim {stats.frames_sent} | "
+                    f"dibuang {stats.frames_dropped} | dibaca {stats.frames_captured} | "
+                    f"{_format_label_latency(getattr(pipeline, 'label_latency', {}))}"
+                )
             return
         # Isi seluruh box pratinjau: rasio aspek dipertahankan dengan
         # memperluas, sisanya dipotong QLabel. Tanpa ini frame tampil
@@ -168,16 +252,25 @@ class ReadyView(qw.QMainWindow):
                 qc.Qt.TransformationMode.SmoothTransformation,
             )
         )
+        if stats is not None:
+            self._details.setText(
+                f"FPS terkirim {stats.fps:5.1f} | dikirim {stats.frames_sent} | "
+                f"dibuang {stats.frames_dropped} | dibaca {stats.frames_captured} | "
+                f"{_format_label_latency(getattr(pipeline, 'label_latency', {}))}"
+            )
 
     def _stop_timer_on_error(self, fail: Exception) -> None:
         self._timer.stop()
-        if self._pipeline is not None:
-            self._pipeline.stop()
-            self._pipeline = None
+        self._newest_stats = None
+        self._release_camera()
         self._set_status(*STATUS_ERROR)
         self._details.setText(f"Pipeline berhenti karena galat: {fail}")
 
     def closeEvent(self, event) -> None:
+        # _alive lebih dulu: semua hook jadi no-op sebelum widget dilepas,
+        # jadi callback pipeline yang masih hidup tidak pernah menyentuh
+        # widget yang sudah musnah.
+        self._alive = False
         self._on_stop()
         super().closeEvent(event)
 

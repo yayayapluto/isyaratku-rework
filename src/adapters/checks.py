@@ -19,7 +19,8 @@ import winreg
 import cv2
 import sounddevice
 
-from .camera import CAMERA_BACKEND, OpenCvCameraSource
+from ..core.config import AppConfig, load_config
+from .camera import CAMERA_BACKEND, OpenCvCameraSource, warm_up
 
 #: Kategori DirectShow video input: filter video DirectShow terdaftar di
 #: bawah key CLSID ini, termasuk OBS Virtual Camera.
@@ -62,19 +63,29 @@ class _SharedCameraSource(OpenCvCameraSource):
     agar tidak ada dua implementasi baca frame yang bisa berbeda.
     """
 
-    def __init__(self, capture) -> None:
+    def __init__(self, capture, config: AppConfig | None = None) -> None:
         self._capture = capture
         self._index = 0
+        if config is not None:
+            # Handle pra-cek sudah melewati warm_up, jadi yang tersisa hanya
+            # menerapkan ukuran config bila stream belum memakainya; kalau
+            # sudah, warm_up habis satu read dan tidak menambah apa pun.
+            warm_up(self._capture, config)
 
 
-def run_checks(device_index: int = 0) -> CheckResults:
+def run_checks(device_index: int = 0, config: AppConfig | None = None) -> CheckResults:
     """Pemeriksaan startup, urut: kamera, virtual camera, VB-Cabel, voice TTS.
 
     Hasil tetap berbentuk list tuple (nama, ok, pesan) supaya pembaca lama
     tidak berubah, tapi kamera yang berhasil dibaca ikut dibawa di
     ``CheckResults.camera``. Pemeriksaan yang gagal melepas handle-nya.
+
+    ``config`` hanya dipakai jalan kamera untuk ukuran frame; tanpa itu ukuran
+    config tidak diterapkan, dan pemanggil lama tetap jalan seperti semula.
     """
-    camera_name, ok, message, capture = _check_camera(device_index)
+    if config is None:
+        config = load_config()
+    camera_name, ok, message, capture = _check_camera(device_index, config)
     return CheckResults(
         [
             (camera_name, ok, message),
@@ -102,12 +113,19 @@ def _check_tts_voice() -> tuple[str, bool, str]:
     )
 
 
-def _check_camera(device_index: int) -> tuple[str, bool, str, object | None]:
-    """Buka kamera dan baca satu frame; SERAHKAN handle pada jalur sukses.
+def _check_camera(
+    device_index: int, config: AppConfig
+) -> tuple[str, bool, str, object | None]:
+    """Buka kamera sampai frame nyata datang; SERAHKAN handle pada jalur sukses.
 
     Elemen keempat adalah handle kamera yang masih hidup, dipakai pipeline
     supaya kamera tidak dibuka dua kali. Jalur gagal melepasnya di tempat
     supaya pemeriksaan yang gagal tidak menyisakan device yang tersandera.
+
+    Ukuran config diterapkan SETELAH frame pertama (lihat ``warm_up``): di
+    mesin ini ``set()`` sebelum ``read()`` membayar re-init stream MSMF —
+    terukur 25-33 s per Start — sedangkan ``set()`` pada stream yang sudah
+    mengalir tidak menambah apa pun.
     """
     capture = cv2.VideoCapture(device_index, CAMERA_BACKEND)
     try:
@@ -120,8 +138,7 @@ def _check_camera(device_index: int) -> tuple[str, bool, str, object | None]:
                 "ubah camera.device_index di configs.",
                 None,
             )
-        ok, frame = capture.read()
-        if not ok:
+        if not warm_up(capture, config):
             capture.release()
             return (
                 "Kamera",
@@ -130,7 +147,8 @@ def _check_camera(device_index: int) -> tuple[str, bool, str, object | None]:
                 "atau coba port USB lain.",
                 None,
             )
-        height, width = frame.shape[:2]
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         return (
             "Kamera",
             True,

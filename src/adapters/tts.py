@@ -31,7 +31,7 @@ yang output-nya lebih besar dari nol.
 
 from __future__ import annotations
 
-import sys
+import logging
 import threading
 import time
 import wave
@@ -42,6 +42,9 @@ from piper import PiperVoice
 
 from src.core.config import AppConfig
 from src.core.predictor import NO_SIGN_LABEL
+
+logger = logging.getLogger(__name__)
+
 
 #: Artifact voice Indonesia: piper-voices rhasspy, 1 speaker, 22050 Hz.
 DEFAULT_VOICE = "models/tts/id_ID-news_tts-medium.onnx"
@@ -180,8 +183,8 @@ class PiperTts:
                     siap.append(self.speak(label))
                 except Exception as exc:  # satu label rusak tak boleh stop start
                     self._warm_errors.append((label, exc))
-                    print(
-                        f"Pra-sintesis '{label}' gagal: {exc!r}", file=sys.stderr
+                    logger.warning(
+                        "Pra-sintesis '%s' gagal: %r", label, exc
                     )
         return siap
 
@@ -472,7 +475,7 @@ class SpeechSink:
 
     def _record(self, exc: Exception) -> None:
         self.last_error = exc
-        print(f"Galat TTS dicatat, streaming lanjut: {exc!r}", file=sys.stderr)
+        logger.warning("Galat TTS dicatat, streaming lanjut: %r", exc)
 
     @property
     def voice_available(self) -> bool:

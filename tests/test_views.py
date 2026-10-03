@@ -11,10 +11,10 @@ from PySide6.QtWidgets import QApplication
 from src.adapters.camera import FakeCameraSource
 from src.adapters.virtual_camera import FakeVirtualCameraSink
 from src.core.config import AppConfig, load_config
-from src.core.pipeline import Frame, Pipeline
+from src.core.pipeline import Frame, Pipeline, Stats
 from src.ui import check_task
-from src.ui.check_task import make_renderer
-from src.ui.debug_view import DebugView
+from src.ui.check_task import finish_checks, make_renderer
+from src.ui.debug_view import PLACEHOLDER_TEXT, DebugView
 from src.ui.ready_view import ReadyView
 from src.ui.render import draw_overlay
 
@@ -95,11 +95,12 @@ def test_double_start_while_checking_reuses_the_same_run(qapp) -> None:
 
 
 def test_raw_copy_happens_before_overlay_mutates_the_frame(qapp) -> None:
-    """Renderer harus menyalin piksel mentah SEBELUM overlay ditulis in place.
+    """Renderer harus menyalin piksel MENTAH sebelum overlay ditulis in place.
 
     Pipeline memanggil ``renderer`` lebih dulu, baru ``on_frame``; salinan di
     ``on_frame`` karena itu selalu terlambat. Urutan yang dikunci di sini:
-    salinan mentah harus berbeda dari gambar bertopang overlay.
+    salinan mentah harus berbeda dari gambar bertopang overlay — di seluruh
+    frame, jadi tidak peduli di mana overlay digambar.
     """
     cfg = config()
     raw: list[np.ndarray] = []
@@ -117,9 +118,12 @@ def test_raw_copy_happens_before_overlay_mutates_the_frame(qapp) -> None:
         pipeline.stop()
 
     assert raw, "renderer tidak menyimpan salinan piksel mentah"
-    strip_raw = raw[0][:40, :320]
-    strip_overlay = sink.frames[0][:40, :320]
-    differing = int(np.count_nonzero(np.any(strip_raw != strip_overlay, axis=2)))
+    # Seluruh frame, bukan region tertentu: posisi overlay boleh berubah
+    # (strip kiri-atas → subtitle bawah tengah), yang dijamin: salinan
+    # mentah harus berbeda dari gambar bertopang overlay.
+    differing = int(
+        np.count_nonzero(np.any(raw[0] != sink.frames[0], axis=2))
+    )
     assert differing > 0, (
         "panel mentah sama persis dengan panel overlay: salinan terjadi "
         "setelah draw_overlay menimpa frame.image"
@@ -448,3 +452,468 @@ def test_checks_signal_carries_results_camera_to_the_view(qapp, monkeypatch) -> 
         view._pipeline.stop()
         view._pipeline = None
     view.close()
+
+
+def test_both_views_have_a_fixed_window_size(qapp) -> None:
+    """Responsif = ukuran jendela. Ukuran tetap: minimumSize == maximumSize."""
+    for view, size in ((DebugView(config()), (1180, 780)), (ReadyView(config()), (900, 620))):
+        assert view.minimumSize() == view.maximumSize(), (
+            f"{type(view).__name__} masih bisa di-resize"
+        )
+        assert (view.width(), view.height()) == size, (
+            f"{type(view).__name__} ukuran awal berubah"
+        )
+        view.close()
+
+
+def test_debug_prediction_panel_tracks_frame_text(qapp) -> None:
+    """Prediksi teratas ikut teks frame; placeholder bukan prediksi."""
+    debug = DebugView(config())
+    assert debug._predictions.text() == "Prediksi teratas: belum ada (belum start)."
+
+    debug._on_frame(Frame(np.zeros((4, 4, 3), dtype=np.uint8), 0.0, 0, text="MAKAN"))
+    assert debug._predictions.text() == "Prediksi teratas: MAKAN"
+
+    debug._on_frame(
+        Frame(np.zeros((4, 4, 3), dtype=np.uint8), 0.04, 1, text=PLACEHOLDER_TEXT)
+    )
+    assert debug._predictions.text() == "Prediksi teratas: MAKAN", (
+        "placeholder bukan prediksi; tidak boleh menimpa label terakhir"
+    )
+    debug.close()
+
+
+def test_debug_voting_panel_reads_smoother_status(qapp) -> None:
+    """Baris voting berasal dari snapshot Smoother; kosong = belum aktif."""
+    debug = DebugView(config())
+
+    class PipelinePalsu:
+        error = None
+
+        def __init__(self, status: dict) -> None:
+            self._status = status
+
+        @property
+        def smoother_status(self) -> dict:
+            return self._status
+
+    debug._pipeline = PipelinePalsu({})
+    debug._on_stats(Stats())
+    assert debug._voting.text() == "Status voting dan cooldown: belum aktif."
+
+    debug._pipeline = PipelinePalsu(
+        {
+            "candidate": "MAKAN",
+            "streak": 3,
+            "vote_count": 4,
+            "cooldown_seconds": 1.5,
+            "last_emitted": {},
+        }
+    )
+    debug._on_stats(Stats())
+    assert debug._voting.text() == (
+        "Status voting: kandidat=MAKAN streak=3/4 cooldown=1.5s"
+    )
+    debug._pipeline = None
+    debug.close()
+
+
+def test_debug_spoken_log_appends_dedupes_and_caps(qapp) -> None:
+    """Log kata: placeholder hilang, duplikat berurutan dibuang, dibatasi."""
+    debug = DebugView(config())
+    assert debug._spoken_words.count() == 1, "baris placeholder awal hilang"
+
+    debug._on_label("MAKAN")
+    debug._on_label("MAKAN")
+    debug._on_label("SIANG")
+    rows = [debug._spoken_words.item(i).text() for i in range(debug._spoken_words.count())]
+    assert rows == ["MAKAN", "SIANG"], f"log tidak sesuai: {rows}"
+
+    for i in range(60):
+        debug._on_label(f"KATA{i}")
+    assert debug._spoken_words.count() == 50, (
+        f"log tidak dibatasi: {debug._spoken_words.count()} baris"
+    )
+    debug._spoken_words.clear()
+    debug.close()
+
+
+def test_debug_spoken_log_survives_a_broken_view_hook(qapp) -> None:
+    """View yang rusak tidak boleh membunuh jalur TTS (simulasi via finish_checks)."""
+    from src.ui.check_task import _make_label_fanout
+
+    class SpeechRusak:
+        def __init__(self) -> None:
+            self.dengar: list[str] = []
+
+        def feed(self, label: str) -> None:
+            self.dengar.append(label)
+
+    class ViewRusak:
+        def _on_label(self, label: str) -> None:
+            raise RuntimeError("widget sudah musnah")
+
+    speech = SpeechRusak()
+    fanout = _make_label_fanout(speech, ViewRusak())
+    fanout("MAKAN")
+    fanout("SIANG")
+    assert speech.dengar == ["MAKAN", "SIANG"], "TTS berhenti karena view gagal"
+
+
+def test_debug_landmark_panel_starts_without_a_claim(qapp) -> None:
+    """Sebelum run belum ada angka; bukan 0.0% yang mengaku sudah aktif."""
+    debug = DebugView(config())
+    assert debug._landmarks.text() == (
+        "Persentase frame landmark tidak lengkap: -"
+    )
+    # Add(None) tidak dihitung sama sekali, jadi panel harus tetap 0.0%
+    # (bukan klaim "belum aktif" lagi, tapi juga bukan angka karangan).
+    debug._on_landmarks(None)
+    assert debug._landmarks.text() == (
+        "Persentase frame landmark tidak lengkap:   0.0%"
+    ), "frame tanpa landmark tidak boleh mengubah persentase"
+    debug.close()
+
+
+def test_pipeline_smoother_status_is_empty_before_any_prediction() -> None:
+    """Panel debug memanggil ini tiap frame: kosong, bukan galat, sebelum run."""
+    pipeline = Pipeline(object(), CapturingSink(), config())
+    assert pipeline.smoother_status == {}, (
+        "smoother belum dibangun; status harus kosong"
+    )
+
+
+def test_pipeline_smoother_status_mirrors_the_smoother_snapshot() -> None:
+    """Setelah prediksi, properti mengembalikan snapshot smoother apa adanya."""
+    pipeline = Pipeline(object(), CapturingSink(), config())
+    snapshot = {
+        "candidate": "MAKAN",
+        "streak": 3,
+        "vote_count": 4,
+        "cooldown_seconds": 1.5,
+        "last_emitted": {"MAKAN": 0.0},
+    }
+
+    class SmootherPalsu:
+        def status(self) -> dict:
+            return dict(snapshot)
+
+    pipeline._smoother = SmootherPalsu()
+    assert pipeline.smoother_status == snapshot, (
+        "status harus snapshot smoother, bukan turunannya"
+    )
+
+
+def test_finish_checks_forwards_labels_to_speech_and_view(qapp, monkeypatch) -> None:
+    """Label yang sama harus sampai ke TTS dan ke view — bukan hanya salah satu."""
+    from src.adapters.checks import CheckResults
+
+    class KameraRekam:
+        def read(self):
+            return False, None
+
+        def close(self) -> None:
+            pass
+
+        def release(self) -> None:
+            pass
+
+        def isOpened(self) -> bool:
+            return True
+
+        def getBackendName(self) -> str:
+            return "test"
+
+    class PabrikKamera:
+        def __init__(self, *args, **kwargs) -> None:
+            raise AssertionError("Start tidak boleh membuka kamera kedua")
+
+    class SpeechDengar:
+        def __init__(self) -> None:
+            self.dengar: list[str] = []
+
+        def feed(self, label: str) -> None:
+            self.dengar.append(label)
+
+        def warm_up(self, labels) -> list:
+            return []
+
+    shared = KameraRekam()
+    results = CheckResults([("kamera", True, "siap")], camera=shared)
+    speech = SpeechDengar()
+
+    seen: dict[str, object] = {}
+    original = Pipeline.__init__
+
+    def spy(self, *args, **kwargs):
+        seen["on_label"] = kwargs.get("on_label")
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Pipeline, "__init__", spy)
+    monkeypatch.setattr(
+        check_task, "run_checks_async", lambda index, done: done(results)
+    )
+    monkeypatch.setattr(check_task, "OpenCvCameraSource", PabrikKamera)
+    monkeypatch.setattr(check_task, "_build_speech", lambda config: speech)
+
+    # DebugView asli: inilah yang membuktikan label MUNCUL di log panel,
+    # bukan hanya sampai ke objek speech.
+    view = DebugView(config())
+    finish_checks(view, results, None, make_renderer("Overlay uji"))
+
+    assert seen.get("on_label") is not None, "Pipeline dibangun tanpa subscriber label"
+    seen["on_label"]("MAKAN")
+    seen["on_label"]("SIANG")
+
+    assert speech.dengar == ["MAKAN", "SIANG"], (
+        f"TTS tidak mendengar label: {speech.dengar}"
+    )
+    rows = [
+        view._spoken_words.item(i).text()
+        for i in range(view._spoken_words.count())
+    ]
+    assert rows == ["MAKAN", "SIANG"], f"log panel tidak berisi label: {rows}"
+
+    if view._pipeline is not None:
+        view._pipeline.stop()
+        view._pipeline = None
+    view.close()
+
+
+# ---------------------------------------------------------------------------
+# Regresi: hook pipeline tidak boleh menyentuh widget dari thread non-GUI
+# ---------------------------------------------------------------------------
+
+
+class _KameraSkrip:
+    """Kamera tiruan: satu frame terus-menerus, catat pemanggilan close()."""
+
+    def __init__(self) -> None:
+        self.closed = 0
+        self._frame = Frame(
+            np.zeros((64, 64, 3), dtype=np.uint8), 0.0, 0,
+        )
+
+    def read(self) -> Frame:
+        return self._frame
+
+    def close(self) -> None:
+        self.closed += 1
+
+    def release(self) -> None:
+        self.closed += 1
+
+
+class _SinkSkrip:
+    def send(self, frame: Frame) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+class _LandmarkPalsu:
+    complete = True
+
+    def __len__(self) -> int:
+        return 3
+
+
+class _ExtractorSkrip:
+    def extract(self, image: np.ndarray) -> object:
+        return _LandmarkPalsu()
+
+
+def _pipeline_nyata(on_frame, on_stats, on_landmarks, on_label):
+    """Pipeline sungguhan (thread asli) dengan kamera/sink tiruan."""
+    pipeline = Pipeline(
+        camera=_KameraSkrip(),
+        sink=_SinkSkrip(),
+        config=config(queue_max_size=4),
+        extractor=_ExtractorSkrip(),
+        on_frame=on_frame,
+        on_stats=on_stats,
+        on_landmarks=on_landmarks,
+        on_label=on_label,
+    )
+    pipeline.start()
+    return pipeline
+
+
+def _jalankan_sebentar(view, pipeline, detik=1.0) -> None:
+    """Tick view selama ``detik`` supaya timer 40 ms benar-benar berjalan."""
+    view._pipeline = pipeline
+    view._timer.start()
+    batas = time.monotonic() + detik
+    while time.monotonic() < batas:
+        QApplication.processEvents()
+        time.sleep(0.01)
+
+
+def test_hook_dari_thread_pipeline_tidak_menulis_widget(qapp) -> None:
+    """Hook off-thread hanya menampung data; panel ditulis oleh tick saja.
+
+    Setiap hook dibungkus penghitung thread. Yang dibuktikan: pipeline
+    benar-benar memanggil hook dari threadnya SENDIRI (kalau tidak, tes ini
+    lolos tanpa menguji apa pun). Yang tidak dibuktikan di sini — dan
+    justru dikunci tes lain — adalah tidak adanya ``setText`` di jalur itu.
+    """
+    import PySide6.QtCore as qc
+
+    class Hitung:
+        def __init__(self) -> None:
+            self.off = False
+
+        def tandai(self) -> None:
+            if qc.QThread.currentThread() is not qapp.thread():
+                self.off = True
+
+    def bungkus(hitung, asli):
+        def spy(*args):
+            hitung.tandai()
+            return asli(*args)
+
+        return spy
+
+    views = [DebugView(config()), ReadyView(config())]
+    try:
+        for view in views:
+            hitung = Hitung()
+            pipeline = _pipeline_nyata(
+                bungkus(hitung, view._on_frame),
+                bungkus(hitung, view._on_stats),
+                bungkus(hitung, getattr(view, "_on_landmarks", lambda *_: None)),
+                bungkus(hitung, getattr(view, "_on_label", lambda *_: None)),
+            )
+            _jalankan_sebentar(view, pipeline, 1.0)
+            view._pipeline = None
+            pipeline.stop()
+            view._timer.stop()
+            qc.QCoreApplication.processEvents()
+            assert pipeline.error is None, f"pipeline galat: {pipeline.error!r}"
+            assert hitung.off, (
+                f"{type(view).__name__}: hook tidak dipanggil dari thread "
+                "pipeline — smoke ini tidak membuktikan apa pun"
+            )
+    finally:
+        for view in views:
+            view.close()
+
+
+def test_tick_menulis_panel_dari_data_tampungan(qapp) -> None:
+    """Tick — bukan hook — yang menulis panel saat pemanggil non-GUI.
+
+    Di thread GUI (tes, CLI) flush inline dibiarkan: perilaku sinkron
+    lama tetap sama. Yang dikunci di sini: data yang ditampung hook
+    ditulis oleh tick, dan tampungan dibersihkan sesudahnya.
+    """
+    debug = DebugView(config())
+    ready = ReadyView(config())
+    try:
+        pipeline = Pipeline(
+            camera=_KameraSkrip(), sink=_SinkSkrip(), config=config(),
+        )
+        debug._pipeline = pipeline
+        ready._pipeline = pipeline
+
+        stats = Stats(fps=1.0, frames_sent=3, frames_dropped=1,
+                      frames_captured=5, elapsed_seconds=2.0)
+
+        # Jalur non-GUI: hook hanya tampung, tick yang menulis.
+        debug._newest_stats = (stats, {})
+        debug._paint_preview()
+        assert debug._sent_label.text() == "Frame dikirim: 3"
+        assert debug._newest_stats is None, "tick tidak membersihkan tampungan"
+
+        ready._newest_stats = stats
+        ready._paint_preview()
+        assert "dibaca 5" in ready._details.text(), ready._details.text()
+        assert ready._newest_stats is None, "tick tidak membersihkan tampungan"
+
+        # Jalur GUI: debug menulis panel langsung (flush inline).
+        debug._on_stats(Stats(fps=2.0, frames_sent=7))
+        assert debug._sent_label.text() == "Frame dikirim: 7"
+        # ReadyView tanpa panel lain: stash, dibaca tick berikutnya.
+        ready._on_stats(Stats(fps=2.0, frames_sent=9))
+        ready._paint_preview()
+        assert "dikirim 9" in ready._details.text(), ready._details.text()
+    finally:
+        debug.close()
+        ready.close()
+
+
+def test_close_selama_pipeline_hidup_tidak_meledak(qapp) -> None:
+    """Tutup view saat thread pipeline masih mengeluarkan frame."""
+    view = DebugView(config())
+    pipeline = _pipeline_nyata(
+        view._on_frame, view._on_stats, view._on_landmarks, view._on_label
+    )
+    _jalankan_sebentar(view, pipeline, 0.5)
+    # _alive=False membuat semua hook jadi no-op; pipeline stop lewat
+    # closeEvent -> _on_stop -> _release_camera.
+    view.close()
+    pipeline.stop()
+    assert view._alive is False, "closeEvent tidak mematikan penanda _alive"
+    # Hook setelah tutup: senyap, tanpa exception.
+    view._on_frame(Frame(np.zeros((4, 4, 3), dtype=np.uint8), 0.0, 0))
+    view._on_stats(Stats())
+    view._on_label("MAKAN")
+    view._on_landmarks(None)
+
+
+def test_hook_setelah_alive_false_tidak_menampung_apa_pun(qapp) -> None:
+    """Setelah view ditutup, hook tidak lagi menumpuk data untuk tick."""
+    debug = DebugView(config())
+    try:
+        debug._alive = False
+        debug._on_label("MAKAN")
+        assert debug._spoken_words.count() == 1, (
+            "label masuk padahal view sudah mati"
+        )
+        debug._on_frame(
+            Frame(np.zeros((4, 4, 3), dtype=np.uint8), 0.0, 0, text="MAKAN")
+        )
+        assert debug._newest_frame is None, "_on_frame menampung frame setelah mati"
+        debug._on_stats(Stats())
+        assert debug._newest_stats is None
+        debug._on_landmarks(None)
+        assert debug._newest_landmarks is None
+    finally:
+        debug.close()
+
+
+def test_stop_saat_pra_cek_melepas_kamera_dan_tidak_menyalakan_pipeline(qapp) -> None:
+    """Stop ditekan saat pra-cek jalan: kamera dilepas, pipeline tak start."""
+    from src.adapters.checks import CheckResults
+
+    class KameraRekam:
+        def __init__(self) -> None:
+            self.released = 0
+
+        def read(self):
+            return False, None
+
+        def close(self) -> None:
+            self.released += 1
+
+        def release(self) -> None:
+            self.released += 1
+
+    for view in (ReadyView(config()), DebugView(config())):
+        try:
+            # Stop lebih dulu: meniru klik Stop selagi pra-cek masih hidup.
+            view._on_stop()
+            kamera = KameraRekam()
+            results = CheckResults([("kamera", True, "siap")], camera=kamera)
+            view._on_checks_done(results)
+            assert kamera.released == 1, (
+                f"{type(view).__name__}: kamera pra-cek tidak dilepas saat Stop"
+            )
+            assert view._pipeline is None, (
+                f"{type(view).__name__}: pipeline nyala padahal Stop diminta"
+            )
+            assert view._stop_requested is False, (
+                "penanda Stop tidak direset untuk Start berikutnya"
+            )
+        finally:
+            view.close()
