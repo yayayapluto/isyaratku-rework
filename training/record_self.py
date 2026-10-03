@@ -3,7 +3,19 @@
 Pola nama berkas mengikuti `docs/dataset-notes.md`:
 ``data/self/signer99_label<N>_<repeat>.mp4`` — signer99 menandai "saya",
 label memakai ID yang sama dengan peta gloss dataset (label10 = Terima kasih,
-label11 = Tuli, label0 = Air, label9 = Saya), repeat 1..max-reps.
+label11 = Tuli, label0 = Air, label9 = Saya, label32 = Nama, label33 = Halo),
+repeat 1..max-reps.
+
+Resep rekam untuk demo (belum dijalankan di mesin ini, tapi jendela
+dihitung pasti): ``python -m training.record_self --seconds 6 --max-reps 10``.
+Kamera DirectShow di mesin ini berjalan sekitar 6 FPS, jadi 6 detik memberi
+sekitar 36 frame, di atas ``window.frame_count`` = 30. Window dihitung
+``(n - 30) // 5 + 1``: 36 frame -> 2 window, 30 frame -> 1, 24 frame -> 0
+(berkas dibuang). ``--seconds 4`` karena itu TIDAK cukup; minimal 5 detik.
+Selang hasil ekstraksi: ``data/self/*.mp4`` dipindah ke ``data/extracted/``
+supaya ``iter_npz`` melihatnya, lalu training dijalankan dengan
+``--signer-tambahan-train 99 --stem <nama-baru>`` supaya ``baseline*``
+tidak tersentuh.
 
 Skrip menulis video dulu, lalu ekstrak landmark memakai jalur yang sama dengan
 training (FeatureExtractor + Windower), jadi bentuk keluarannya (N, 30, 456) dan
@@ -29,8 +41,8 @@ from src.core.config import load_config  # noqa: E402
 from src.core.features import FEATURE_COUNT, FeatureExtractor, Windower  # noqa: E402
 from src.core.pipeline import Frame  # noqa: E402
 
-#: Gloss yang direkam, memakai ID label dataset yang sudah dipetakan.
-GLOS = {0: "Air", 9: "Saya", 10: "Terima kasih", 11: "Tuli"}
+#: Gloss yang direkam: demo dasar + dua gloss baru slice 7 (ID 32 dan 33).
+GLOS = {0: "Air", 9: "Saya", 10: "Terima kasih", 11: "Tuli", 32: "Nama", 33: "Halo"}
 
 #: Direktori keluaran rekaman.
 OUTPUT_DIR = _REPO_ROOT / "data" / "self"

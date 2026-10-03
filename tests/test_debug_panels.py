@@ -132,7 +132,7 @@ def test_probe_keeps_only_the_last_ranked() -> None:
 
 def test_debug_ranked_panel_reads_probe_from_pipeline(qapp) -> None:
     debug = DebugView(config())
-    assert debug._ranked.text() == "Tiga prediksi teratas: -", (
+    assert debug._ranked.text() == "Top 3 prediksi: -", (
         "sebelum ada prediksi panel tidak boleh mengklaim angka"
     )
 
@@ -152,14 +152,14 @@ def test_debug_ranked_panel_reads_probe_from_pipeline(qapp) -> None:
     debug._pipeline = PipelinePalsu(probe)
     debug._on_frame(_frame(""))
     assert debug._ranked.text() == (
-        "Tiga prediksi teratas: "
+        "Top 3 prediksi: "
         "1. Sore 0.42 | 2. Bagaimana 0.21 | 3. Saya 0.11"
     ), debug._ranked.text()
 
     # Pipeline tanpa probe (mis. DummyPredictor langsung) tidak boleh memecah panel.
     debug._pipeline = PipelinePalsu(inner)
     debug._on_frame(_frame(""))
-    assert debug._ranked.text() == "Tiga prediksi teratas: -"
+    assert debug._ranked.text() == "Top 3 prediksi: -"
     debug.close()
 
 
@@ -167,5 +167,5 @@ def test_debug_ranked_panel_keeps_text_panel_working(qapp) -> None:
     """Panel teks lama tetap jalan: ranked tidak menimpa label frame."""
     debug = DebugView(config())
     debug._on_frame(_frame("MAKAN"))
-    assert debug._predictions.text() == "Prediksi teratas: MAKAN"
+    assert debug._predictions.text() == "Top prediksi: MAKAN"
     debug.close()

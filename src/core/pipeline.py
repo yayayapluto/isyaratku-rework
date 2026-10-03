@@ -173,6 +173,7 @@ class Pipeline:
         self._blocked_low_confidence = 0
         self._blocked_short_streak = 0
         self._blocked_cooldown = 0
+        self._blocked_idle = 0
         self._last_logged_label: str | None = None
 
     # -- kontrol -----------------------------------------------------------------
@@ -237,7 +238,8 @@ class Pipeline:
                 f"window={self._windows_fed} "
                 f"keyakinan_rendah={self._blocked_low_confidence} "
                 f"streak_pendek={self._blocked_short_streak} "
-                f"cooldown={self._blocked_cooldown}"
+                f"cooldown={self._blocked_cooldown} "
+                f"diam={self._blocked_idle}"
             )
         with self._lock:
             prediction_error = self._last_prediction_error
@@ -380,7 +382,7 @@ class Pipeline:
             for window in self._windower.feed(row):
                 self._windows_fed += 1
                 predicted = self.predictor.predict(window)
-                label = self._smoother.feed(predicted, frame.timestamp)
+                label = self._smoother.feed(predicted, frame.timestamp, window)
                 if label is not None:
                     frame.text = label
                     # Satu cap waktu per label terbit; selisihnya dihitung
@@ -391,7 +393,7 @@ class Pipeline:
                     self._record_emission(frame, predicted, label)
                     self._emit_label(label)
                 else:
-                    self._count_blocker(predicted)
+                    self._count_blocker(predicted, window)
         except Exception as exc:
             # Galat predict dicatat tanpa mematikan capture; frame tetap jalan
             # dengan teks apa adanya (biasanya kosong). Warning, bukan print
@@ -406,13 +408,17 @@ class Pipeline:
                 exc,
             )
 
-    def _count_blocker(self, predicted: Prediction) -> None:
+    def _count_blocker(self, predicted: Prediction, window: np.ndarray) -> None:
         """Atribusi alasan satu window tidak jadi label; murah dan non-fatal.
 
-        Urutan penahanan sama dengan ``Smoother.feed``: threshold lebih dulu,
-        lalu streak voting, lalu cooldown. Confidence dan status diambil dari
-        snapshot yang SUDAH ada — tanpa logika baru, tanpa per-frame logging.
+        Urutan penahanan sama dengan ``Smoother.feed``: gate gerak lebih dulu
+        (tangan tidak ada atau diam), lalu threshold, lalu streak voting,
+        lalu cooldown. Confidence dan status diambil dari snapshot yang SUDAH
+        ada — tanpa logika baru, tanpa per-frame logging.
         """
+        if self._smoother is not None and self._smoother.is_idle(window):
+            self._blocked_idle += 1
+            return
         status = self._smoother_status_snapshot()
         threshold = float(self.config.smoothing_confidence_threshold)
         confidence = float(getattr(predicted, "confidence", 0.0))

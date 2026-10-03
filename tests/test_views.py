@@ -69,8 +69,8 @@ def test_both_views_construct_offscreen(qapp) -> None:
     """Kedua view terbangun dan menutup bersih — tanpa layar fisik."""
     ready = ReadyView(config())
     debug = DebugView(config())
-    assert ready._status.text() == "Status: berhenti"
-    assert debug._status.text() == "Status: berhenti"
+    assert ready._status.text() == "Status: stopped"
+    assert debug._status.text() == "Status: stopped"
     ready.close()
     debug.close()
 
@@ -486,15 +486,15 @@ def test_both_views_have_a_fixed_window_size(qapp) -> None:
 def test_debug_prediction_panel_tracks_frame_text(qapp) -> None:
     """Prediksi teratas ikut teks frame; placeholder bukan prediksi."""
     debug = DebugView(config())
-    assert debug._predictions.text() == "Prediksi teratas: belum ada (belum start)."
+    assert debug._predictions.text() == "Top prediksi: belum ada (belum start)."
 
     debug._on_frame(Frame(np.zeros((4, 4, 3), dtype=np.uint8), 0.0, 0, text="MAKAN"))
-    assert debug._predictions.text() == "Prediksi teratas: MAKAN"
+    assert debug._predictions.text() == "Top prediksi: MAKAN"
 
     debug._on_frame(
         Frame(np.zeros((4, 4, 3), dtype=np.uint8), 0.04, 1, text=PLACEHOLDER_TEXT)
     )
-    assert debug._predictions.text() == "Prediksi teratas: MAKAN", (
+    assert debug._predictions.text() == "Top prediksi: MAKAN", (
         "placeholder bukan prediksi; tidak boleh menimpa label terakhir"
     )
     debug.close()
@@ -516,7 +516,7 @@ def test_debug_voting_panel_reads_smoother_status(qapp) -> None:
 
     debug._pipeline = PipelinePalsu({})
     debug._on_stats(Stats())
-    assert debug._voting.text() == "Status voting dan cooldown: belum aktif."
+    assert debug._voting.text() == "Status voting & cooldown: belum aktif."
 
     debug._pipeline = PipelinePalsu(
         {
@@ -529,7 +529,7 @@ def test_debug_voting_panel_reads_smoother_status(qapp) -> None:
     )
     debug._on_stats(Stats())
     assert debug._voting.text() == (
-        "Status voting: kandidat=MAKAN streak=3/4 cooldown=1.5s"
+        "Voting: kandidat=MAKAN streak=3/4 cooldown=1.5s"
     )
     debug._pipeline = None
     debug.close()
@@ -581,13 +581,13 @@ def test_debug_landmark_panel_starts_without_a_claim(qapp) -> None:
     """Sebelum run belum ada angka; bukan 0.0% yang mengaku sudah aktif."""
     debug = DebugView(config())
     assert debug._landmarks.text() == (
-        "Persentase frame landmark tidak lengkap: -"
+        "Frame landmark tidak lengkap: -"
     )
     # Add(None) tidak dihitung sama sekali, jadi panel harus tetap 0.0%
     # (bukan klaim "belum aktif" lagi, tapi juga bukan angka karangan).
     debug._on_landmarks(None)
     assert debug._landmarks.text() == (
-        "Persentase frame landmark tidak lengkap:   0.0%"
+        "Frame landmark tidak lengkap:   0.0%"
     ), "frame tanpa landmark tidak boleh mengubah persentase"
     debug.close()
 
@@ -841,21 +841,21 @@ def test_tick_menulis_panel_dari_data_tampungan(qapp) -> None:
         # Jalur non-GUI: hook hanya tampung, tick yang menulis.
         debug._newest_stats = (stats, {})
         debug._paint_preview()
-        assert debug._sent_label.text() == "Frame dikirim: 3"
+        assert debug._sent_label.text() == "Frame sent: 3"
         assert debug._newest_stats is None, "tick tidak membersihkan tampungan"
 
         ready._newest_stats = stats
         ready._paint_preview()
-        assert "dibaca 5" in ready._details.text(), ready._details.text()
+        assert "captured 5" in ready._details.text(), ready._details.text()
         assert ready._newest_stats is None, "tick tidak membersihkan tampungan"
 
         # Jalur GUI: debug menulis panel langsung (flush inline).
         debug._on_stats(Stats(fps=2.0, frames_sent=7))
-        assert debug._sent_label.text() == "Frame dikirim: 7"
+        assert debug._sent_label.text() == "Frame sent: 7"
         # ReadyView tanpa panel lain: stash, dibaca tick berikutnya.
         ready._on_stats(Stats(fps=2.0, frames_sent=9))
         ready._paint_preview()
-        assert "dikirim 9" in ready._details.text(), ready._details.text()
+        assert "frame sent 9" in ready._details.text(), ready._details.text()
     finally:
         debug.close()
         ready.close()
@@ -889,7 +889,7 @@ def test_galat_suara_muncul_di_panel_siap_pakai(qapp) -> None:
         ready._speech = _SuaraGalatSkrip(2)
         ready._newest_stats = stats
         ready._paint_preview()
-        assert "suara gagal 2" in ready._details.text(), ready._details.text()
+        assert "speech error 2" in ready._details.text(), ready._details.text()
     finally:
         ready.close()
 
@@ -906,13 +906,12 @@ def test_tanpa_galat_suara_baris_panel_tetapa_bersih(qapp) -> None:
         ready._speech = _SuaraGalatSkrip(0)
         ready._newest_stats = stats
         ready._paint_preview()
-        assert "suara gagal" not in ready._details.text(), ready._details.text()
-        assert "dibaca 5" in ready._details.text()
+        assert "speech error" not in ready._details.text(), ready._details.text()
 
         ready._speech = None
         ready._newest_stats = stats
         ready._paint_preview()
-        assert "suara gagal" not in ready._details.text(), ready._details.text()
+        assert "speech error" not in ready._details.text(), ready._details.text()
     finally:
         ready.close()
 
@@ -929,7 +928,7 @@ def test_metrik_debug_menampilkan_galat_suara(qapp) -> None:
         debug._speech = _SuaraGalatSkrip(3)
         debug._newest_stats = (stats, {})
         debug._paint_preview()
-        assert debug._speech_label.text() == "Galat suara (TTS): 3"
+        assert debug._speech_label.text() == "Speech error (TTS): 3"
     finally:
         debug.close()
 

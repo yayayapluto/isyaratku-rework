@@ -18,8 +18,10 @@ Menjalankan:
 Boleh dibatasi jumlah window untuk percobaan cepat dengan
 ``--limit-window``; nilai 0 berarti seluruh dataset.
 
-Kelas dilatih: 32 gloss + kelas tanpa isyarat (``NO_SIGN_ID``), jadi 33
-kelas. Akurasi dilaporkan dua angka: menyeluruh dan gloss saja
+Kelas dilatih: ``len(GLOSSES)`` gloss + kelas tanpa isyarat
+(``NO_SIGN_ID``), jadi 34 kelas saat repo ini ditulis (32 gloss
+dataset + Nama + Halo + tanpa isyarat). Akurasi dilaporkan juga
+terpisah untuk gloss saja
 (``acc_gloss``), supaya angka tidak disamarkan oleh kelas yang paling
 banyak datanya.
 
@@ -46,6 +48,7 @@ from training.dataset import (
     DatasetError,
     SignerSplit,
     default_split,
+    split_dengan_signer_tambahan,
 )
 
 #: Pilihan model; satu-satunya tempat yang menentukan model baseline.
@@ -193,10 +196,10 @@ def simpan_csv_confusion(conf: np.ndarray, nama: tuple[str, ...], path: Path) ->
     path.write_text("\n".join(baris) + "\n", encoding="utf-8")
 
 
-def simpan_artifact(hasil: dict[str, object], dir_model: Path) -> None:
+def simpan_artifact(hasil: dict[str, object], dir_model: Path, stem: str = MODEL_STEM) -> None:
     """Tulis model joblib + metadata JSON; direktori dibuat kalau belum ada."""
     dir_model.mkdir(parents=True, exist_ok=True)
-    joblib.dump(hasil["model"], dir_model / f"{MODEL_STEM}.joblib")
+    joblib.dump(hasil["model"], dir_model / f"{stem}.joblib")
     meta = {
         "nama_model": MODEL_NAME,
         "format": "joblib (sklearn)",
@@ -215,7 +218,7 @@ def simpan_artifact(hasil: dict[str, object], dir_model: Path) -> None:
         "durasi_fit_detik": round(float(hasil["durasi_fit"]), 2),
         "dilatih": time.strftime("%Y-%m-%d %H:%M:%S"),
     }
-    (dir_model / f"{MODEL_STEM}.json").write_text(
+    (dir_model / f"{stem}.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
     )
 
@@ -267,11 +270,39 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--extracted", default="data/extracted")
     parser.add_argument("--limit-window", type=int, default=0, help="batasi jumlah window (0 = semua)")
     parser.add_argument("--skip-save", action="store_true", help="jangan tulis artifact model")
+    parser.add_argument(
+        "--signer-tambahan-train",
+        type=int,
+        nargs="*",
+        default=[],
+        metavar="SIGNER",
+        help=(
+            "signer tambahan yang HANYA masuk train (mis. 99 untuk rekaman "
+            "mandiri); val signer4 dan test signer3 tidak berubah. Dibiarkan "
+            "kosong, default_split() yang berlaku dan signer luar split ditolak."
+        ),
+    )
+    parser.add_argument(
+        "--stem",
+        default=MODEL_STEM,
+        help=f"nama artifact models/<stem>.joblib + .json (default: {MODEL_STEM})",
+    )
+    parser.add_argument(
+        "--confusion",
+        default=None,
+        help=(
+            "keluaran confusion CSV (default: docs/confusion-<stem>.csv, jadi "
+            "stem 'baseline' tetap menulis confusion-baseline.csv)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     extracted = Path(args.extracted)
     try:
-        split = default_split(extracted)
+        if args.signer_tambahan_train:
+            split = split_dengan_signer_tambahan(extracted, tuple(args.signer_tambahan_train))
+        else:
+            split = default_split(extracted)
         split.check()
     except DatasetError as exc:
         print(f"Galat: {exc}")
@@ -281,12 +312,11 @@ def main(argv: list[str] | None = None) -> int:
     cetak_laporan(hasil)
 
     if not args.skip_save:
-        simpan_artifact(hasil, MODEL_DIR)
-        simpan_csv_confusion(
-            np.asarray(hasil["conf"]), LABEL_NAMES, Path("docs/confusion-baseline.csv")
-        )
-        print(f"\nArtifact: {MODEL_DIR}/{MODEL_STEM}.joblib + .json")
-        print("Confusion: docs/confusion-baseline.csv")
+        simpan_artifact(hasil, MODEL_DIR, args.stem)
+        keluaran_conf = Path(args.confusion or f"docs/confusion-{args.stem}.csv")
+        simpan_csv_confusion(np.asarray(hasil["conf"]), LABEL_NAMES, keluaran_conf)
+        print(f"\nArtifact: {MODEL_DIR}/{args.stem}.joblib + .json")
+        print(f"Confusion: {keluaran_conf}")
     return 0
 
 

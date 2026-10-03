@@ -36,6 +36,7 @@ kabel dikecualikan eksplisit saat mencari speaker ruangan.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import wave
@@ -50,6 +51,16 @@ from src.core.predictor import NO_SIGN_LABEL
 
 logger = logging.getLogger(__name__)
 
+
+#: Jumlah keheningan (detik) di depan dan di belakang setiap ucapan.
+#: 0,2 s per sisi menutup potongan ~0,25 s yang diukur pada host API MME
+#: dan memberi waktu device menghabiskan buffer terakhir, jadi suara tidak
+#: berhenti mendadak di ujung kata.
+PAD_DETIK: float = 0.2
+
+#: Panjang fade-out (detik). Sama dengan penahan belakang: meredam tepat
+#: sampai 0, jadi potongan di ujung isi tidak jadi "klik".
+FADE_DETIK: float = 0.2
 
 #: Artifact voice Indonesia: piper-voices rhasspy, 1 speaker, 22050 Hz.
 DEFAULT_VOICE = "models/tts/id_ID-news_tts-medium.onnx"
@@ -164,6 +175,72 @@ def _resolve_local_speaker_cached() -> int | None:
 def _reset_local_speaker_cache() -> None:
     """Bersihkan cache resolver (test; perangkat bisa dicabut/dipasang)."""
     _resolve_local_speaker_cached.cache_clear()
+
+
+def _tulis_ucapan_dengan_penahan(wav_file, audio) -> None:
+    """Tulis ``audio`` dengan keheningan 0,2 s di depan/belakang + fade-out.
+
+    Dipakai SATU tempat (jalur sintesis, sebelum berkas jadi cache) supaya
+    setiap label dan setiap voice memperlakainya sama. Pemanggil sudah
+    menyetel header, jadi tinggal menulis frame ber-penahan.
+
+    Trim: ``audio`` int16 2-D ``(n_frames, n_channels)``. ``PAD_DETIK`` dan
+    ``FADE_DETIK`` dihitung pada framerate berkas itu sendiri, bukan konstanta
+    absolut, jadi rate lain tetap dapat 0,2 s.
+    """
+    import numpy as np
+
+    frames, channels = audio.shape
+    rate = wav_file.getframerate()
+    head = int(PAD_DETIK * rate)
+    tail = int(PAD_DETIK * rate)
+    fade = int(FADE_DETIK * rate)
+
+    isi = audio.astype(np.float64)
+    # Fade LINIER di 0,2 s terakhir isi, meredam tepat sampai 0 supaya
+    # potongan di ujung tidak jadi klik. Isi lebih pendek dari fade: seluruh
+    # isi diredam (ramp 1 -> 0), bukan galat.
+    n_fade = min(fade, frames)
+    if n_fade > 1:
+        isi[-n_fade:] *= np.linspace(1.0, 0.0, n_fade, dtype=np.float64)[:, None]
+
+    # Amplitudo tidak boleh melewati puncak sumber: di-clip balik ke puncak
+    # asli, dan source sudah int16 jadi hasilnya tetap int16-safe.
+    puncak = float(np.abs(audio).max())
+    hasil = np.clip(isi, -puncak, puncak) if puncak > 0 else isi
+
+    diem_depan = np.zeros((head, channels), dtype=np.int16)
+    diem_belakang = np.zeros((tail, channels), dtype=np.int16)
+    gabung = np.concatenate([diem_depan, hasil.astype(np.int16), diem_belakang])
+    wav_file.writeframes(gabung.tobytes())
+
+
+def _tulis_ulang_dengan_penahan(path: Path) -> None:
+    """Tulis ulang berkas WAV di ``path``: tambah penahan + fade-out.
+
+    Dipanggil SATU tempat, di ``PiperTts.speak()`` tepat setelah piper
+    selesai menulis dan sebelum berkas menjadi cache, sehingga tiap label
+    dan tiap voice memperoleh ucapan yang tidak terputus. Isi dibaca apa
+    adanya (header piper yang dipakai: kanal, framerate, 16-bit) supaya
+    cache tetap WAV mono 16-bit biasa.
+    """
+    import numpy as np
+
+    with wave.open(str(path), "rb") as baca:
+        channels = baca.getnchannels()
+        rate = baca.getframerate()
+        frames = baca.getnframes()
+        isi = baca.readframes(frames)
+    if frames == 0 or not channels or not rate:
+        # Tidak ada yang diterjemahkan: biarkan berkas kosong seperti
+        # sebelumnya (play() membacanya sebagai durasi 0, bukan galat senyap).
+        return
+    audio = np.frombuffer(isi, dtype=np.int16).reshape(-1, channels)
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(2)
+        wav.setframerate(rate)
+        _tulis_ucapan_dengan_penahan(wav, audio)
 
 
 class PiperTts:
@@ -304,7 +381,15 @@ class PiperTts:
         return self._cache_dir / f"{label}.wav"
 
     def speak(self, label: str) -> Path:
-        """Balas path WAV untuk ``label``, sintesis hanya bila belum ada."""
+        """Balas path WAV untuk ``label``, sintesis hanya bila belum ada.
+
+        Setiap WAV yang baru disintesis melewati
+        ``_tulis_ucapan_dengan_penahan()``: keheningan 0,2 s di depan dan
+        di belakang plus fade-out linier 0,2 s, semuanya di jalur ini saja
+        supaya label mana pun dan voice mana pun memperoleh perlakuan sama.
+        Akibatnya ``play()`` (yang membaca ``nframes`` dari header) otomatis
+        memutar ucapan sampai selesai, bukan terputus di ujung kata.
+        """
         if not label or not label.strip():
             raise ValueError("label TTS kosong")
         target = self._cache_path(label)
@@ -316,8 +401,21 @@ class PiperTts:
             # Pemeriksaan ulang di dalam lock: dua thread boleh sampai ke
             # sini bersamaan untuk label yang sama.
             if not target.is_file():
-                with wave.open(str(target), "wb") as wav:
-                    voice.synthesize_wav(label, wav)
+                # Tulis ke berkas sementara lalu os.replace: WAV setengah
+                # jadi TIDAK PERNAH menjadi artifact cache yang dibaca
+                # play(). Gagal di tengah tetap naik ke SpeechSink._play
+                # yang menghitungnya sebagai speech_errors.
+                sementara = target.with_name(f"{target.name}.tmp{os.getpid()}")
+                try:
+                    with wave.open(str(sementara), "wb") as wav:
+                        voice.synthesize_wav(label, wav)
+                    _tulis_ulang_dengan_penahan(sementara)
+                    # Setelah replace berhasil, berkas sementara sudah
+                    # berpindah nama: jangan disentuh lagi.
+                    os.replace(sementara, target)
+                finally:
+                    if sementara.exists():
+                        sementara.unlink()
         return target
 
     def play(self, label: str) -> float:

@@ -82,7 +82,17 @@ kamera ─┘                                                        │
               OBS Virtual Camera (pesan ke meeting)                    piper-tts offline ─ VB-Cabel
 ```
 
-Dependency rule: `ui -> core <- adapters`. `src/core/` must not import GUI, hardware, or model libraries; it holds only the pipeline, configuration, and data types. All hardware access lives in `src/adapters/`, and every adapter has a fake counterpart (`FakeCameraSource`, `FakeLandmarkExtractor`, `FakeVirtualCameraSink`, `FakeTTS`) used by tests and by the headless path without real devices.
+### Screenshots
+
+Placeholders — drop the PNGs into `docs/images/` with these exact filenames and the tables below render automatically:
+
+| Area | Berkas | Yang ditampilkan |
+| --- | --- | --- |
+| Mode siap pakai | `docs/images/ui-siap-pakai.png` | Jendela minimal: tombol Start/Stop, indikator status berjalan |
+| Dasbor debug | `docs/images/ui-debug.png` | Panel video mentah + video ber-overlay, FPS output, frame sent/dropped, status voting & cooldown, log kata yang sudah diucapkan |
+| Di aplikasi meeting | `docs/images/meeting.png` | Hasil penerjemahan masuk sebagai subtitle/overlay OBS Virtual Camera dan audio VB-Cabel terdengar peserta |
+
+Ketiga berkas belum ada; tabel di atas adalah penanda, bukan klaim screenshot sudah tersedia.
 
 ## Configuration
 
@@ -97,7 +107,7 @@ The TOML file holds only the keys you want to override, for example `camera.devi
 
 ## Testing
 
-- 236 tests, `python -m pytest -q -p no:cacheprovider`, all passing.
+- 263 tests, `python -m pytest -q -p no:cacheprovider`, all passing (0 skipped; dua tes ekstraksi video nyata tadinya skip sampai `data/raw/wl-bisindo/signer0_label0_sample1.mp4` dipulihkan).
 - Tests run offscreen (`QT_QPA_PLATFORM=offscreen`) using fake adapters, so CI or a laptop without a webcam can still run them.
 - One real-device path that cannot be tested automatically (Zoom/Meet end-to-end) still has to be proven manually.
 

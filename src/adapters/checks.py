@@ -104,13 +104,13 @@ def _check_tts_voice() -> tuple[str, bool, str]:
 
     path = Path(DEFAULT_VOICE)
     if path.is_file():
-        return ("Voice TTS", True, f"Voice Indonesia siap ({path}).")
+        return ("Voice TTS", True, f"Voice TTS siap ({path}).")
     return (
         "Voice TTS",
         False,
         f"Voice TTS tidak ada di {path}. Jalankan "
-        "python -m training.setup_voice sekali; aplikasi meeting tidak "
-        "akan menerima audio sampai itu dijalankan.",
+        "python -m training.setup_voice sekali; audio meeting tidak "
+        "masuk sampai itu dijalankan.",
     )
 
 

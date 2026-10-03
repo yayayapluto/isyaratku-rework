@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 
 PREVIEW_INTERVAL_MS = 40
 PLACEHOLDER_TEXT = "Menunggu prediksi..."
-STATUS_IDLE = ("berhenti", "color: #475569;")
-STATUS_RUNNING = ("berjalan", "color: #1b7f3b; font-weight: 600;")
+STATUS_IDLE = ("stopped", "color: #475569;")
+STATUS_RUNNING = ("running", "color: #1b7f3b; font-weight: 600;")
 STATUS_ERROR = ("error", "color: #b91c1c; font-weight: 600;")
-STATUS_CHECKING = ("memeriksa...", "color: #b45309; font-weight: 600;")
+STATUS_CHECKING = ("checking...", "color: #b45309; font-weight: 600;")
 
 
 def _format_label_latency(latency: dict) -> str:
@@ -31,9 +31,9 @@ def _format_label_latency(latency: dict) -> str:
     lebih jujur daripada p50 0.0 yang menyesatkan.
     """
     if not latency or not latency.get("count"):
-        return "label->tampil -"
+        return "label->display -"
     return (
-        f"label->tampil p50 {latency['p50_ms']:.1f} ms "
+        f"label->display p50 {latency['p50_ms']:.1f} ms "
         f"p95 {latency['p95_ms']:.1f} ms"
     )
 
@@ -50,7 +50,7 @@ def _format_speech_errors(view: object) -> str:
     failed = speech.speech_errors
     if not failed:
         return ""
-    return f" | suara gagal {failed}"
+    return f" | speech error {failed}"
 
 
 def _on_gui_thread() -> bool:
@@ -97,7 +97,7 @@ class ReadyView(qw.QMainWindow):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        self._preview = qw.QLabel("Pratinjau video muncul di sini setelah Start.")
+        self._preview = qw.QLabel("Video preview muncul di sini setelah Start.")
         self._preview.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
         self._preview.setMinimumSize(640, 360)
         self._preview.setStyleSheet(
@@ -106,7 +106,7 @@ class ReadyView(qw.QMainWindow):
         )
         layout.addWidget(self._preview, stretch=1)
 
-        self._status = qw.QLabel("Status: berhenti")
+        self._status = qw.QLabel("Status: stopped")
         self._status.setStyleSheet(STATUS_IDLE[1])
         layout.addWidget(self._status, alignment=qc.Qt.AlignmentFlag.AlignLeft)
 
@@ -243,8 +243,8 @@ class ReadyView(qw.QMainWindow):
         if frame is None:
             if stats is not None:
                 self._details.setText(
-                    f"FPS terkirim {stats.fps:5.1f} | dikirim {stats.frames_sent} | "
-                    f"dibuang {stats.frames_dropped} | dibaca {stats.frames_captured} | "
+                    f"FPS output {stats.fps:5.1f} | frame sent {stats.frames_sent} | "
+                    f"dropped {stats.frames_dropped} | captured {stats.frames_captured} | "
                     f"{_format_label_latency(getattr(pipeline, 'label_latency', {}))}"
                     f"{_format_speech_errors(self)}"
                 )
@@ -278,8 +278,8 @@ class ReadyView(qw.QMainWindow):
         )
         if stats is not None:
             self._details.setText(
-                    f"FPS terkirim {stats.fps:5.1f} | dikirim {stats.frames_sent} | "
-                    f"dibuang {stats.frames_dropped} | dibaca {stats.frames_captured} | "
+                    f"FPS output {stats.fps:5.1f} | frame sent {stats.frames_sent} | "
+                    f"dropped {stats.frames_dropped} | captured {stats.frames_captured} | "
                     f"{_format_label_latency(getattr(pipeline, 'label_latency', {}))}"
                     f"{_format_speech_errors(self)}"
                 )
@@ -289,7 +289,7 @@ class ReadyView(qw.QMainWindow):
         self._newest_stats = None
         self._release_camera()
         self._set_status(*STATUS_ERROR)
-        self._details.setText(f"Pipeline berhenti karena galat: {fail}")
+        self._details.setText(f"Pipeline stop karena error: {fail}")
 
     def closeEvent(self, event) -> None:
         # _alive lebih dulu: semua hook jadi no-op sebelum widget dilepas,

@@ -73,15 +73,15 @@ class DebugView(qw.QMainWindow):
         root.addLayout(self._build_toolbar())
 
         videos = qw.QHBoxLayout()
-        self._raw_panel = _video_panel("Video mentah")
-        self._overlay_panel = _video_panel("Video dengan overlay")
+        self._raw_panel = _video_panel("Video raw")
+        self._overlay_panel = _video_panel("Video overlay")
         videos.addWidget(self._raw_panel, stretch=1)
         videos.addWidget(self._overlay_panel, stretch=1)
         root.addLayout(videos, stretch=1)
 
         infos = qw.QHBoxLayout()
-        infos.addWidget(_group("Pengukuran", self._build_metrics()))
-        infos.addWidget(_group("Model dan smoothing", self._build_model_panels()))
+        infos.addWidget(_group("Metrics", self._build_metrics()))
+        infos.addWidget(_group("Model & smoothing", self._build_model_panels()))
         infos.addStretch(1)
         root.addLayout(infos)
 
@@ -98,7 +98,7 @@ class DebugView(qw.QMainWindow):
         self._start_button.clicked.connect(self._on_start)
         self._stop_button = qw.QPushButton("Stop")
         self._stop_button.clicked.connect(self._on_stop)
-        self._status = qw.QLabel("Status: berhenti")
+        self._status = qw.QLabel("Status: stopped")
         self._status.setStyleSheet(STATUS_IDLE[1])
         row.addWidget(self._start_button)
         row.addWidget(self._stop_button)
@@ -107,14 +107,19 @@ class DebugView(qw.QMainWindow):
         return row
 
     def _build_metrics(self) -> qw.QLayout:
-        self._fps_label = _metric_row("FPS terkirim (jalur output)")
-        self._sent_label = _metric_row("Frame dikirim")
-        self._dropped_label = _metric_row("Frame dibuang")
-        self._window_label = _metric_row("Jendela FPS")
-        self._speech_label = _metric_row("Galat suara (TTS)")
+        self._fps_label = _metric_row("FPS output")
+        # Baris ini SENGAJA statis. "FPS per tahap" adalah gap yang DIDOKUMENTASIKAN
+        # (docs/tech-decisions.md): Stats tidak punya cap waktu per tahap, jadi
+        # menampilkannya sebagai angka berarti fabrikasi. "-" = belum diukur, bukan 0.
+        self._stage_fps_label = _metric_row("FPS per stage")
+        self._sent_label = _metric_row("Frame sent")
+        self._dropped_label = _metric_row("Frame dropped")
+        self._window_label = _metric_row("FPS window")
+        self._speech_label = _metric_row("Speech error (TTS)")
         layout = qw.QVBoxLayout()
         for widget in (
             self._fps_label,
+            self._stage_fps_label,
             self._sent_label,
             self._dropped_label,
             self._window_label,
@@ -126,17 +131,15 @@ class DebugView(qw.QMainWindow):
 
     def _build_model_panels(self) -> qw.QLayout:
         self._predictions = qw.QLabel(
-            "Prediksi teratas: belum ada (belum start)."
+            "Top prediksi: belum ada (belum start)."
         )
-        self._ranked = qw.QLabel("Tiga prediksi teratas: -")
-        self._voting = qw.QLabel("Status voting dan cooldown: belum aktif.")
+        self._ranked = qw.QLabel("Top 3 prediksi: -")
+        self._voting = qw.QLabel("Status voting & cooldown: belum aktif.")
         self._landmarks = qw.QLabel(
-            "Persentase frame landmark tidak lengkap: -"
+            "Frame landmark tidak lengkap: -"
         )
         self._spoken_words = qw.QListWidget()
-        self._spoken_words.addItem(
-            "Log kata yang diucapkan: kosong (TTS slice 5)."
-        )
+        self._spoken_words.addItem("Log kata: kosong.")
         self._spoken_log_started = False
         for widget in (self._predictions, self._voting, self._landmarks):
             widget.setWordWrap(True)
@@ -243,7 +246,7 @@ class DebugView(qw.QMainWindow):
         self._newest_frame = frame
         text = (frame.text or "").strip()
         if text and text != PLACEHOLDER_TEXT:
-            self._newest_predictions = f"Prediksi teratas: {text}"
+            self._newest_predictions = f"Top prediksi: {text}"
         self._newest_ranked = self._read_ranked()
         if _on_gui_thread():
             # Pemanggil sinkron (tes, CLI): panel perlu terisi sekarang.
@@ -260,8 +263,8 @@ class DebugView(qw.QMainWindow):
         probe = getattr(self._pipeline, "predictor", None)
         reader = getattr(probe, "read_ranked", None)
         if reader is None:
-            return "Tiga prediksi teratas: -"
-        return f"Tiga prediksi teratas: {format_ranked(reader())}"
+            return "Top 3 prediksi: -"
+        return f"Top 3 prediksi: {format_ranked(reader())}"
 
     def _on_stats(self, stats: Stats) -> None:
         """Statistik hanya disimpan; penulisan widget di tick 40 ms.
@@ -283,28 +286,25 @@ class DebugView(qw.QMainWindow):
         if pending is None or self._pipeline is None:
             return
         stats, status = pending
-        self._fps_label.setText(
-            f"FPS terkirim (jalur output) "
-            f"[belum per-tahap, lihat docs]: {stats.fps:5.1f}"
-        )
-        self._sent_label.setText(f"Frame dikirim: {stats.frames_sent}")
-        self._dropped_label.setText(f"Frame dibuang: {stats.frames_dropped}")
+        self._fps_label.setText(f"FPS output: {stats.fps:5.1f}")
+        self._sent_label.setText(f"Frame sent: {stats.frames_sent}")
+        self._dropped_label.setText(f"Frame dropped: {stats.frames_dropped}")
         self._window_label.setText(
-            f"Jendela FPS: {stats.elapsed_seconds:5.1f} s"
+            f"FPS window: {stats.elapsed_seconds:5.1f} s"
         )
         speech = getattr(self, "_speech", None)
         self._speech_label.setText(
-            "Galat suara (TTS): -"
+            "Speech error (TTS): -"
             if speech is None
-            else f"Galat suara (TTS): {speech.speech_errors}"
+            else f"Speech error (TTS): {speech.speech_errors}"
         )
         if not status:
             self._voting.setText(
-                "Status voting dan cooldown: belum aktif."
+                "Status voting & cooldown: belum aktif."
             )
         else:
             self._voting.setText(
-                "Status voting: "
+                "Voting: "
                 f"kandidat={status.get('candidate')} "
                 f"streak={status.get('streak')}/{status.get('vote_count')} "
                 f"cooldown={status.get('cooldown_seconds')}s"
@@ -403,7 +403,7 @@ class DebugView(qw.QMainWindow):
         if self._newest_landmarks is None:
             return
         self._landmarks.setText(
-            "Persentase frame landmark tidak lengkap: "
+            "Frame landmark tidak lengkap: "
             f"{self._newest_landmarks:5.1f}%"
         )
 
@@ -417,8 +417,8 @@ class DebugView(qw.QMainWindow):
         self._set_status(*STATUS_ERROR)
         qw.QMessageBox.warning(
             self,
-            "Pipeline berhenti",
-            f"Pipeline berhenti karena galat:\n{fail}",
+            "Pipeline stop",
+            f"Pipeline stop karena error:\n{fail}",
         )
 
     def closeEvent(self, event) -> None:
@@ -441,7 +441,7 @@ def _video_panel(title: str) -> qw.QFrame:
     layout = qw.QVBoxLayout(panel)
     label = qw.QLabel(title)
     label.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
-    screen = qw.QLabel("Menunggu Start.")
+    screen = qw.QLabel("Menunggu start.")
     screen.setAlignment(qc.Qt.AlignmentFlag.AlignCenter)
     screen.setMinimumSize(320, 220)
     screen.setStyleSheet(

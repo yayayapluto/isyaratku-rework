@@ -154,6 +154,8 @@ bias signer, bukan kata yang benar-benar mirip: **12 gloss argmax-nya
 "Sore"** (Belajar, Hari, Ingat, Maaf, Makan, Mengapa, Kuning, Hijau,
 Hitam, Berangkat, Datang, Keluarga) dan **7 gloss argmax-nya
 "Bagaimana"** (Cari, Motor, Saya, Apa, Siapa, Bagaimana, Merah).
+Klaim lama "enam gloss ke Sore dan lima ke Bagaimana" sudah dibantah:
+angkanya 12 argmax-Sore dan 7 argmax-Bagaimana (`docs/dataset-notes.md`).
 Definisi: untuk tiap baris gloss pada `docs/confusion-baseline.csv`,
 label prediksi dengan jumlah terbanyak pada baris itu (argmax per
 baris); dihitung pada 32 baris gloss. Tidak ada pasangan dua arah:
@@ -239,15 +241,15 @@ terakhir saja (tanpa riwayat, tanpa lock — satu thread capture memanggil
 `_on_frame` dan menampilkan tiga baris `1. Label 0.42 | ...`; `-` bila belum ada.
 
 "FPS per tahap" (docs/architecture.md:93) adalah gap yang DIDOKUMENTASIKAN,
-bukan dibuat: `Stats` (`src/core/pipeline.py:50-62`) hanya punya `fps` = laju
+bukan dibuat: `Stats` (`src/core/pipeline.py:82`) hanya punya `fps` = laju
 frame TERKIRIM di worker output (`(len(sent_at)-1)/span`), `frames_captured`,
-`frames_sent`, `frames_dropped`, `elapsed_seconds`. Tidak ada cap waktu per
-tahap (capture / ekstraksi landmark / predict / render+sink), dan tidak ada
-titik sampling yang bisa direkonstruksi dari `Frame` (hanya `timestamp`
-capture). Karena itu label diubah jujur dari "FPS terkirim" menjadi
-"FPS terkirim (jalur output) [belum per-tahap, lihat docs]". Angka per-tahap
-TIDAK dihitung dari fps end-to-end dibagi jumlah tahap (itu fabrikasi). Supaya
-metrik ini nyata, `Stats` perlu kolom cap waktu per tahap di
+`frames_sent`, `frames_dropped`, `elapsed_seconds`, dan tidak ada cap waktu
+per tahap (capture / ekstraksi landmark / predict / render+sink). Karena itu
+label panel dipecah jujur menjadi dua baris: "FPS output"
+(angka satu-satunya yang benar-benar terukur) dan "FPS per stage" yang sengaja
+statis bernilai "-" — baris itu gap yang sengaja DITAMPILKAN, bukan dihilangkan.
+Angka per-tahap TIDAK dihitung dari fps end-to-end dibagi jumlah tahap (itu
+fabrikasi). Supaya metrik ini nyata, `Stats` perlu kolom cap waktu per tahap di
 `src/core/pipeline.py` — itu pemilik pipeline, bukan panel debug.
 
 ## Latensi label stabil -> tampil (2026-10-03)

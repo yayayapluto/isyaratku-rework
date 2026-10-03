@@ -15,6 +15,7 @@ import pytest
 
 from training.dataset import (
     DEFAULT_EXTRACTED_DIR,
+    DEFAULT_SPLIT,
     GLOSSES,
     LABEL_NAMES,
     NO_SIGN_ID,
@@ -23,6 +24,7 @@ from training.dataset import (
     DatasetError,
     SignerSplit,
     default_split,
+    split_dengan_signer_tambahan,
     hand_of,
     iter_npz,
     parse_label,
@@ -72,10 +74,12 @@ def test_split_check_menolak_signer_ganda(extracted: Path) -> None:
 
 
 def test_semua_label_train_tidak_kosong(extracted: Path) -> None:
-    """Seluruh 32 gloss punya minimal satu window train."""
+    """Tiap gloss yang punya data ikut dilatih di split train."""
     dataset = Dataset((0, 1, 2), extracted, name="train")
     ringkasan = dataset.report()
-    assert ringkasan["label_dipakai"] == len(GLOSSES), ringkasan["label_kosong"]
+    berdata = {label for label in (parse_label(p) for p in iter_npz(extracted)) if label < len(GLOSSES)}
+    assert ringkasan["label_dipakai"] == len(berdata), ringkasan["label_kosong"]
+    assert ringkasan["label_kosong"] == sorted(set(range(len(GLOSSES))) - berdata)
     assert ringkasan["window_bertangan"] > 0
 
 
@@ -135,11 +139,11 @@ def test_mode_tidak_dikenal_ditolak(extracted: Path) -> None:
 
 
 def test_label_set_lengkap(extracted: Path) -> None:
-    """LABEL_NAMES = 32 gloss + NO_SIGN_LABEL; gloss urut sesuai dataset."""
+    """LABEL_NAMES = GLOSSES + NO_SIGN_LABEL; gloss berakhiran Nama lalu Halo."""
     assert len(LABEL_NAMES) == len(GLOSSES) + 1
     assert LABEL_NAMES[-1] == NO_SIGN_LABEL
     assert LABEL_NAMES[0] == "Air"
-    assert GLOSSES[31] == "Malam"
+    assert GLOSSES[-3:] == ("Malam", "Nama", "Halo")
 
 
 def test_direktori_kosong_ditolak(tmp_path: Path) -> None:
@@ -161,3 +165,93 @@ def test_index_hitung_total_window(extracted: Path) -> None:
         hitung += count
         assert int(np.load(path, allow_pickle=False)["windows"].shape[0]) == count
     assert total == hitung
+
+
+# -- slice 7: gloss baru hanya DITAMBAH di akhir ------------------------
+def test_gloss_baru_ditambah_di_akhir() -> None:
+    """ID 32 dan 33 adalah append: tanpa pergeseran nomor label lama."""
+    assert len(GLOSSES) == 34
+    assert GLOSSES[32] == "Nama"
+    assert GLOSSES[33] == "Halo"
+    assert NO_SIGN_ID == len(GLOSSES) == 34
+    assert NO_SIGN_ID not in range(len(GLOSSES))
+    assert LABEL_NAMES[len(GLOSSES)] == NO_SIGN_LABEL
+
+
+def _berkas_npz(tmp_path: Path, signer: int, label: int, n_window: int = 2) -> Path:
+    """Tulis satu .npz sintetis kecil (2 window bertangan); hanya untuk uji split."""
+    windows = np.zeros((n_window, 30, 456), dtype=np.float32)
+    windows[:, :, 225:227] = 1.0  # bendera tangan kiri/kanan: tetap "bertangan"
+    path = tmp_path / f"signer{signer}_label{label}_sample1.npz"
+    np.savez(path, windows=windows, label=np.int64(label), signer=np.int64(signer))
+    return path
+
+
+def _isi_split_dasar(tmp_path: Path, label: int = 0) -> None:
+    """Berkas signer0..4 untuk satu label, cukup agar default_split jalan."""
+    for signer in (0, 1, 2, 3, 4):
+        _berkas_npz(tmp_path, signer, label)
+
+
+def test_split_tambahan_hanya_masuk_train(tmp_path: Path) -> None:
+    """Signer tambahan (99) masuk train saja; val signer4 dan test signer3 utuh."""
+    _isi_split_dasar(tmp_path)
+    _berkas_npz(tmp_path, 99, 32)
+    _berkas_npz(tmp_path, 99, 33)
+
+    split = split_dengan_signer_tambahan(tmp_path, (99,))
+
+    assert split.train == (0, 1, 2, 99)
+    assert split.val == DEFAULT_SPLIT["val"] == (4,)
+    assert split.test == DEFAULT_SPLIT["test"] == (3,)
+    assert set(split.all_files) == set(iter_npz(tmp_path))
+    split.check()  # tidak boleh raise
+
+    assert {parse_signer(p) for p in split.files("train")} == {0, 1, 2, 99}
+    assert {parse_signer(p) for p in split.files("val")} == {4}
+    assert {parse_signer(p) for p in split.files("test")} == {3}
+
+
+def test_split_tambahan_kosong_identik_default(tmp_path: Path) -> None:
+    """Tanpa signer tambahan, hasilnya persis DEFAULT_SPLIT yang lama."""
+    _isi_split_dasar(tmp_path)
+
+    tanpa = split_dengan_signer_tambahan(tmp_path)
+    assert (tanpa.train, tanpa.val, tanpa.test) == (
+        DEFAULT_SPLIT["train"],
+        DEFAULT_SPLIT["val"],
+        DEFAULT_SPLIT["test"],
+    )
+
+
+def test_split_tambahan_signer_ganda_ditolak(tmp_path: Path) -> None:
+    """check() menolak signer tambahan yang sudah duduk di val atau test."""
+    _isi_split_dasar(tmp_path)
+    berkas = tuple(iter_npz(tmp_path))
+
+    for signer in (3, 4):
+        split = SignerSplit(
+            train=DEFAULT_SPLIT["train"] + (signer,),
+            val=DEFAULT_SPLIT["val"],
+            test=DEFAULT_SPLIT["test"],
+            all_files=berkas,
+        )
+        with pytest.raises(DatasetError):
+            split.check()
+
+
+def test_default_split_tetap_tolak_signer_luar(tmp_path: Path) -> None:
+    """default_split() tetap gagal keras saat ada signer di luar split."""
+    _isi_split_dasar(tmp_path)
+    _berkas_npz(tmp_path, 99, 32)
+
+    with pytest.raises(DatasetError):
+        default_split(tmp_path)
+
+
+def test_split_tambahan_signer_tanpa_berkas_ditolak(tmp_path: Path) -> None:
+    """Signer tambahan yang belum direkam: galat jelas, bukan train kosong."""
+    _isi_split_dasar(tmp_path)
+
+    with pytest.raises(DatasetError):
+        split_dengan_signer_tambahan(tmp_path, (99,))

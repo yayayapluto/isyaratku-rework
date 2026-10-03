@@ -128,7 +128,7 @@ def start_checks(view, details) -> bool:
     view._set_status(*view.STATUS_CHECKING)
     view._start_button.setEnabled(False)
     if details is not None:
-        details.setText("Memeriksa kamera, virtual camera, dan VB-Cabel...")
+        details.setText("Cek kamera, virtual camera, dan VB-Cabel...")
     # Runner disimpan supaya QRunnable tidak di-GC selama jalan.
     view._check_task = run_checks_async(
         view._config.camera_device_index, view._on_checks_done
@@ -250,7 +250,7 @@ def _report_failure(view, results, details) -> None:
         details.setText(
             f"Perbaiki masalah berikut lalu tekan Start lagi:\n{summary}"
         )
-    view._message_warning("Pemeriksaan awal gagal", summary)
+    view._message_warning("Start check gagal", summary)
 
 
 def _take_shared_camera(results) -> object | None:

@@ -98,11 +98,13 @@ GLOSSES: tuple[str, ...] = (
     "Siang",
     "Sore",
     "Malam",
+    "Nama",
+    "Halo",
 )
 
 #: Label sintetis untuk window tanpa isyarat (tangan tidak terdeteksi).
-#: Angka 32 = satu setelah gloss terakhir, jadi tanpa dampingi dengan angka
-#: lain; string diambil dari kontrak predictor slice 4c.
+#: Angka dihitung dari ``len(GLOSSES)``, jadi satu setelah gloss terakhir
+#: tanpa dampingi dengan angka lain; string dari kontrak predictor slice 4c.
 NO_SIGN_LABEL = "tidak ada isyarat"
 NO_SIGN_ID = len(GLOSSES)
 
@@ -189,6 +191,48 @@ def default_split(extracted_dir: Path = DEFAULT_EXTRACTED_DIR) -> SignerSplit:
         test=DEFAULT_SPLIT["test"],
         all_files=tuple(iter_npz(extracted_dir)),
     )
+
+
+def split_dengan_signer_tambahan(
+    extracted_dir: Path = DEFAULT_EXTRACTED_DIR,
+    extra_train: tuple[int, ...] = (),
+) -> SignerSplit:
+    """Split default plus signer tambahan yang HANYA masuk train.
+
+    ``default_split()`` sengaja menolak signer di luar ``DEFAULT_SPLIT``
+    supaya berkas tak terduga tidak menyelinap ke train tanpa keputusan.
+    Rekaman mandiri (`training/record_self.py`, signer 99) justru memang
+    harus masuk train, sementara val signer4 dan test signer3 TIDAK
+    berubah supaya angka split lama tetap terbandingkan.
+
+    Signer tambahan yang tidak punya berkas ditolak; signer yang sudah
+    duduk di val atau test juga ditolak oleh ``check()``.
+    """
+    present = sorted({parse_signer(p) for p in iter_npz(extracted_dir)})
+    if not present:
+        raise DatasetError(
+            f"Tidak ada berkas .npz di {extracted_dir}. Ekstraksi dataset "
+            f"harus dijalankan lebih dulu; modul ini tidak menulis apa pun."
+        )
+    wajib = [s for group in DEFAULT_SPLIT.values() for s in group]
+    missing = [s for s in wajib if s not in present]
+    if missing:
+        raise DatasetError(
+            f"Signer default tidak lengkap di {extracted_dir}: hilang {missing}. Ada {present}."
+        )
+    kurang = [s for s in extra_train if s not in present]
+    if kurang:
+        raise DatasetError(
+            f"Signer tambahan {kurang} tidak punya berkas di {extracted_dir}. Ada {present}."
+        )
+    split = SignerSplit(
+        train=tuple(DEFAULT_SPLIT["train"]) + tuple(sorted(set(extra_train))),
+        val=DEFAULT_SPLIT["val"],
+        test=DEFAULT_SPLIT["test"],
+        all_files=tuple(iter_npz(extracted_dir)),
+    )
+    split.check()
+    return split
 
 
 def parse_signer(path: Path) -> int:
@@ -454,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
         summary = dataset.report()
         print(
             f"  {name}: {summary['window_bertangan']}/{summary['window_total']} window bertangan, "
-            f"{summary['label_dipakai']}/32 label dipakai, "
+            f"{summary['label_dipakai']}/{len(GLOSSES)} label dipakai, "
             f"min per label {summary['window_per_label_min']}"
         )
         if summary["label_kosong"]:
