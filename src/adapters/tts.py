@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 import wave
@@ -378,7 +379,14 @@ class PiperTts:
 
     def _cache_path(self, label: str) -> Path:
         """Nama berkas cache deterministik dari label; label sama -> berkas sama."""
-        return self._cache_dir / f"{label}.wav"
+        # Windows menolak <>:"/\|?* dan karakter kontrol dalam nama berkas:
+        # label '?' (11-nya class models/angka.npz) bikin OSError 22 saat
+        # wave.open menulis tmp, jadi sintesis tak pernah tercapai. Hanya
+        # karakter invalid yang diganti; label valid memakai nama yang sama.
+        # ponytail: label berbeda hanya di karakter invalid berbagi satu berkas
+        # cache (A?B dan A_B) — tambahkan hash label kalau bentrokan nyata.
+        aman = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", label)
+        return self._cache_dir / f"{aman}.wav"
 
     def speak(self, label: str) -> Path:
         """Balas path WAV untuk ``label``, sintesis hanya bila belum ada.
@@ -408,6 +416,16 @@ class PiperTts:
                 sementara = target.with_name(f"{target.name}.tmp{os.getpid()}")
                 try:
                     with wave.open(str(sementara), "wb") as wav:
+                        # Label tanpa fonem (mis. '?') membuat piper mengembalikan
+                        # 0 chunk, jadi setnchannels/setsampwidth/setframerate
+                        # tak pernah jalan dan close() melempar wave.Error
+                        # "# channels not specified". Format disetel lebih dulu;
+                        # piper menimpa bila ada audio. Berkas nolframe hasilnya
+                        # dibaca play() sebagai durasi 0 dan dilewati
+                        # _tulis_ulang_dengan_penahan (bangku frames == 0).
+                        wav.setnchannels(1)
+                        wav.setsampwidth(2)
+                        wav.setframerate(22050)
                         voice.synthesize_wav(label, wav)
                     _tulis_ulang_dengan_penahan(sementara)
                     # Setelah replace berhasil, berkas sementara sudah

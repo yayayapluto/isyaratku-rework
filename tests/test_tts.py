@@ -108,6 +108,23 @@ def test_speak_cache_file_named_after_label(tts_dengan_voice) -> None:
     assert path.name == f"{LABEL}.wav"
 
 
+def test_speak_label_karakter_tak_valid_dinamai_aman(tts_dengan_voice) -> None:
+    """Label dengan karakter ilegal Windows (mis. '?' dari models/angka.npz)
+    tetap disintesis ke nama berkas valid, bukan OSError 22 di wave.open."""
+    path = tts_dengan_voice.speak("A?B")
+    assert path.name == "A_B.wav"
+    assert path.is_file()
+    assert tts_dengan_voice._palsu.calls[-1] == "A?B", "teks sintesis tetap label asli"
+    assert tts_dengan_voice.speak("?").name == "_.wav"
+    assert tts_dengan_voice.speak("??").name == "__.wav"
+
+
+def test_speak_label_valid_tak_dipakai_karakter_pengganti(tts_dengan_voice) -> None:
+    """Label yang sudah sah: nama berkas cache persis seperti sebelumnya."""
+    assert tts_dengan_voice.speak("BUKU").name == "BUKU.wav"
+    assert tts_dengan_voice.speak("Di mana").name == "Di mana.wav"
+
+
 def test_speak_empty_label_rejected(tts) -> None:
     """Label kosong: galat, bukan berkas WAV kosong yang di-cache."""
     with pytest.raises(ValueError):
@@ -342,6 +359,26 @@ def test_speech_errors_nol_bila_suara_tidak_pernah_gagal() -> None:
 
     speech = SpeechSink(FakeTTS())
     assert speech.speech_errors == 0
+
+
+def test_kata_statis_bertanda_tanya_tidak_menghitung_galat(tts_dengan_voice) -> None:
+    """Kata statis yang memuat '?' (label 11 class models/angka.npz) sampai
+    lewat SpeechSink.feed tanpa galat: nama berkas cache yang mengandung
+    '?' dulu bikin OSError 22 di wave.open, dan itu menghitung speech error."""
+    from src.adapters.tts import SpeechSink
+
+    speech = SpeechSink(tts_dengan_voice, cooldown_seconds=0.0)
+
+    speech.feed("BUKU")
+    speech.feed("6F")
+    speech.feed("A?B")
+    for thread in speech._threads:
+        thread.join(timeout=30.0)
+
+    assert speech.sent == ["BUKU", "6F", "A?B"]
+    assert speech.speech_errors == 0, f"kata '?' masih gagal: {speech.last_error!r}"
+    assert not tts_dengan_voice.warm_up_errors
+    assert tts_dengan_voice._cache_dir.joinpath("A_B.wav").is_file()
 
 
 # -- klaim dengan artefak NYATA (models/tts/*.onnx) ---------------------
