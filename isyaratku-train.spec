@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_dynamic_libs
 from PyInstaller.utils.hooks import collect_submodules
 
-datas = [('configs/app.toml', 'configs'), ('models/mediapipe/hand_landmarker.task', 'models/mediapipe'), ('models/mediapipe/pose_landmarker_lite.task', 'models/mediapipe')]
+datas = [('configs/app.toml', 'configs'), ('models/huruf.npz', 'models'), ('models/angka.npz', 'models'), ('models/mediapipe/hand_landmarker.task', 'models/mediapipe'), ('models/mediapipe/pose_landmarker_lite.task', 'models/mediapipe')]
 binaries = []
 hiddenimports = ['cv2', 'numpy', 'sklearn', 'sklearn.ensemble', 'sklearn.linear_model']
 datas += collect_data_files('mediapipe')
