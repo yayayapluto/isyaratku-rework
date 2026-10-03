@@ -34,7 +34,7 @@ def test_defaults_load_without_file(tmp_path) -> None:
     assert config.tts_rate == 160
     assert config.virtual_camera_backend == "obs"
     assert config.pipeline_read_failure_poll_seconds == 0.05
-    assert config.static_enabled is False
+    assert config.static_enabled is True
     assert config.static_model_path_huruf == "models/huruf.npz"
     assert config.static_model_path_angka == "models/angka.npz"
 

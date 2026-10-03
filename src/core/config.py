@@ -59,9 +59,9 @@ _CONTRACT: tuple[tuple[str, str, str, Any], ...] = (
     ("tts", "enabled", "bool", True),
     ("tts", "speak_cooldown_seconds", "float", 2.5),
     ("virtual_camera", "backend", "str", "obs"),
-    # Jalur statis (huruf + angka). Mati secara default: dengan key ini tak
-    # dipakai, perilaku app identik dengan sebelum key itu ada.
-    ("static", "enabled", "bool", False),
+    # Jalur statis (huruf + angka). Nyala secara default: app memuat
+    # models/huruf.npz dan models/angka.npz langsung di start-up.
+    ("static", "enabled", "bool", True),
     ("static", "model_path_huruf", "str", "models/huruf.npz"),
     ("static", "model_path_angka", "str", "models/angka.npz"),
 )

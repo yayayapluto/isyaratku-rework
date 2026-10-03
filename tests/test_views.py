@@ -284,10 +284,14 @@ def test_finish_checks_warms_up_all_model_labels_before_pipeline(qapp, monkeypat
 
     predictor = seen_predictor[0]
     assert warmed, "finish_checks tidak memanggil warm_up pada speech sink"
-    assert len(warmed) == len(predictor.labels), (
-        f"warm_up dapat {len(warmed)} label, model punya {len(predictor.labels)}"
+    # static.enabled default True: warm_up dipanggil dua kali — label model
+    # kata dulu (isi dan urutannya persis daftar predictor), lalu label
+    # huruf/angka jalur statis. Keduanya harus pra-sintesis.
+    n_pred = len(predictor.labels)
+    assert warmed[:n_pred] == list(predictor.labels), (
+        f"warm_up dapat {len(warmed)} label, model punya {n_pred}"
     )
-    assert warmed == list(predictor.labels), "daftar label warm_up berbeda dari model"
+    assert len(warmed) > n_pred, "label huruf/angka statis tidak ikut di-warm_up"
     assert order.index("warm_up") < order.index("pipeline"), (
         "warm_up harus terjadi sebelum Pipeline dibangun/di-start"
     )
