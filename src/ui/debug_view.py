@@ -184,9 +184,8 @@ class DebugView(qw.QMainWindow):
             details=None,
             # Salinan piksel mentah disimpan SEBELUM draw_overlay menimpa
             # frame; turutannya sudah dicerminkan supaya kedua panel debug
-            # tampak sama (selfie), bedanya hanya overlay. Teks overlay selalu
-            # frame.text (label predictor); placeholder hanya tampil sebelum
-            # label pertama.
+            # tampak sama (selfie), bedanya hanya overlay. Teks overlay
+            # adalah satu baris compose: label kata lalu huruf/angka statis.
             renderer=make_renderer(PLACEHOLDER_TEXT, self._store_raw, mirror=True),
             # Mode debug: ucapan yang sama juga ke speaker ruangan supaya
             # terdengar saat demo; kabel tetap jalan untuk OBS/Zoom.

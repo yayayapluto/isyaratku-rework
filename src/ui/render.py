@@ -73,10 +73,10 @@ def draw_overlay(frame: Frame, text: str) -> Frame:
     Subtitle tanpa strip gelap: huruf putih dengan outline hitam tipis biar
     tetap terbaca di atas video. ``text`` YANG DIPAKAI menggambar — ia
     adalah subtitle lengkap yang sudah disusun pemanggil (label kata +
-    huruf/angka statis pada satu baris). ``frame.text`` hanya jadi
-    fallback untuk pemanggil yang tidak memberi teks apa pun (mis. headless
-    smoke: ``draw_overlay(frame, "Smoke test headless."``), supaya perilaku
-    itu tidak berubah.
+    huruf/angka statis pada satu baris). ``frame.text`` hanya fallback
+    untuk pemanggil yang tidak memberi teks apa pun (mis. headless
+    smoke: ``draw_overlay(frame, "Smoke test headless.")``), supaya
+    perilaku itu tidak berubah.
 
     ``drawn`` diteruskan ke proses menggambar apa adanya. ``frame.text``
     TIDAK dilewatkan ke ``return``; pemanggil mengirimkan teks lengkap, dan

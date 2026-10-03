@@ -391,12 +391,15 @@ def make_renderer(
 ) -> Callable[[Frame], Frame]:
     """Renderer overlay: subtitle lengket + landmark.
 
-    Subtitle = label predictor TERAKHIR yang pernah terlihat, diingat di
-    closure ``holder`` di bawah. Lengket di sini, bukan di pipeline:
-    ``Smoother`` punya cooldown yang sengaja menekan label identik supaya
-    TTS tidak mengulang kata yang sama tiap window — itu benar untuk audio,
-    salah untuk subtitle. Dengan ini kata tetap tampil sampai kata baru
-    datang; ``frame.text`` per frame tidak disimpan di mana pun di core.
+    Subtitle = ``compose_subtitle(holder kata, holder statis, placeholder)``:
+    label kata stabil DAN huruf/angka statis pada SATU BARIS, kata dulu lalu
+    statis, dipisah ``SUBTITLE_SEPARATOR``. Keduanya jalur prediksi berbeda
+    yang bisa hidup bersamaan, dan masing-masing lengket — diingat di dua
+    closure ``holder`` di bawah, bukan di pipeline: ``Smoother`` punya
+    cooldown yang sengaja menekan label identik supaya TTS tidak mengulang
+    kata yang sama tiap window — itu benar untuk audio, salah untuk subtitle.
+    ``draw_overlay`` menggambar teks hasil compose itu apa adanya (argumen
+    pemenang; ``frame.text`` hanya fallback bila argumen kosong).
 
     ``holder`` hidup PER INSTANSI renderer: tiap ``make_renderer()`` membuat
     closure baru, jadi dua view tidak pernah berbagi subtitle dan Start baru
