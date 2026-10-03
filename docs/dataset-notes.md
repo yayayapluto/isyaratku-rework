@@ -48,20 +48,24 @@ Berikut daftar 21 kandidat terpilih (3 per kategori dari 7 kategori) sesuai reka
 
 - Detail alasan pilih dan tolak ada di docs/info-dataset.md.
 - Aturan keras: dataset berlisensi proprietary atau HAKI (mis. MedSign) dikecualikan dan tidak masuk daftar kandidat.
-- Dua berkas dataset sudah dibuka secara lokal: `glennleonali/wl-bisindo` (1.600 berkas `.mp4` di `data/raw/wl-bisindo/`) dan `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` (4 CSV + 4 `.npy` di `data/raw/suryaadji/`). 19 dataset lainnya masih belum diinspeksi.
+- Enam berkas dataset sudah dibuka secara lokal: `glennleonali/wl-bisindo` (1.600 berkas `.mp4` di `data/raw/wl-bisindo/`), `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` (4 CSV + 4 `.npy` di `data/raw/suryaadji/`), `achmadnoer/alfabet-bisindo` (312 jpg), `agungmrf/indonesian-sign-language-bisindo` (11.469 jpg + 11.469 label YOLO), `sifaqeinstein/bisindo` (10.400 jpg + 10.400 label YOLO + `labels.txt`), dan `anggiyohanespardede/bisindo-40-kata-mp4` (2.000 `.mp4`). `agungmrf` dan `sifaqeinstein` TIDAK ada di daftar 21 kandidat di atas — keduanya diunduh khusus sebagai pembanding label huruf.
 
 
 ### Status inspeksi per dataset
 
-Dua dataset yang sudah diperiksa lokal: `glennleonali/wl-bisindo` dan `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks`. Baris dataset lain tetap "belum diinspeksi".
+Enam dataset sudah diunduh dan diperiksa lokal: `glennleonali/wl-bisindo`, `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks`, dan empat dataset baru yang dipakai untuk memverifikasi pemetaan huruf — `achmadnoer/alfabet-bisindo`, `agungmrf/indonesian-sign-language-bisindo`, `sifaqeinstein/bisindo`, `anggiyohanespardede/bisindo-40-kata-mp4`. Baris dataset lain tetap "belum diinspeksi".
 
 | Dataset | Status inspeksi |
 | --- | --- |
 | `glennleonali/wl-bisindo` | sudah diperiksa — lihat Temuan di bawah |
-| `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` | sudah diperiksa — lihat Temuan di bawah. Statis = berlabel ANGKA 0..25 (huruf A–Z tidak ada di berkas); Dynamic = terstruktur `<f4 (242, 60, 126)` + `<f4 (65, 60, 126)` label `<i4 (242,)`/`<i4 (65,)` |
-| 19 dataset kandidat lainnya | belum diinspeksi |
+| `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` | sudah diperiksa — lihat Temuan di bawah. Statis = berlabel ANGKA 0..25; Dynamic = terstruktur `<f4 (242, 60, 126)` + `<f4 (65, 60, 126)` label `<i4 (242,)`/`<i4 (65,)` |
+| `achmadnoer/alfabet-bisindo` | sudah diperiksa — pembanding peta huruf. 312 jpg, 26 folder huruf eksplisit `A/`..`Z/`, 12 per kelas; MediaPipe num_hands=2 sukses 281/312 (90,1%); dipakai di Slice 7 |
+| `agungmrf/indonesian-sign-language-bisindo` | sudah diperiksa — sumber eksplisit peta. 9.169 jpg train + 2.301 jpg val, 640×640, plus label YOLO 9.168 train / 2.301 val; folder `A/`..`Z/` → id 0..25 terverifikasi 26/26 folder |
+| `sifaqeinstein/bisindo` | sudah diperiksa — sumber eksplisit peta. 8.320 jpg train + 2.080 jpg val, 3024×4032, augmentasi aug1..aug4; `labels.txt` 26 baris `A`..`Z`; label YOLO id 0..25 terverifikasi 26/26 folder. Zip Kaggle rusak → diekstrak manual, 20.804 berkas utuh di disk |
+| `anggiyohanespardede/bisindo-40-kata-mp4` | sudah diperiksa — kandidat jendela kata. 2.000 mp4 = 40 kata Indonesia × 50 video; 400×300, 29.97 fps, 44-114 frame (median 69), durasi 1,47-3,80 s (median 2,30) |
+| 15 dataset kandidat lainnya | belum diinspeksi |
 
-Tabel di bawah khusus untuk `glennleonali/wl-bisindo`. Angka untuk 19 dataset lain masih belum diverifikasi; untuk `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` angkanya ada di bagian "Temuan: `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks`" karena isinya CSV landmark, bukan video.
+Tabel di bawah khusus untuk `glennleonali/wl-bisindo`. Angka untuk dataset lain masih belum diverifikasi detailnya; untuk `suryaadji/...` angkanya ada di bagian "Temuan: `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks`" (CSV landmark, bukan video), sementara angka pembanding peta huruf ada di bagian "Slice 7 — huruf statis".
 
 | Item | Status (wl-bisindo) | Status (20 lainnya) |
 | --- | --- | --- |
@@ -241,27 +245,33 @@ Pemindaian aturan lain sudah dicoba dan **6 dan 5 tidak dapat direproduksi dari 
 - Jangan menulis angka class, jumlah sample, jumlah signer, atau akurasi di dokumen lain sebelum ada di bagian temuan inspeksi.
 - Split data harus per signer, bukan acak per video. Lihat docs/architecture.md untuk pipeline dan docs/implementation-plan.md untuk slice 4.
 
-## Slice 7 — huruf statis (KONDISIONAL, peta angka→huruf belum tersedia)
+## Slice 7 — huruf statis
 
-Status bagian ini: RENCANA BERSYARAT. Tidak ada training, tidak ada angka akurasi, tidak ada demo pengenalan nama huruf dari dataset ini sampai pintu kunci di bawah terbuka. Kalimat satu-satunya yang pasti sekarang: **belum ada apa pun yang dilatih untuk huruf.**
+Status bagian ini: RENCANA PEMETAAN SUDAH TERBUKA, training BELUM. Pintu kunci pemetaan angka→huruf sudah diuji (angka di bawah), tapi belum ada satu pun model huruf yang dilatih, belum ada angka akurasi model huruf, dan belum ada demo pengenalan nama huruf sampai training benar-benar dijalankan. Kalimat satu-satunya yang tetap pasti sekarang: **belum ada apa pun yang dilatih untuk huruf.**
 
 ### Pintu kunci
 
-Label A–Z adalah hal yang HARUS ada lebih dulu: paket sudah diunduh dan diperiksa penuh, halaman Kaggle sudah dibaca lewat API, dan KEDUANYA tidak memuat rumus pemetaan angka→huruf. Yang ada di berkas hanya bilangan `label` 0..25; hurufnya tidak tertulis di mana pun. Tanpa peta itu, model bisa dilatih tapi namanya tidak bisa disebut, dan tidak ada yang boleh diklaim sebagai "huruf A". Mulai slice 7 juga keputusan yang mengubah arah, jadi harus menunggu izin user dulu (`docs/AGENTS.md:39`: "Asumsi besar atau keputusan yang mengubah arah: tanya user dulu").
+**Status: TERBUKA.** Pemetaan `label` 0..25 → `A`..`Z` pada suryaadji bukan lagi asumsi, sudah diuji dengan descriptor geometri yang INVARIAN rotasi/skala/translasi (210 jarak pairwise antar 21 landmark, dinormalisasi jarak `lm0→lm9`, per tangan, lalu digabung jadi 420-dimensi). Preprocessing identik kedua sisi; **catatan metode yang jujur**: wrist-centering + skala `lm0→lm9` seperti rencana awal GAGAL (5/26 identity, rasio diagonal/off-diagonal 0,766; intra-class suryaadji 5,526 > inter-centroid 3,305) karena nuansa rotasi in-plane mendominasi, dan descriptor pairwise inilah yang melewatinya. CSV suryaadji tetap koordinat ternormalisasi TEPI MediaPipe mentah (lm0 mean x 0,48, y 0,69, std 0,22/0,19 — bukan wrist-centred).
 
-Yang sudah terbaca langsung dari paket (ukur, bukan asumsi):
-- 8 berkas total. `Alphabet/` dan `Numbers/Static/` berisi CSV; `Numbers/Dynamic/` berisi `.npy`.
-- Header keempat CSV IDENTIK: 127 kolom = 126 fitur (`h0_lm{0..20}_{x,y,z}` lalu `h1_lm{0..20}_{x,y,z}`, urutan per landmark) + 1 kolom `label` di indeks 126. Nilai `label` terbaca integer: 0..25 pada `Alphabet` (7.558 dan 1.910 baris data, 0 baris non-integer), 0..10 pada `Numbers/Static` (582 dan 151 baris data, 0 baris non-integer). Konfirmasi byte: baris pertama `landmarks_train.csv` berakhiran `,label\r\n` dengan 126 koma (127 field), ukuran berkas 14.564.776 byte = sama persis daftar Kaggle untuk versi publik.
-- Jadi label statis ADA sebagai kolom. Yang TIDAK ada di paket: pemetaan angka→huruf A–Z. Angka `label` hanya bilangan; huruf A..Z hanya disebut di deskripsi Kaggle ("target label representing the alphabet letter (A-Z)"), bukan di berkas mana pun.
-- `Numbers/Dynamic/dynamic_numbers_X_val.npy` `<f4 (65, 60, 126)` dan `dynamic_numbers_y_val.npy` `<i4 (65,)` — jumlah sampel cocok berpasangan (65 dan 65), begitu pula train (242 dan 242). Label Dynamic ada sebagai berkas terpisah.
-- Urutan baris: keempat CSV TERURUT menurut `label` (26 blok berurutan pada Alphabet, 11 pada Numbers/Static). Ini hanya membuktikan baris tersusun berblok, BUKAN cara menentukan kelas — kelas ada di kolom `label`, tidak disimpulkan dari urutan.
-- Tidak ada signer, tidak ada pose, tidak ada flag kehadiran, di manapun dalam paket.
+**Angka pengukuran ULANG saya (uji yang dijalankan di sesi ini, bukan angka yang diklaim di laporan):**
+- Dataset pembanding `data/raw/achmadnoer/` = 312 jpg dalam 26 folder HURUF EKSPLISIT `A/`..`Z/` (12 per kelas, 191/312 berbentuk persegi). Ekstraksi MediaPipe HandLandmarker (`num_hands=2`, mode IMAGE): **281/312 sukses (90,1%)**, 31 gagal; 195 gambar bergambar 1 tangan, 86 gambar 2 tangan. Per kelas sukses: A12 B8 C12 D11 E12 F12 G10 H11 I12 J12 K12 L10 M12 N12 O12 P7 Q12 R12 S12 T10 U12 V12 W9 X12 Y9 **Z4**.
+- Deskriptor 420-dimensi: 210 jarak pairwise (i<j) dari 21 landmark, dinormalisasi jarak `lm0→lm9`, per tangan, disatukan 2 tangan. Saya konfirmasi di 281 gambar ini: lm0 mean x 0,385 y 0,695 std 0,294/0,158, median jarak lm0→lm4 0,398, lm0→lm8 0,509, celah rantai lm4-lm5 0,197 — pola geometri yang sama seperti suryaadji.
+- Matriks centroid suryaadji×huruf (Euclidean 26×26): **13/26 menang identity exact**; median rank label benar 1,5; rank ≤ 3 untuk 19/26; mean diagonal 3,222 vs off-diagonal 7,259 (rasio 0,444). Permutation test 5.000 kali: mean 1,00 sd 0,97, p_perm < 0,00001, z = 12,43.
+- Per-gambar nearest-1-label ke train suryaadji: **254/281 = 90,4%**. Per-gambar nearest-CENTROID: 115/281 = 40,9% (centroid lebih longgar daripada tetangga terdekat).
 
-Yang PERLU dikonfirmasi sebelum latih:
-- Pemetaan `label` 0..25 → huruf A–Z. Angkanya ada di file; hurufnya tidak. Peta ini harus diverifikasi (unduhan ulang bawa metadata, atau konfirmasi dari pembuat) sebelum menyebut angka itu "huruf A".
-- Batas aturan keras: belum ada yang dilatih, dan mulai slice 7 adalah keputusan yang mengubah arah → minta izin user dulu (`docs/AGENTS.md:39`).
+**Perbedaan dari laporan yang masuk — WAJIB dicatat:** laporan menyebut 16/26 identity, 90,7%, z=14,97, median rank 1. Pengukuran ulang saya memberi 13/26, 90,4%, z=12,43, median rank 1,5. Perbedaannya kecil dan tidak mengubah arah (tetap didukung kuat), tapi **angka yang dipakai adalah hasil ukuran ulang di sesi ini**, bukan angka dari laporan. Yang tidak berubah: konvensi 0=A..25=Z terdukung kuat, bukan bukti mutlak.
 
-### Desain bila peta angka→huruf dikonfirmasi (sudah diputus — jangan rancang ulang)
+**Dua sumber EKSPLISIT lain, diverifikasi dari disk, menegaskan konvensi sama:**
+- `data/raw/sifaqeinstein/split/split/labels.txt` = 26 baris `A`..`Z` berurutan (baris 1 = A … baris 26 = Z). Label YOLO per gambar di sana memakai id 0..25 hasil uji saya: 10.400 berkas label dibaca setiap baris pertamanya, 0 folder mismatch (folder `A` selalu id 0, folder `Z` selalu id 25, isinya persis `[chr(65+i)]`). Formatnya `0.0 …` (float) bukan `0` (int).
+- `data/raw/agungmrf/bisindo/labels/{train,val}/<Huruf>/*.txt`: field pertama id numerik; 26 folder, 0 mismatch — folder `A` selalu `0` (438 label train + val), folder `Z` selalu `25` (450 label). Contoh isi: `IMG_20191210_180125.txt` → `0 0.501563 0.671875 0.996875 0.656250`. Jumlah label: train 9.168, val 2.301.
+
+**Batas yang tetap berlaku:**
+- Uji ini uji KESAMAAN DISTRIBUSI lintas dataset, bukan kualitas label suryaadji. 13/26 label tidak menang exact di level centroid (pemenang: A→S, D→T, G→P, H→T, K→T, L→C, O→Z, Q→S, U→C, X→T, dan per-gambar 1-NN tetap gagal di O 0/12 dan Y 0/9); Z hanya 4/12 gambar sukses di pembanding. Jadi ini TERDUKUNG KUAT, BUKAN BUKTI MUTLAK.
+- Label 0..25 suryaadji = 5.191 baris latih in-distribution. Suryaadji TIDAK disentuh oleh uji ini dan tetap seperti yang tercatat di bagian Temuan: 17,38% kebocoran train/val dan duplikat train tetap berlaku → metrik HARUS melaporkan DUA angka (dedup dan apa adanya), bukan satu.
+- Nol signer di suryaadji → TIDAK ada klaim generalisasi lintas signer. Uji ini bahkan memakai gambar dari penyeri LAIN, jadi yang terbukti hanya keselarasan konvensi label, bukan performa model.
+- Tidak ada angka akurasi model huruf di dokumen ini. Belum ada training.
+
+### Desain (sudah diputus — jangan rancang ulang)
 
 Model statis PER FRAME, TERPISAH dari model kata. Bukti: `docs/tech-decisions.md:13` ("Model MLP kecil per frame untuk isyarat statis — Angka dan huruf adalah pose diam, tidak perlu sequence model"). Bukti kenapa jalur gerak kata tidak bisa dipakai apa adanya: `src/core/smoothing.py:53-70` `hand_motion` = rata-rata norma delta tangan antar frame; `IDLE_MOTION_FLOOR = 0.05` (`:44`) dikalibrasi pada 5.191 window tangan-ada supaya "memblokir 0.000% window nyata sekaligus membunuh jitter sampai amp 0.0020 dan statik murni (0.0)" (`:38-41`), jadi setiap window huruf statis langsung `blocked_idle` di `Smoother.feed:126-129`. Tidak ada nilai ambang yang bisa menerima huruf dan tetap memblokir jitter.
 
@@ -296,21 +306,18 @@ Suryaadji TIDAK punya informasi signer. Konsekuensi yang sudah jadi fakta di rep
 
 ### Risiko
 - Semua bukti kualitas data statis (rentang nilai, urutan landmark, duplikat, kebocoran) terukur dari BACA FILE SAJA, bukan dari label — jadi tidak satu pun angka itu bergantung pada label.
-- Bila label ternyata hanya ada di luar paket dan tidak bisa diambil, slice 7 tetap tertahan. Tidak ada jalan pendek yang direkayasa; mengarang kelas dari urutan baris dilarang oleh aturan keras dokumen ini.
+- Pemetaan label sudah TERBUKA (uji centroid + 2 sumber eksplisit), tetapi hanya sebagai keselarasan konvensi — bukan bukti kualitas data. Kalau ada kelas lain yang belum masuk uji distribusi, kesimpulan bisa diperbarui hanya lewat ukuran baru, bukan dengan menambal: mengarang kelas dari urutan baris tetap dilarang oleh aturan keras dokumen ini.
 - Duplikat dan kebocoran yang sudah tercatat membuat angka akurasi dari paket ini mudah terlalu optimistis — harus laporkan dua angka (dedup dan apa adanya), bukan satu.
 - Nol signer dan nol metadata kelas membuat demo penyusunan nama dari huruf berupa ekstrapolasi, bukan hasil ukuran.
 - Aturan keras `docs/dataset-notes.md:221` tetap menempel: tidak ada training sebelum hasil inspeksi tercatat di sini, dan tidak ada kelas karangan.
 
 ### Batas
-- Tidak ada training, evaluasi, artifact, maupun perubahan `src/`, `training/`, `tests/`, `models/` sampai pemetaan angka→huruf diputuskan DAN izin user ada.
+- Tidak ada training, evaluasi, artifact, maupun perubahan `src/`, `training/`, `tests/`, `models/` sampai izin user ada. Pemetaan angka→huruf sudah TERBUKA, jadi yang menunggu bukan pemetaan, melainkan keputusan user.
 - `training/dataset.py` dan `training/train.py` tidak disentuh; `models/` tidak disentuh.
-- Rencana ini tidak mengubah aturan keras di bagian atas dokumen; hanya mencatat desain yang sudah diputus bila pintu kunci terbuka.
+- Rencana ini tidak mengubah aturan keras di bagian atas dokumen; hanya mencatat desain yang sudah diputus untuk jalur huruf.
 
-### Dua opsi untuk pemetaan angka→huruf (keputusan user)
+### Peta yang dipakai sekarang (hasil ukuran, bukan asumsi)
 
-Keduanya bukan soal "cari label" — `label` 0..25 sudah terbaca di berkas. Keduanya soal menetapkan huruf untuk tiap angka, dan mengubah arah pengerjaan, jadi menunggu user.
+YANG SUDAH SELESAI: `0=A` sampai `25=Z`. Buktinya ada di bagian Pintu kunci (uji centroid yang dijalankan ulang di sesi ini, 13/26 identity exact, 1-NN 254/281 = 90,4%, z=12,43, plus dua sumber eksplisit terverifikasi `sifaqeinstein` dan `agungmrf`). Peta ini ditulis sebagai HASIL PENGUKURAN, bukan karangan — dan batasnya tetap bahwa ia mengukur keselarasan konvensi lintas dataset, bukan kualitas data.
 
-1. **Ambil peta resmi dari luar paket** — versi lain paket Kaggle, metadata pembuat, atau konfirmasi dari pembuat dataset. Konsekuensi: peta bersumber luar dan tidak bisa diverifikasi dari file sendiri, tapi paling murah dan tidak ada merekam. Kalau petanya hanya tersedia di ucapan pembuat, itu harus ditulis ke suatu berkas repo supaya pemetaannya tidak berubah diam-diam lama sesudahnya.
-2. **Buat peta sendiri + rekam validasi via `training/record_self`** — tetapkan sendiri pemetaan 0..25 → A..Z, lalu rekam 26 huruf sebagai pembanding. Konsekuensi: bisa diuji, tapi salah peta berarti seluruh demo salah arah dari akar, dan ini tetap satu signer, tanpa klaim lintas signer.
-
-Rekomendasi: opsi 1 untuk peta, opsi 2 jika tujuannya tetap demo pada satu signer. Keduanya menunggu keputusan user.
+JIKA NANTI ada angka yang perlu diperiksa ulang (misal kelas yang belum masuk uji, atau dataset pembanding lain yang bergambar huruf), cara memperbaikinya satu: jalankan ukuran baru di atas kedua sumber lalu catat angkanya di bagian Pintu kunci. Peta TIDAK boleh ditulis dari urutan baris atau dari perkiraan.

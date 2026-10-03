@@ -1,0 +1,84 @@
+{
+  "nama": "isyaratku-angka",
+  "format": "joblib (sklearn)",
+  "butuh_torch_runtime": false,
+  "jumlah_kelas": 11,
+  "kelas_model": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "feature_count": 126,
+  "preprocessing": "wrist-centre (lm0) + skala lm0->lm9, per tangan h0/h1 terpisah",
+  "label": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "?"
+  ],
+  "metrik": {
+    "model": "mlp",
+    "model_disimpan": "dedup",
+    "dedup": {
+      "train_dipakai": 582,
+      "akurasi": 0.986755,
+      "macro_f1": 0.985651,
+      "per_kelas": [
+        1.0,
+        1.0,
+        0.909091,
+        1.0,
+        1.0,
+        1.0,
+        0.933333,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "apa_adanya": {
+      "train_dipakai": 582,
+      "akurasi": 0.986755,
+      "macro_f1": 0.985651,
+      "per_kelas": [
+        1.0,
+        1.0,
+        0.909091,
+        1.0,
+        1.0,
+        1.0,
+        0.933333,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "catatan_val_bocor": "0 baris val identik dengan train (dibuang dari train saat --dedup)."
+  },
+  "dataset": {
+    "train": "data\\raw\\suryaadji\\Numbers\\Static\\landmarks_numbers_train.csv",
+    "val": "data\\raw\\suryaadji\\Numbers\\Static\\landmarks_numbers_val.csv",
+    "sha256_train": "bceac431ae578cae9c3d35f1ed9f17e6907b72e7e5edf2b0aad42eb300341368",
+    "sha256_val": "ccbfff1e674de137ebd4ab62419ac9de8f93c5c15bc35738208a98016faf6498"
+  },
+  "batas": "split train/val apa adanya dari berkas; TANPA info signer, bukan generalisasi lintas signer.",
+  "durasi_fit_detik": 0.6,
+  "dilatih": "2026-10-03 20:00:53"
+}

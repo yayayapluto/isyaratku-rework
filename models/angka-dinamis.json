@@ -1,0 +1,80 @@
+{
+  "nama": "isyaratku-angka-dinamis",
+  "format": "joblib (sklearn)",
+  "butuh_torch_runtime": false,
+  "jumlah_kelas": 10,
+  "kelas_model": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "feature_count": 252,
+  "preprocessing": "wrist-centre + skala lm0->lm9 per frame per tangan, lalu pooling waktu mean+std (252 fitur)",
+  "label": [
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9"
+  ],
+  "metrik": {
+    "model": "mlp",
+    "model_disimpan": "dedup",
+    "dedup": {
+      "train_dipakai": 242,
+      "akurasi": 0.876923,
+      "macro_f1": 0.87304,
+      "per_kelas": [
+        0.857143,
+        0.833333,
+        0.666667,
+        0.833333,
+        1.0,
+        1.0,
+        1.0,
+        0.714286,
+        0.833333,
+        1.0
+      ]
+    },
+    "apa_adanya": {
+      "train_dipakai": 242,
+      "akurasi": 0.876923,
+      "macro_f1": 0.87304,
+      "per_kelas": [
+        0.857143,
+        0.833333,
+        0.666667,
+        0.833333,
+        1.0,
+        1.0,
+        1.0,
+        0.714286,
+        0.833333,
+        1.0
+      ]
+    },
+    "catatan_val_bocor": "0 baris val identik dengan train (dibuang dari train saat --dedup)."
+  },
+  "dataset": {
+    "train": "data\\raw\\suryaadji\\Numbers\\Dynamic\\dynamic_numbers_X_train.npy",
+    "val": "data\\raw\\suryaadji\\Numbers\\Dynamic\\dynamic_numbers_X_val.npy",
+    "sha256_train": "d56661ecda7f0dba8dde8c193f871bec079101fcc66d5dad124f525c6865f585",
+    "sha256_val": "e9b416f7e2f8dc37880aae99e54367a6c37b45278f16a3c7ad93f7098e77071a"
+  },
+  "batas": "split train/val apa adanya; 9 kelas 0..9; bukan generalisasi lintas signer (tanpa info signer).",
+  "durasi_fit_detik": 0.45,
+  "dilatih": "2026-10-03 20:00:56"
+}
