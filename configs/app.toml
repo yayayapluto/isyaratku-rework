@@ -34,6 +34,11 @@
 #     kirim-saja yang dulu dipakai tidak dipakai lagi: filter penerimanya tidak
 #     pernah load di mesin ini sehingga tak ada consumer yang bisa membaca
 #     frame. OBS Virtual Camera sudah terverifikasi round trip dua proses.)
+#   static.enabled = false (jalur statis huruf/angka per-frame mati; kalau
+#     dinyalakan, app memuat models/huruf.npz dan models/angka.npz dan
+#     menampilkan huruf yang sedang disusun sebagai subtitle),
+#   static.model_path_huruf = "models/huruf.npz",
+#   static.model_path_angka = "models/angka.npz".
 #
 # Path alternatif: set environment variable ISYARATKU_CONFIG.
 #
