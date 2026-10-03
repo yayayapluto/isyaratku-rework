@@ -15,6 +15,7 @@ sudah ada bisa memakainya tanpa perubahan.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -47,6 +48,24 @@ STATIC_FEATURE_COUNT = 126
 #: Berapa kelas teratas yang dilaporkan di ``ranked``.
 STATIC_TOP_K = 5
 
+def _resolusi_artifact(path: str | Path) -> Path:
+    """Selesaikan path model ke bundle frozen kalau tak ada di CWD.
+
+    Saat PyInstaller onedir (``sys.frozen`` + ``sys._MEIPASS``), artifact
+    ikut di-bundle; EXE bisa dijalankan dari folder mana saja lewat
+    shortcut atau absolute path, jadi CWD tak punya ``models/``. Path
+    relaif yang cocok di bundle dipakai; kalau tidak ada, path asli
+    dikembalikan apa adanya supaya pesan kena miss tetap rujukannya.
+    """
+    p = Path(path)
+    if p.exists():
+        return p
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        candidate = Path(sys._MEIPASS) / p
+        if candidate.exists():
+            return candidate
+    return p
+
 
 class StaticTrainedPredictor:
     """MLP tiga lapis Relu dari satu baris fitur tangan (126 kolom).
@@ -58,7 +77,7 @@ class StaticTrainedPredictor:
     """
 
     def __init__(self, model_path: str | Path) -> None:
-        self._path = Path(model_path)
+        self._path = _resolusi_artifact(model_path)
         if not self._path.exists():
             raise FileNotFoundError(
                 f"Model statis tidak ditemukan: {self._path}. Tidak ada "
