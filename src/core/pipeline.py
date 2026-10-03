@@ -197,10 +197,10 @@ class Pipeline:
         #
         # Sink ditutup SESUDAH kedua thread di-join: `_output_loop` baru
         # keluar dari `sink.send(frame)` saat `_stop_set` dan queue sudah
-        # kosong, jadi masih ada send() yang sedang berjalan ketika close()
-        # dipanggil. `VirtualCameraSink.close()` adalah
+        # kosong; urutan LAMA (close sebelum join) membuat close() bisa jatuh
+        # di tengah send() yang masih berjalan. `VirtualCameraSink.close()` adalah
         # `pyvirtualcam.Camera.close()` tanpa lock: menutupnya di tengah
-        # send() berisiko native OBS luar aturan Sequence R2 (producer
+        # send() berisiko melanggar aturan R2 driver OBS (producer
         # harus tetap hidup dengan Camera terbuka, lihat header
         # virtual_camera.py) maupun `AttributeError` saat send() membaca
         # backend yang sudah None — `_output_loop` lalu mencatatnya sebagai
