@@ -288,9 +288,11 @@ def test_finish_checks_warms_up_all_model_labels_before_pipeline(qapp, monkeypat
 def test_finish_checks_reuses_the_checks_camera(qapp, monkeypatch) -> None:
     """Regresi bug 1: Start TIDAK boleh membuka kamera kedua.
 
-    Terukur: pra-cek ~32,8 s, rilis ~0,01 s, buka lagi ~27,7 s — hampir satu
-    menit terbuang per Start hanya karena ``finish_checks`` membuat
+    Dulu terukur: pra-cek ~32,8 s, rilis ~0,01 s, buka lagi ~27,7 s — hampir
+    satu menit terbuang per Start hanya karena ``finish_checks`` membuat
     ``OpenCvCameraSource`` baru padahal pra-cek sudah punya handle hidup.
+    Penyebab biayanya ``set()`` W/H/FPS sebelum ``read()`` pertama (re-init
+    MSMF ~6-7 s per properti), sudah diperbaiki di ``camera.warm_up``.
     Tes ini membuktikan: handel dari pra-cek dipakai ulang, dan pabrik
     ``OpenCvCameraSource`` TIDAK dipanggil sama sekali.
     """
@@ -375,8 +377,10 @@ def test_checks_signal_carries_results_camera_to_the_view(qapp, monkeypatch) -> 
 
     ``CheckSignals.finished`` semula bertipe ``list``, dan PySide6 mengonversi
     ``CheckResults`` menjadi list polos di batas itu. ``.camera`` hilang, jadi
-    ``finish_checks`` membuka kamera KEDUA di GUI thread: terukur 27,5 s
-    membekukan Start (status masih "memeriksa...", pipeline belum ada).
+    ``finish_checks`` membuka kamera KEDUA di GUI thread: dulu terukur 27,5 s
+    membekukan Start (status masih "memeriksa...", pipeline belum ada);
+    penyebab biayanya ``set()`` W/H/FPS sebelum ``read()`` pertama, sudah
+    diperbaiki di ``camera.warm_up``.
     """
     from src.adapters.checks import CheckResults
 
@@ -840,6 +844,79 @@ def test_tick_menulis_panel_dari_data_tampungan(qapp) -> None:
     finally:
         debug.close()
         ready.close()
+
+
+class _SuaraGalatSkrip:
+    """SpeechSink tiruan: hanya counter galat yang dipakai view."""
+
+    def __init__(self, errors: int) -> None:
+        self._errors = errors
+
+    @property
+    def speech_errors(self) -> int:
+        return self._errors
+
+
+def test_galat_suara_muncul_di_panel_siap_pakai(qapp) -> None:
+    """Suara mati harus TAMPAK, bukan hanya tercatat di ``last_error``.
+
+    Regresi: kegagalan TTS tersimpan diam (satu galat terakhir) dan user
+    melihat demo tanpa suara tanpa penjelasan. Yang dikunci: tick yang
+    membaca counter sink suara dan menambahkannya ke baris detail.
+    """
+    ready = ReadyView(config())
+    try:
+        pipeline = Pipeline(camera=_KameraSkrip(), sink=_SinkSkrip(), config=config())
+        ready._pipeline = pipeline
+        stats = Stats(fps=1.0, frames_sent=3, frames_dropped=1,
+                      frames_captured=5, elapsed_seconds=2.0)
+
+        ready._speech = _SuaraGalatSkrip(2)
+        ready._newest_stats = stats
+        ready._paint_preview()
+        assert "suara gagal 2" in ready._details.text(), ready._details.text()
+    finally:
+        ready.close()
+
+
+def test_tanpa_galat_suara_baris_panel_tetapa_bersih(qapp) -> None:
+    """Counter 0 / sink tidak ada: baris detail tidak berubah sedikit pun."""
+    ready = ReadyView(config())
+    try:
+        pipeline = Pipeline(camera=_KameraSkrip(), sink=_SinkSkrip(), config=config())
+        ready._pipeline = pipeline
+        stats = Stats(fps=1.0, frames_sent=3, frames_dropped=1,
+                      frames_captured=5, elapsed_seconds=2.0)
+
+        ready._speech = _SuaraGalatSkrip(0)
+        ready._newest_stats = stats
+        ready._paint_preview()
+        assert "suara gagal" not in ready._details.text(), ready._details.text()
+        assert "dibaca 5" in ready._details.text()
+
+        ready._speech = None
+        ready._newest_stats = stats
+        ready._paint_preview()
+        assert "suara gagal" not in ready._details.text(), ready._details.text()
+    finally:
+        ready.close()
+
+
+def test_metrik_debug_menampilkan_galat_suara(qapp) -> None:
+    """Mode debug punya baris metrik sendiri untuk counter yang sama."""
+    debug = DebugView(config())
+    try:
+        pipeline = Pipeline(camera=_KameraSkrip(), sink=_SinkSkrip(), config=config())
+        debug._pipeline = pipeline
+        stats = Stats(fps=1.0, frames_sent=3, frames_dropped=1,
+                      frames_captured=5, elapsed_seconds=2.0)
+
+        debug._speech = _SuaraGalatSkrip(3)
+        debug._newest_stats = (stats, {})
+        debug._paint_preview()
+        assert debug._speech_label.text() == "Galat suara (TTS): 3"
+    finally:
+        debug.close()
 
 
 def test_close_selama_pipeline_hidup_tidak_meledak(qapp) -> None:

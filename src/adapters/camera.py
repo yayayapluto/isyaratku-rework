@@ -56,9 +56,14 @@ def warm_up(capture, config: AppConfig) -> bool:
     ~18-22 s untuk tiga). Kalau ``read()`` lebih dulu, ``set()`` yang sama
     jatuh tempo sampai ~0,5 ms; dan ``get()`` sebelum ``read()`` sudah
     melaporkan 640x480 (`_probe_cam6.py`), jadi jalur normal tidak perlu
-    ``set()`` ukuran sama sekali. Total sekarang ~6 s: terbuka ~5-6 s +
-    read pertama ~0,5 s. Itu yang membuat ``kamera pra-cek selesai dalam
-    25-33 s`` di logs/isyaratku-2026-10-03.log turun.
+    ``set()`` ukuran sama sekali. Total urutan sekarang terukur 6,8-7,9 s
+    (3 run): pembukaan ``VideoCapture(0, CAP_MSMF)`` sendiri 6,1-8,2 s —
+    ``isOpened()`` sudah True saat ctor balik — plus read pertama ~0,5 s.
+    Urutan LAMA (set() sebelum read pertama) masih terukur 18,9-22,2 s di
+    mesin ini: tiga ``set()`` sendirian 18,4-21,7 s (re-init stream MSMF
+    ~6-7 s per properti). Itu yang membuat ``kamera pra-cek selesai dalam
+    25-33 s`` di logs/isyaratku-2026-10-03.log; pasca-perbaikan
+    ``run_checks selesai dalam 7,176 s``.
 
     Kembali ``False`` bila tak ada satu pun frame dalam
     ``FRAME_WARMUP_MAX`` read — pemanggil (``_check_camera``) lalu melepas

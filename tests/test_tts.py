@@ -263,6 +263,64 @@ def test_sink_tts_gagal_terlihat_di_log_bukan_diam(caplog) -> None:
     assert "'device hilang'" in caplog.text
 
 
+def test_speech_errors_menghitung_setiap_gagal_bukan_cuma_yang_terakhir() -> None:
+    """``speech_errors`` menghitung SEMUA kegagalan, bukan hanya terakhir.
+
+    ``last_error`` hanya menyimpan galat terakhir: kegagalan yang sudah
+    lewat tidak terlihat sama sekali. Counter inilah yang dipakai UI untuk
+    menampilkan suara mati (``_format_speech_errors`` / metrik debug).
+    """
+    from src.adapters.tts import SpeechSink
+
+    class TtsGalat:
+        voice_model_available = True
+
+        def speak(self, label: str):
+            raise RuntimeError("device hilang")
+
+        def play(self, label: str):
+            raise RuntimeError("device hilang")
+
+    speech = SpeechSink(TtsGalat(), cooldown_seconds=0.0)
+    speech.feed("Sore")
+    speech.feed("Air")
+    for thread in speech._threads:
+        thread.join(timeout=5.0)
+
+    assert speech.speech_errors == 2
+    assert isinstance(speech.last_error, RuntimeError)
+
+
+def test_warm_up_gagal_ikut_terhitung_di_speech_errors() -> None:
+    """Warm-up gagal juga galat suara: jalur yang sama lewat ``_record``."""
+    from src.adapters.tts import SpeechSink
+
+    class TtsGalat:
+        voice_model_available = True
+
+        def speak(self, label: str):
+            raise RuntimeError("tidak bisa speak")
+
+        def play(self, label: str):
+            raise RuntimeError("tidak bisa play")
+
+        def warm_up(self, labels) -> None:
+            raise RuntimeError("sintesis rusak")
+
+    speech = SpeechSink(TtsGalat())
+    speech.warm_up(["air"])
+    assert speech.speech_errors == 1
+    assert isinstance(speech.last_error, RuntimeError)
+
+
+def test_speech_errors_nol_bila_suara_tidak_pernah_gagal() -> None:
+    """Default 0: baris UI baru muncul setelah kegagalan pertama."""
+    from src.adapters.tts import FakeTTS, SpeechSink
+
+    speech = SpeechSink(FakeTTS())
+    assert speech.speech_errors == 0
+
+
 # -- klaim dengan artefak NYATA (models/tts/*.onnx) ---------------------
 
 def _voice_nyata_ada() -> bool:

@@ -390,6 +390,10 @@ class SpeechSink:
         self.enabled = enabled
         self.sent: list[str] = []
         self.last_error: Exception | None = None
+        #: Jumlah kegagalan TTS sejak reset. ``last_error`` hanya menyimpan
+        #: yang terakhir; tanpa hitungan ini galat yang sudah lewat tidak
+        #: terlihat sama sekali (suara mati diam-diam).
+        self._speech_errors = 0
         if cooldown_seconds is not None:
             self._cooldown = max(0.0, cooldown_seconds)
         elif config is not None:
@@ -474,8 +478,18 @@ class SpeechSink:
                 ]
 
     def _record(self, exc: Exception) -> None:
-        self.last_error = exc
+        # Ditulis dari thread pemutaran DAN dari thread GUI (warm_up saat
+        # pra-cek), jadi di bawah lock yang sama dengan penghitung lainnya.
+        with self._lock:
+            self._speech_errors += 1
+            self.last_error = exc
         logger.warning("Galat TTS dicatat, streaming lanjut: %r", exc)
+
+    @property
+    def speech_errors(self) -> int:
+        """Berapa kali TTS gagal; 0 berarti suara tidak pernah gagal."""
+        with self._lock:
+            return self._speech_errors
 
     @property
     def voice_available(self) -> bool:

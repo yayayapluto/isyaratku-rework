@@ -48,8 +48,9 @@ class CheckSignals(qc.QObject):
 
     Tipe payload ``object``, bukan ``list``: ``Signal(list)`` mengonversi
     subkelas ``CheckResults`` menjadi list polos dan ``.camera`` hilang —
-    ``finish_checks`` lalu membuka kamera KEDUA di GUI thread (terukur 27,5 s
-    freeze Start).
+    ``finish_checks`` lalu membuka kamera KEDUA di GUI thread (dulu terukur
+    27,5 s membekukan Start; penyebab biayanya ``set()`` W/H/FPS sebelum
+    ``read()`` pertama, sudah diperbaiki di ``camera.warm_up``).
     """
 
     finished = qc.Signal(object)
@@ -156,10 +157,13 @@ def finish_checks(view, results, details, renderer) -> object | None:
     pipeline = None
     camera = None
     try:
-        # Kamera yang SUDAH dibuka saat pra-cek dipakai lagi: acquisisi kedua
-        # memakan ~27 s di mesin ini (terukur), dan itu yang membuat Start
-        # terasa menggantung. Hasil boleh berupa list biasa (test, atau
-        # pemanggil lain) — di sana pemeriksaan kamera tidak membawa handle.
+        # Kamera yang SUDAH dibuka saat pra-cek dipakai lagi: acquisisi
+        # kedua dulu terukur ~27 s di mesin ini, dan itu yang membuat Start
+        # terasa menggantung. Penyebab biayanya ``set()`` W/H/FPS sebelum
+        # ``read()`` pertama (re-init MSMF ~6-7 s per properti), sudah
+        # diperbaiki di ``camera.warm_up``. Hasil boleh berupa list biasa
+        # (test, atau pemanggil lain) — di sana pemeriksaan kamera tidak
+        # membawa handle.
         step = _Langkah("kamera pra-cek")
         camera = _take_shared_camera(results)
         if camera is not None:
@@ -224,6 +228,10 @@ def finish_checks(view, results, details, renderer) -> object | None:
         logger.info("finish_checks selesai dalam %.3f s (gagal bangun)", time.monotonic() - t0)
         return None
     view._pipeline = pipeline
+    # Sink suara tidak dipegang pipeline (hanya closure fanout), jadi view
+    # menyimpan handle-nya sendiri: hanya lewat sini `speech_errors` bisa
+    # dibaca tick GUI. Tanpa baris ini galat TTS tetap tak terlihat.
+    view._speech = speech
     view._pipeline.start()
     view._timer.start()
     view._set_status(*view.STATUS_RUNNING)

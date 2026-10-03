@@ -37,6 +37,21 @@ def _format_label_latency(latency: dict) -> str:
         f"p95 {latency['p95_ms']:.1f} ms"
     )
 
+def _format_speech_errors(view: object) -> str:
+    """Segmen galat suara; string kosong bila belum pernah gagal.
+
+    Angkanya milik SpeechSink (ditulis thread pemutaran), view hanya
+    membaca counter-nya di tick ini. Nol berarti suara tidak pernah gagal
+    dan barisnya tetap seperti sebelumnya — commit muatan nol.
+    """
+    speech = getattr(view, "_speech", None)
+    if speech is None:
+        return ""
+    failed = speech.speech_errors
+    if not failed:
+        return ""
+    return f" | suara gagal {failed}"
+
 
 def _on_gui_thread() -> bool:
     """True bila kode ini jalan di thread GUI (bukan thread pipeline).
@@ -230,6 +245,7 @@ class ReadyView(qw.QMainWindow):
                     f"FPS terkirim {stats.fps:5.1f} | dikirim {stats.frames_sent} | "
                     f"dibuang {stats.frames_dropped} | dibaca {stats.frames_captured} | "
                     f"{_format_label_latency(getattr(pipeline, 'label_latency', {}))}"
+                    f"{_format_speech_errors(self)}"
                 )
             return
         # Isi seluruh box pratinjau: rasio aspek dipertahankan dengan
@@ -254,10 +270,11 @@ class ReadyView(qw.QMainWindow):
         )
         if stats is not None:
             self._details.setText(
-                f"FPS terkirim {stats.fps:5.1f} | dikirim {stats.frames_sent} | "
-                f"dibuang {stats.frames_dropped} | dibaca {stats.frames_captured} | "
-                f"{_format_label_latency(getattr(pipeline, 'label_latency', {}))}"
-            )
+                    f"FPS terkirim {stats.fps:5.1f} | dikirim {stats.frames_sent} | "
+                    f"dibuang {stats.frames_dropped} | dibaca {stats.frames_captured} | "
+                    f"{_format_label_latency(getattr(pipeline, 'label_latency', {}))}"
+                    f"{_format_speech_errors(self)}"
+                )
 
     def _stop_timer_on_error(self, fail: Exception) -> None:
         self._timer.stop()

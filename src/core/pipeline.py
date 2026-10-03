@@ -188,14 +188,21 @@ class Pipeline:
 
     def stop(self) -> None:
         self._stop.set()
+        # close() DULU, baru join(): MSMF yang read() terblokir menunggu frame
+        # baru hanya cocok bila devicenya ditutup — di mesin ini satu read()
+        # terblokir terukur ~19 s, dan close() melepasnya seketika (pemulihan
+        # kembali ke kamera app lain terukur <2 s). close() idempoten juga:
+        # kamera/sink tiruan maupun OpenCV keduanya aman dipanggil dua kali.
+        # Urutan lama (join baru close) membuat Stop menggantung sampai
+        # `pipeline_stop_timeout_seconds` jalur untuk setiap thread.
+        self.camera.close()
+        self.sink.close()
         timeout = self.config.pipeline_stop_timeout_seconds
         for thread in (self._capture_thread, self._output_thread):
             if thread is not None:
                 thread.join(timeout=timeout)
         self._capture_thread = None
         self._output_thread = None
-        self.camera.close()
-        self.sink.close()
         logger.info("pipeline stop: %s", self._stop_info())
 
     def _stop_info(self) -> str:

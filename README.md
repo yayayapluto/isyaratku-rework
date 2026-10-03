@@ -11,9 +11,9 @@ What actually runs today: the camera → landmark → prediction → smoothing �
 - Full pipeline: camera → MediaPipe landmarks → windowing → prediction → smoothing → overlay → OBS Virtual Camera.
 - Audio: offline piper TTS plays stable labels to the audio cable; measured cable RMS 0.1047 and audio duration 18.61 s for 8 labels (`docs/environment.md:110-124`).
 - Two PySide6 interface modes: ready to use (Start/Stop) and debug (dashboard with FPS, drop, window, landmark, and word log panels).
-- Start no longer freezes: a regression fix for `Signal(list)` → `Signal(object)` in `src/ui/check_task.py` keeps `CheckResults` intact across the signal boundary, so the pre-check no longer opens a second camera on the GUI thread (second camera acquire measured at ~27.5 s blocking the GUI thread).
+- Start no longer freezes: `Signal(list)` → `Signal(object)` in `src/ui/check_task.py` keeps `CheckResults` intact across the signal boundary, so the pre-check no longer opens a second camera on the GUI thread (a second camera acquire used to take ~27.5 s and block the GUI thread; before the `warm_up` order fix).
 - Predictor p50 latency 0.066 ms (`docs/tech-decisions.md:178-181`); the headless path passes (`Headless smoke: LOLOS`).
-- Silent failures now log: every `print(..., file=sys.stderr)` site in the app never reached the log, because the logging setup in `src/core/logging.py` installs only a file handler, so a failing predictor or a failing TTS was completely silent. All those sites now log through `logger.warning` in `src/core/pipeline.py`, so both failure and success leave traces in `logs/isyaratku-<date>.log`. The stopping line now reports `dibaca=… dikirim=… dibuang=… label=… jalur_label=window=… galat=… prediksi_gagal=… label_gagal=…`.
+- Silent failures now log: every `print(..., file=sys.stderr)` site in the app never reached the log, because the logging setup in `src/core/logging.py` installs only a file handler, so a failing predictor, a failing TTS, or a config warning was completely silent. All those sites now log through `logger.warning` in `src/core/pipeline.py`, `src/adapters/tts.py` (`SpeechSink._record`), and `src/core/config.py` (`_warn`), so both failure and success leave traces in `logs/isyaratku-<date>.log`; the single intentional residue is `src/core/logging.py:130`, which writes to `sys.stderr` because that OSError fallback runs when the log file itself cannot be created, so stderr is the only available channel.
 
 **Not done / limitations:**
 
@@ -61,7 +61,7 @@ python -m pytest -q -p no:cacheprovider
 
 VB-Cabel and OBS Virtual Camera must already be installed on the system; the automatic check at Start verifies the camera, the virtual camera, and the cable, then reports a specific error if one of them is not ready.
 
-Pressing **Start** used to take ~25-33 seconds: `cv2.VideoCapture`'s width/height/fps `set()` calls ran before the first frame read, and with the MSMF backend each property forced a full stream re-init (~6-7 s each). The camera now reads its first frame first and only sets a property when the stream does not already match the config, bringing Start down to roughly 6 s on this machine (`src/adapters/camera.py`, `warm_up`, `FRAME_WARMUP_MAX`). MSMF remains the default backend (28.56 fps).
+Pressing **Start** used to take ~25-33 seconds: `cv2.VideoCapture`'s width/height/fps `set()` calls ran before the first frame read, and with the MSMF backend each property forced a full stream re-init (~6-7 s each). The camera now reads its first frame first and only sets a property when the stream does not already match the config. Measured on this machine: the pre-check's first camera acquire costs 6.8-7.9 s (the `VideoCapture` open alone is 6.1-8.2 s and the first read ~0.5 s), and the step that used to open a SECOND camera now reuses the pre-check's live handle for 0.113 s, so pressing Start no longer pays a second acquisition at all (`src/adapters/camera.py`, `warm_up`, `FRAME_WARMUP_MAX`). MSMF remains the default backend (28.56 fps).
 
 ## Architecture
 

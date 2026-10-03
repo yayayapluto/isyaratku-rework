@@ -111,12 +111,14 @@ class DebugView(qw.QMainWindow):
         self._sent_label = _metric_row("Frame dikirim")
         self._dropped_label = _metric_row("Frame dibuang")
         self._window_label = _metric_row("Jendela FPS")
+        self._speech_label = _metric_row("Galat suara (TTS)")
         layout = qw.QVBoxLayout()
         for widget in (
             self._fps_label,
             self._sent_label,
             self._dropped_label,
             self._window_label,
+            self._speech_label,
         ):
             layout.addWidget(widget)
         layout.addStretch(1)
@@ -284,6 +286,12 @@ class DebugView(qw.QMainWindow):
         self._dropped_label.setText(f"Frame dibuang: {stats.frames_dropped}")
         self._window_label.setText(
             f"Jendela FPS: {stats.elapsed_seconds:5.1f} s"
+        )
+        speech = getattr(self, "_speech", None)
+        self._speech_label.setText(
+            "Galat suara (TTS): -"
+            if speech is None
+            else f"Galat suara (TTS): {speech.speech_errors}"
         )
         if not status:
             self._voting.setText(

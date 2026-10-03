@@ -36,9 +36,10 @@ class CheckResults(list):
     plus handle kamera yang berhasil dibuka.
 
     Kamera dibawa bersama hasil supaya ``finish_checks`` memakai kamera yang
-    SAMA dengan pra-cek. Membuka kamera sekali di mesin ini ~27-33 s, jadi
-    acquisisi kedua yang dulu terjadi di ``finish_checks`` menghambat Start
-    hampir setengah menit tanpa alasan.
+    SAMA dengan pra-cek. Acquisisi kedua dulu terukur ~27-33 s: penyebabnya
+    ``set()`` W/H/FPS sebelum ``read()`` pertama (re-init MSMF ~6-7 s per
+    properti), sudah diperbaiki di ``camera.warm_up``. Yang tetap berlaku
+    tanpa angka: acquisisi kedua tak pernah lebih murah dari memakai ulang.
     """
 
     def __init__(self, checks, camera=None) -> None:

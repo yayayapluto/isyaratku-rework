@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 
 import numpy as np
@@ -325,6 +326,66 @@ def test_stop_closes_the_sink() -> None:
 
     assert camera.closed is True
     assert sink.sends == 2
+
+
+class BlockingCamera:
+    """Kamera yang read()-nya terblokir sampai close() — kondisi MSMF nyata.
+
+    Frame pertama keluar supaya pipeline benar-benar start; read() kedua
+    menunggu event yang hanya di-set oleh close(). Tanpa close() sebelum
+    join(), read() ini tidak akan pernah kembali dan stop() menggantung
+    sampai timeout join (2 s default).
+    """
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.in_read = threading.Event()
+        self.release = threading.Event()
+        self.calls = 0
+
+    def read(self) -> Frame | None:
+        self.calls += 1
+        if self.calls == 1:
+            return Frame(
+                image=np.zeros((4, 4, 3), np.uint8),
+                timestamp=time.monotonic(),
+                index=1,
+            )
+        self.in_read.set()
+        self.release.wait(timeout=10.0)
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+        self.release.set()
+
+
+def test_stop_unblocks_blocked_camera_before_joining() -> None:
+    """Regresi freeze: read() terblokir dilepas close(), bukan join timeout.
+
+    Terukur di mesin ini: satu read() MSMF terblokir ~19 s dan hanya pulih
+    saat devicenya ditutup. Urutan lama (join dulu, close sesudah) membuat
+    Stop membeku sampai `pipeline_stop_timeout_seconds` per thread; ambang
+    tes 0,5 s jauh di bawah timeout 2 s supaya regresi benar-benar gagal.
+    """
+    cfg = config()
+    camera = BlockingCamera()
+    sink = FakeVirtualCameraSink(cfg)
+    pipeline = Pipeline(camera, sink, cfg)
+    pipeline.start()
+    capture = pipeline._capture_thread
+    assert capture is not None
+    assert camera.in_read.wait(timeout=5.0), "capture thread tidak masuk read()"
+
+    mulai = time.monotonic()
+    pipeline.stop()
+    elapsed = time.monotonic() - mulai
+
+    assert elapsed < 0.5, f"stop() memakan {elapsed:.3f} s — close() setelah join"
+    assert camera.closed is True
+    assert not capture.is_alive(), "capture thread masih hidup setelah stop"
+    assert pipeline.running() is False
+    assert capture.join(timeout=0.0) is None or not capture.is_alive()
 
 
 # -- renderer ----------------------------------------------------------------
