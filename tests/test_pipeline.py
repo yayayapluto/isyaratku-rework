@@ -599,3 +599,92 @@ def test_clean_stop_leaves_error_unset() -> None:
     run_for(0.3, pipeline)
     assert pipeline.error is None
     assert pipeline.stats().frames_sent > 0
+
+class SinkMenunggu(FakeVirtualCameraSink):
+    """Sink yang send() pertama bisa ditahan di udara sampai tes melepasnya.
+
+    Ganti jam dinding dengan event: send() pertama menandai ``send_started``
+    lalu menunggu ``release`` — masuk "terbang" tepat saat tes memutuskan,
+    bukan karena sleep yang kebetulan panjang. ``close()`` membaca keadaan itu
+    dengan lock dan merekam apakah send masih terbang. Karena queue limbed,
+    release bersifat permanen: send berikutnya langsung lewat, jadi join tidak
+    menggantung di send kedua.
+    """
+
+    def __init__(self, config: AppConfig) -> None:
+        super().__init__(config)
+        self.send_started = threading.Event()
+        self.release = threading.Event()
+        self.close_was_called_while_sending: bool | None = None
+        self.send_completed_before_close: bool | None = None
+        self.closes = 0
+        self._lock = threading.Lock()
+        self._in_send = 0
+
+    def send(self, frame: Frame) -> None:
+        with self._lock:
+            self._in_send += 1
+        try:
+            if not self.release.is_set():
+                self.send_started.set()
+                # Ditahan "terbang" sampai tes melepas; timeout hanya pagar
+                # supaya send yang lupa dilepas tidak menggantung selamanya.
+                self.release.wait(timeout=10.0)
+            super().send(frame)
+        finally:
+            with self._lock:
+                self._in_send -= 1
+
+    def close(self) -> None:
+        with self._lock:
+            self.close_was_called_while_sending = self._in_send > 0
+            self.send_completed_before_close = self._in_send == 0
+            self.closes += 1
+
+
+def test_sink_ditutup_setelah_thread_output_selesai_mengirim() -> None:
+    """Regresi urutan: sink.close() hanya boleh setelah output thread join.
+
+    `stop()` menutup sink sebelum join berarti close() bisa jatuh di tengah
+    `sink.send()` — pada VirtualCameraSink nyata itu `pyvirtualcam.Camera.close()`
+    tanpa lock: native send() bersamaan native close() pada handle OBS yang
+    sama, atau `AttributeError` saat send() membaca `_backend` yang sudah
+    None (dicatat `_output_loop` sebagai galat fatal, Stop bersih jadi
+    `galat=AttributeError`).
+
+    send() pertama ditahan lewat event, jadi keadaan "mid-send" teramati tanpa
+    mengandalkan wall-clock. `stop()` dipanggil dari thread terpisah agar tes
+    bisa melepas send(): bila close() masih dipanggil SEBELUM join, close
+    masuk saat `_in_send > 0` dan asersi gagal; bila SESUDAH join, close
+    menunggu join yang menunggu send — tes baru melepasnya, lalu close
+    tercatat dengan `_in_send == 0`.
+    """
+    cfg = config()
+    sink = SinkMenunggu(cfg)
+    pipeline = Pipeline(FakeCameraSource(cfg), sink, cfg)
+    pipeline.start()
+    assert sink.send_started.wait(timeout=5.0), "send() pertama tidak pernah masuk"
+
+    stopper = threading.Thread(target=pipeline.stop)
+    stopper.start()
+    # Bila close() dipanggil sebelum join (urutan lama), ia tercatat di sini
+    # saat send masih terbang. Bila setelah join, close() tak bisa muncul
+    # sampai join balik, dan join tak bisa balik sampai send dilepas — jadi
+    # habisnya jeda di bawah memang berarti "belum terjadi", bukan flaky wait.
+    deadline = time.monotonic() + 1.0
+    while (
+        time.monotonic() < deadline
+        and sink.close_was_called_while_sending is None
+    ):
+        time.sleep(0.002)
+    sink.release.set()
+    stopper.join(timeout=5.0)
+
+    assert not stopper.is_alive(), "stop() tidak selesai setelah send dilepas"
+    assert sink.close_was_called_while_sending is False, (
+        "close() dipanggil saat send() masih terbang — sink ditutup sebelum join"
+    )
+    assert sink.send_completed_before_close is True
+    assert sink.closes == 1, "close() sink harus dipanggil tepat satu kali"
+    assert pipeline.running() is False
+    assert pipeline.error is None

@@ -188,21 +188,33 @@ class Pipeline:
 
     def stop(self) -> None:
         self._stop.set()
-        # close() DULU, baru join(): MSMF yang read() terblokir menunggu frame
-        # baru hanya cocok bila devicenya ditutup — di mesin ini satu read()
-        # terblokir terukur ~19 s, dan close() melepasnya seketika (pemulihan
-        # kembali ke kamera app lain terukur <2 s). close() idempoten juga:
-        # kamera/sink tiruan maupun OpenCV keduanya aman dipanggil dua kali.
+        # close() kamera DULU, baru join(): MSMF yang read() terblokir
+        # menunggu frame baru hanya cocok bila devicenya ditutup — di mesin
+        # ini satu read() terblokir terukur ~19 s, dan close() melepasnya
+        # seketika (pemulihan kembali ke kamera app lain terukur <2 s).
         # Urutan lama (join baru close) membuat Stop menggantung sampai
         # `pipeline_stop_timeout_seconds` jalur untuk setiap thread.
+        #
+        # Sink ditutup SESUDAH kedua thread di-join: `_output_loop` baru
+        # keluar dari `sink.send(frame)` saat `_stop_set` dan queue sudah
+        # kosong, jadi masih ada send() yang sedang berjalan ketika close()
+        # dipanggil. `VirtualCameraSink.close()` adalah
+        # `pyvirtualcam.Camera.close()` tanpa lock: menutupnya di tengah
+        # send() berisiko native OBS luar aturan Sequence R2 (producer
+        # harus tetap hidup dengan Camera terbuka, lihat header
+        # virtual_camera.py) maupun `AttributeError` saat send() membaca
+        # backend yang sudah None — `_output_loop` lalu mencatatnya sebagai
+        # galat fatal, jadi Stop bersih jadi `galat=AttributeError`.
+        # close() idempoten (`_backend is not None`), jadi posisi panggilan
+        # tidak memengaruhi keamanan double-close.
         self.camera.close()
-        self.sink.close()
         timeout = self.config.pipeline_stop_timeout_seconds
         for thread in (self._capture_thread, self._output_thread):
             if thread is not None:
                 thread.join(timeout=timeout)
         self._capture_thread = None
         self._output_thread = None
+        self.sink.close()
         logger.info("pipeline stop: %s", self._stop_info())
 
     def _stop_info(self) -> str:
