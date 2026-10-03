@@ -23,7 +23,7 @@ Real-time BISINDO (Indonesian Sign Language) word translator for everyday conver
 - Full pipeline: camera → MediaPipe landmarks → windowing → prediction → smoothing → overlay → OBS Virtual Camera.
 - Offline TTS: piper synthesizes stable labels to the audio cable; no network needed at demo time.
 - Two interfaces: a ready-to-use mode (Start/Stop) and a debug dashboard with FPS, frames sent/dropped, voting status, and a word log.
-- A separate per-frame letter and number path (`static.*` config keys), off by default.
+- A separate per-frame letter and number path (`static.*` config keys), on by default.
 - A headless smoke run with fake camera and fake virtual camera: `python -m src.ui.app --headless --seconds 3` prints `Headless smoke: LOLOS`.
 - Run the automated suite with `python -m pytest -q -p no:cacheprovider` (read the current count and duration from its final line; no count is asserted here because the suite keeps growing).
 
@@ -114,9 +114,28 @@ QT_QPA_PLATFORM=offscreen python -m src.ui.app --headless --seconds 5
 
 Meetings: pick **OBS Virtual Camera** as the camera device so participants see the app output instead of the raw webcam, and pick **CABLE In 16 Ch (VB-Audio Virtual Cable)** as the microphone so participants hear the spoken labels.
 
-### Turning on the letter and number path
+### Turning off the letter and number path
 
-Uncomment the `[static]` block in `configs/app.toml` and set `enabled = true`, then run `python -m src.ui.app --mode debug`. Each recognized letter appends to a word; a 1.5 s pause closes the word. That pause threshold reuses `smoothing.cooldown_seconds`, so a repeated letter in one name can split into two words. This has not been measured on real recordings.
+The path runs by default. To switch it off, write a TOML override with just the one key — e.g. `static.toml`:
+
+```toml
+[static]
+enabled = false
+```
+
+Then point the app at it, the same `ISYARATKU_CONFIG` mechanism the Configuration section already shows:
+
+```bat
+set ISYARATKU_CONFIG=%CD%\static.toml
+python -m src.ui.app --mode debug
+```
+
+Each recognized letter appends to a word; a 1.5 s pause closes the word. That pause
+threshold reuses `smoothing.cooldown_seconds`, so a repeated letter in one name can
+split into two words. While a word label is stable, the word-path subtitle can hide
+the static letters: `src/ui/check_task.py:407` picks
+`holder[0] or static_holder[0] or placeholder`. This has not been measured on real
+recordings.
 
 ## Configuration
 
@@ -153,7 +172,7 @@ python -m src.ui.app
 | `pipeline.stop_timeout_seconds` | float | `2.0` | time allowed for the capture thread to stop |
 | `queue.max_size` | int | `4` | bounded queue between capture and processing |
 | `virtual_camera.backend` | str | `obs` | virtual camera backend selected at runtime |
-| `static.enabled` | bool | `false` | enable the per-frame letter/number path |
+| `static.enabled` | bool | `true` | per-frame letter/number path, on by default; `false` turns it off |
 | `static.model_path_huruf` | str | `models/huruf.npz` | letter model for the static path |
 | `static.model_path_angka` | str | `models/angka.npz` | digit model for the static path |
 
