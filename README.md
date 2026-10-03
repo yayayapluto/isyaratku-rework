@@ -1,110 +1,110 @@
 # isyaratku
 
-Penerjemah bahasa isyarat BISINDO waktu nyata untuk percakapan sehari-hari. Aplikasi membaca isyarat dari webcam, menampilkan hasilnya sebagai teks di layar, lalu mengucapkannya sebagai suara lewat kabel virtual (VB-Cabel) sehingga peserta rapat dapat mendengarnya. Masalah yang dituju: komunikasi dua arah antara penutur tunarungu dan penutur pendengar.
+Real-time BISINDO sign language translator for everyday conversation. The app reads sign language from a webcam, shows the result as text on screen, then speaks it through a virtual audio cable (VB-Cable) so meeting participants can hear it. Target problem: two-way communication between deaf speakers and hearing speakers.
 
-Yang benar-benar berjalan saat ini: kamera → landmark → prediksi → smoothing → overlay + virtual camera, dan label → TTS → kabel. Akurasi prediksi **masih rendah** dan belum pernah diuji ujung-ke-ujung dengan Zoom atau Meet — lihat bagian status.
+What runs today: camera → landmark → prediction → smoothing → overlay + virtual camera, and label → TTS → cable. Prediction accuracy is **still low**, and the pipeline has never been tested end to end with Zoom or Meet — see the status section.
 
-## Apa yang didapat aplikasi ini
+## What this app gives a user
 
-1. **Menerjemahkan isyarat kata menjadi teks di layar** pada 32 gloss BISINDO, dengan overlay subtitle di atas video.
-2. **Mengucapkan teks itu menjadi suara** lewat TTS piper offline ke VB-Cabel, sehingga rapat dapat mendengar tanpa internet.
-3. **Menjadi kamera virtual** untuk rapat: peserta melihat output aplikasi, bukan gambar mentah webcam.
-4. **Mode huruf dan angka per frame** sebagai jalur terpisah dari model kata, dengan akurasi terukur sendiri.
+1. **Translates word signs into on-screen text** across 32 BISINDO glosses, with a subtitle overlay over video.
+2. **Speaks that text out loud** through offline piper TTS to VB-Cable, so a meeting hears it without internet access.
+3. **Acts as a virtual camera** for meetings: participants see the app output, not the raw webcam image.
+4. **Per-frame letter and number mode**, a separate path from the word model, with its own measured accuracy.
 
-## Status jujur
+## Honest status
 
-### Yang sudah bekerja dan terukur
+### Working and verified
 
-- Pipa penuh: kamera → landmark MediaPipe → windowing → prediksi → smoothing → overlay → OBS Virtual Camera.
-- Audio: TTS piper offline memainkan label stabil ke kabel audio; terukur RMS kabel 0,1047 dan durasi audio 18,61 s untuk 8 label (`docs/environment.md:110-124`).
-- Dua mode antarmuka PySide6: siap pakai (Start/Stop) dan debug (dasbor FPS, drop, window, landmark, dan log kata).
-- Start tidak lagi membeku: `Signal(list)` → `Signal(object)` di `src/ui/check_task.py` menjaga `CheckResults` utuh melewati batas sinyal, sehingga pra-cek tidak lagi membuka kamera kedua di thread GUI.
-- Prediktor kata p50 0,066 ms (`docs/tech-decisions.md:176-182`); jalur headless lulus (`Headless smoke: LOLOS`).
-- Kegagalan diam kini tercatat: setiap `print(..., file=sys.stderr)` yang tidak pernah sampai ke log kini memakai `logger.warning`, sehingga kegagalan prediktor, TTS, dan config meninggalkan jejak di `logs/isyaratku-<tanggal>.log`.
-- **Mode statis huruf dan angka aktif bila dinyalakan** (`static.enabled`, default `false`), dengan akurasi validasi terukur 0,9576 (huruf, 26 kelas) dan 0,9868 (angka, 11 kelas) pada pembagian train/val berkas — bukan generalisasi lintas pemain.
+- Full pipeline: camera → MediaPipe landmarks → windowing → prediction → smoothing → overlay → OBS Virtual Camera.
+- Audio: offline piper TTS plays stable labels to the audio cable; measured cable RMS 0.1047 and audio duration 18.61 s for 8 labels (`docs/environment.md:110-124`).
+- Two PySide6 interface modes: ready to use (Start/Stop) and debug (dashboard with FPS, drop, window, landmark, and word log panels).
+- Start no longer freezes: `Signal(list)` → `Signal(object)` in `src/ui/check_task.py` keeps `CheckResults` intact across the signal boundary, so the pre-check no longer opens a second camera on the GUI thread.
+- Word predictor p50 latency 0.066 ms (`docs/tech-decisions.md:176-182`); the headless path passes (`Headless smoke: LOLOS`).
+- Silent failures now log: every `print(..., file=sys.stderr)` site that never reached the log now uses `logger.warning`, so predictor, TTS, and config failures leave traces in `logs/isyaratku-<date>.log`.
+- **Letter and number static mode is available when enabled** (`static.enabled`, default `false`), with measured validation accuracy 0.9576 (letters, 26 classes) and 0.9868 (numbers, 11 classes) on the file's train/val split — not cross-signer generalization.
 
-### Yang belum selesai dan batas yang diketahui
+### Not done, and known limits
 
-- **Akurasi model kata rendah.** Akurasi seluruh window 0,5745, tetapi akurasi pada window bertangan saja hanya 0,0856 pada test signer3 (`docs/tech-decisions.md:45-52`). Model mengenali signer yang ikut direkam, bukan isyaratnya secara umum: leave-one-signer-out hanya 0,0806 sampai 0,6058, sedangkan split acak di dalam satu signer mencapai 0,9799.
-- **Belum pernah diuji dengan aplikasi rapat.** Zoom atau Meet belum pernah dijalankan bersama feed ini: apakah perangkat muncul di daftar kamera rapat, dan apakah peserta lain melihat gambar bergerak, masih belum terbukti (`docs/tech-decisions.md` bagian "Status slice 1: yang belum terbukti"). Hanya round trip dua proses lokal yang terbukti.
-- **Dataset statis tidak punya informasi signer**, jadi angka akurasi huruf dan angka bersifat in-distribution, bukan generalisasi lintas pemain. Huruf juga punya 332 dari 1.910 baris val identik dengan train (17,38%), sehingga metrik dedup (0,9576) dan metrik apa adanya (0,9534) keduanya dilaporkan.
-- **Kelas ke-11 model angka bernama `?`** dan artinya dalam BISINDO belum terverifikasi dari sumber dataset.
-- **Model `angka-dinamis` sudah dilatih tetapi belum disambungkan** ke pipeline aplikasi.
-- **Beban CPU:** ekstraksi landmark MediaPipe adalah bagian terberat pada mesin ini backend kamera MSMF mengukur 28,56 fps, sehingga fps video output bergantung pada beban mesin saat demo.
+- **Word model accuracy is low.** Whole-window accuracy is 0.5745, but accuracy on hands-only windows is only 0.0856 on test signer3 (`docs/tech-decisions.md:45-52`). The model recognizes the signer who took part in the recording, not the signs in general: leave-one-signer-out is 0.0806–0.6058, while a random split inside a single signer reaches 0.9799.
+- **Never tested with a meeting app.** Zoom and Meet have never been run together with this feed: whether the device appears in the meeting camera list, and whether participants see moving images, is unproven (`docs/tech-decisions.md`, section "Status slice 1: yang belum terbukti"). Only a local two-process round trip is proven.
+- **The static datasets carry no signer metadata**, so letter and number accuracy is in-distribution, not cross-signer generalization. Letters also have 332 of 1,910 validation rows identical to training rows (17.38%), so both the dedup metric (0.9576) and the as-is metric (0.9534) are reported.
+- **The 11th number class is named `?`** and its BISINDO meaning is not verified from the dataset source.
+- **The `angka-dinamis` model is trained but not wired** into the app pipeline.
+- **CPU load:** MediaPipe landmark extraction is the heaviest part of the pipeline; this machine's MSMF camera backend measures 28.56 fps, so output video fps depends on machine load during the demo.
 
-## Pemasangan
+## Installation
 
-Prasyarat: Python 3,14 (dikembangkan dan diuji pada 3,14.6), VB-Cabel, dan OBS Studio (untuk virtual camera).
+Prerequisites: Python 3.14 (developed and tested on 3.14.6), VB-Cable, and OBS Studio (for the virtual camera).
 
 ```bash
 git clone https://github.com/yayayapluto/isyaratku-rework.git
 cd isyaratku-rework
 ```
 
-Tidak ada virtualenv pada mesin pengembang: dependensi dipasang langsung pada interpreter sistem. Pastikan `python` pada PATH menunjuk interpreter 3,14 yang memuat dependensi tersebut.
+There is no virtualenv on the development machine; dependencies are installed directly on the system interpreter. Make sure `python` on PATH points at the Python 3.14 interpreter that holds those dependencies.
 
-Sebagian besar path artifact relatif terhadap CWD (`configs/app.toml`, `models/baseline.npz`, `models/mediapipe/*.task`), jadi perintah harus dijalankan dari root repo.
+Most artifact paths are relative to CWD (`configs/app.toml`, `models/baseline.npz`, `models/mediapipe/*.task`), so all commands must run from the repository root.
 
-## Perintah utama
+## Main commands
 
-| Perintah | Kegunaan | Catatan |
+| Command | Purpose | Notes |
 | --- | --- | --- |
-| `python -m src.ui.app` | Menjalankan aplikasi mode siap pakai | Tombol Start/Stop; pra-cek kamera, virtual camera, dan kabel sebelum Start |
-| `python -m src.ui.app --mode debug` | Dasbor debug satu jendela | Panel video mentah dan ber-overlay, FPS output, frame terkirim dan di-drop, status voting beserta cooldown, log kata yang sudah diucapkan |
-| `python -m src.ui.app --headless --seconds 5` | Smoke test penuh tanpa GUI | Memakai `FakeCameraSource` dan `FakeVirtualCameraSink` (`src/ui/app.py:117`); tanpa hardware; output terakhir harus `Headless smoke: LOLOS` |
-| `python -m training.setup_voice` | Mengunduh voice piper (~62 MB) sekaligus memanaskan cache | Menulis `id_ID-news_tts-medium.onnx` beserta `.onnx.json` ke `models/tts/`; perlu jaringan pada penggunaan pertama |
-| `python -m training.setup_voice --check` | Memeriksa apakah voice sudah tersedia | Tanpa jaringan, tidak mengunduh apa pun |
-| `python -m training.setup_voice --warm-cache` | Hanya memanaskan cache WAV label | Pra-sintesis seluruh label sebelum demo sehingga Start tidak menunggu sintesis pertama |
-| `python -m pytest -q -p no:cacheprovider` | Menjalankan seluruh test | 276 lolos, 0 skip; pakai `QT_QPA_PLATFORM=offscreen` bila tanpa display |
+| `python -m src.ui.app` | Run the app in ready-to-use mode | Start/Stop buttons; pre-flight check of camera, virtual camera, and cable before Start |
+| `python -m src.ui.app --mode debug` | Single-window debug dashboard | Panels for raw and overlaid video, output FPS, frames sent and dropped, voting and cooldown status, log of spoken words |
+| `python -m src.ui.app --headless --seconds 5` | Full smoke test without a GUI | Uses `FakeCameraSource` and `FakeVirtualCameraSink` (`src/ui/app.py:117`); no hardware; last output line must be `Headless smoke: LOLOS` |
+| `python -m training.setup_voice` | Download the piper voice (~62 MB) and warm the cache | Writes `id_ID-news_tts-medium.onnx` and `.onnx.json` to `models/tts/`; needs network on first use |
+| `python -m training.setup_voice --check` | Check whether the voice is already present | No network, downloads nothing |
+| `python -m training.setup_voice --warm-cache` | Warm the per-label WAV cache only | Pre-synthesizes every label before the demo so Start does not wait on the first synthesis |
+| `python -m pytest -q -p no:cacheprovider` | Run the whole test suite | 276 passed, 0 skipped; add `QT_QPA_PLATFORM=offscreen` when there is no display |
 
-## Mode huruf dan angka
+## Letter and number mode
 
-Mode statis adalah jalur terpisah dari model kata, bukan label tambahan pada model kata. Alasannya: model kata memakai rentang waktu dan ambang gerak (`IDLE_MOTION_FLOOR` 0,05) yang membuang isyarat diam, sementara huruf dan angka justru diucapkan diam. Karena itu mode statis punya instance `Smoother` sendiri dengan `motion_floor = 0,0`, gerbangnya adalah kehadiran tangan (`MIN_HAND_PRESENCE` 0,5), dan ruang fiturnya 126 kolom (2 tangan x 21 x 3) yang berbeda dari 456 kolom model kata.
+Static mode is a separate path from the word model, not extra labels on the word model. Reason: the word model uses a time window and a motion gate (`IDLE_MOTION_FLOOR` 0.05) that discards motionless signs, while letters and numbers are held still. Static mode therefore gets its own `Smoother` instance with `motion_floor = 0,0`, its gate is hand presence (`MIN_HAND_PRESENCE` 0.5), and its feature space is 126 columns (2 hands × 21 × 3) instead of the word model's 456 columns.
 
-Hasil terukur pada pembagian train/val dari berkas sumber:
+Measured on the source files' train/val split:
 
-| Model | Kelas | Akurasi val | Macro F1 | Artifact |
+| Model | Classes | Validation accuracy | Macro F1 | Artifact |
 | --- | --- | --- | --- | --- |
-| Huruf A-Z | 26 | 0,9576 dedup / 0,9534 apa adanya | 0,9563 / 0,9530 | `models/huruf.npz` |
-| Angka statis 0-10 | 11 (kelas ke-11 bernama `?`) | 0,9868 | 0,9857 | `models/angka.npz` |
-| Angka dinamis | 10 | 0,8769 | 0,8730 | `models/angka-dinamis.npz` (belum disambungkan ke pipeline) |
+| Letters A–Z | 26 | 0.9576 dedup / 0.9534 as-is | 0.9563 / 0.9530 | `models/huruf.npz` |
+| Static numbers 0–10 | 11 (11th class named `?`) | 0.9868 | 0.9857 | `models/angka.npz` |
+| Dynamic numbers | 10 | 0.8769 | 0.8730 | `models/angka-dinamis.npz` (not wired into the pipeline) |
 
-Latensi terukur: 121 µs per frame untuk huruf saja, 280 µs untuk hybrid huruf dan angka, walaupun dibarengi jalur kata totalnya hanya 1,26% dari budget frame 33 ms pada 30 fps. Inference bukan bottleneck.
+Measured latency: 121 µs per frame for letters alone, 280 µs for the letters-plus-numbers hybrid, and only 1.26% of the 33 ms frame budget at 30 fps when combined with the word path. Inference is not the bottleneck.
 
-Cara menyalakan mode statis: uncomment bagian `[static]` di `configs/app.toml`, set `enabled = true`, lalu jalankan `python -m src.ui.app --mode debug`. Huruf yang terbaca menyusun menjadi kata; satu jeda 1,5 s menutup kata. Ambang jeda itu memakai ulang `smoothing_cooldown_seconds`, sehingga huruf berulang dalam satu nama dapat terbelah menjadi dua kata, dan hal itu belum diukur pada rekaman nyata.
+To turn static mode on: uncomment the `[static]` section in `configs/app.toml`, set `enabled = true`, then run `python -m src.ui.app --mode debug`. Recognized letters assemble into words; a single 1.5 s pause closes a word. That pause threshold reuses `smoothing_cooldown_seconds`, so a repeated letter inside one name can split into two words, and this has not been measured on real recordings.
 
-## Training ulang
+## Retraining
 
-1. Siapkan dataset lalu jalankan `python -m training.extract` untuk ekstraksi landmark ke `data/extracted/` (pola berkas `signer{N}_label{M}_sample{K}.npz`). Default `--source` adalah `data/raw/wl-bisindo/` (`training/extract.py:49`), jadi menaruh folder dataset lain di `data/raw/` TIDAK membuatnya terbaca: pakai `--source` dan `--out` eksplisit. Direktori `data/` tidak masuk git, jadi dataset harus ada di disk mesin sendiri.
-2. Jalankan `python -m training.train --stem <nama>` untuk menghasilkan artifact baru dengan nama sendiri. Untuk memakai rekaman mandiri sebagai data tambahan: `python -m training.train --stem <nama> --signer-tambahan-train 99`, yang hanya masuk train.
-3. Konversi ke format runtime: `python -m training.export_numpy --model models/<nama>.joblib --out models/<nama>.npz`. Skrip ini membaca `.joblib` sebagai sumber (`training/export_numpy.py:54`) lalu menulis `.npz` di sampingnya; `--out` menimpa.
-4. **Peringatan path runtime:** `models/baseline.npz` adalah target default (`src/adapters/predictor.py:33`) dan tidak ada config key untuk menggantinya, jadi artifact baru harus ditempatkan sebagai `models/baseline.npz`.
-5. Model statis dilatih skrip terpisah: `python -m training.train_static --target huruf` (pilihan `angka` dan `angka-dinamis`), dengan `--model mlp|logreg` dan `--dedup`. Skrip ini menulis `.joblib`, `.json`, dan `.npz` untuk model statis.
+1. Prepare a dataset, then run `python -m training.extract` to extract landmarks into `data/extracted/` (file pattern `signer{N}_label{M}_sample{K}.npz`). The default `--source` is `data/raw/wl-bisindo/` (`training/extract.py:49`), so putting another dataset folder in `data/raw/` does NOT make it visible: pass `--source` and `--out` explicitly. The `data/` directory is not in git, so datasets must exist on the local disk.
+2. Run `python -m training.train --stem <name>` to produce a new artifact under that name. To include self-recorded data as extra training data: `python -m training.train --stem <name> --signer-tambahan-train 99`, which goes into train only.
+3. Convert to the runtime format: `python -m training.export_numpy --model models/<name>.joblib --out models/<name>.npz`. This script reads the `.joblib` as its source (`training/export_numpy.py:54`) and writes the `.npz` beside it; `--out` overrides that location.
+4. **Runtime path warning:** `models/baseline.npz` is the default target (`src/adapters/predictor.py:33`) and there is no config key to replace it, so a new artifact must be placed as `models/baseline.npz`.
+5. Static models are trained with a separate script: `python -m training.train_static --target huruf` (also `angka` and `angka-dinamis`), with `--model mlp|logreg` and `--dedup`. That script writes `.joblib`, `.json`, and `.npz` for static models.
 
-`--stem baseline` menimpa artifact lama. Pakai nama lain bila baseline ingin disimpan.
+`--stem baseline` overwrites the old artifacts. Use a different name when the baseline must be kept.
 
-Catatan jujur soal dataset: `data/extracted/` saat ini hanya 1.600 berkas `.npz` dari signer0 sampai signer4 (32 gloss kata). Model kata masih bergantung pada satu signer.
+Honest dataset note: `data/extracted/` currently holds only 1,600 `.npz` files from signer0 to signer4 (32 word glosses). The word model still depends on one signer.
 
-## Pengujian dan log
+## Tests and logs
 
 ```bash
 python -m pytest -q -p no:cacheprovider
 ```
 
-Bendera `-p no:cacheprovider` bukan opsional: run sebelumnya sempat menghabiskan waktu sampai menimbulkan timeout harness. Jalur test memakai `QT_QPA_PLATFORM=offscreen` sehingga tidak butuh display. Suite kadang menggantung di teardown: bila terjadi, baca baris output terakhir untuk melihat test mana yang terakhir berjalan.
+The `-p no:cacheprovider` flag is not optional: an earlier run spent long enough to trigger a harness timeout. Tests use `QT_QPA_PLATFORM=offscreen`, so no display is needed. The suite sometimes hangs in teardown; when that happens, read the last output line to see which test ran last.
 
-Setiap run menulis log ke `logs/isyaratku-YYYY-MM-DD.log`, satu berkas per hari, jam lokal dengan offset `+0700` (`docs/AGENTS.md:76-79`). Bentuk setiap baris `waktu offset LEVEL nama.modul pesan`; baris terakhir menunjukkan tahap yang sedang berjalan. Direktori `logs/` tidak masuk git.
+Every run writes a log to `logs/isyaratku-YYYY-MM-DD.log`, one file per day, local time with offset `+0700` (`docs/AGENTS.md:76-79`). Each line has the form `time offset LEVEL module.name message`; the last line shows the stage currently running. The `logs/` directory is not in git.
 
-## Arsitektur
+## Architecture
 
-Arah ketergantungan: `ui` → `core` ← `adapters`. Paket `src/core/` tidak mengimpor `src/ui/`, `src/adapters/`, atau GUI, tidak memakai angka ajaib, dan setiap adapter punya padanan palsu untuk test. Aturan lengkap ada di `AGENTS.md`.
+Dependency direction: `ui` → `core` ← `adapters`. The `src/core/` package does not import `src/ui/`, `src/adapters/`, or GUI code, contains no magic numbers, and every adapter has a fake for tests. The full rules are in `AGENTS.md`.
 
 ```
 kamera ─┐
         ├─ landmark MediaPipe ─ windowing (30 frame, stride 5) ─ normalisasi
 kamera ─┘                                                        │
                                                                  ▼
-                                          prediksi LogReg ─ smoothing (vote 3, cooldown 1,5 detik)
+                                          prediksi LogReg ─ smoothing (vote 3, cooldown 1,5 s)
                                                                  │
                             ┌────────────────────────────────────┴───────────────┐
                             ▼                                                    ▼
@@ -114,52 +114,52 @@ kamera ─┘                                                        │
               OBS Virtual Camera (pesan ke rapat)                    piper-tts offline ─ VB-Cabel
 ```
 
-Jalur statis menyisip setelah prediktor kata, bukan di dalamnya: `_run_static_path` dipanggil setelah `_run_predictor` di loop capture, dan komposisinya lewat hook `on_static_word`. Dengan begitu jalur kata tidak punya cabang khusus huruf.
+The static path runs after the word predictor, not inside it: `_run_static_path` is called after `_run_predictor` in the capture loop, composed through the `on_static_word` hook. The word path therefore has no letter-specific branch.
 
-## Konfigurasi
+## Configuration
 
-Semua angka tuning terpusat di `_CONTRACT` pada `src/core/config.py`: 26 key `section.key` beserta defaultnya. Berkas `configs/app.toml` sengaja hanya berisi komentar, yaitu dokumentasi default dan hasil ukur, tanpa key aktif. Nilai individual dapat diganti melalui environment variable:
+All tuning numbers are centralized in `_CONTRACT` in `src/core/config.py`: 26 `section.key` keys with their defaults. `configs/app.toml` deliberately contains only comments, documenting defaults and measured results, with no active keys. Individual values can be overridden through an environment variable:
 
 ```bash
-set ISYARATKU_CONFIG=<jalur-lengkap-ke>\app.toml
+set ISYARATKU_CONFIG=<full-path-to>\app.toml
 python -m src.ui.app
 ```
 
-Berkas TOML hanya memuat key yang ingin diganti, misalnya `camera.device_index = 2`. Key di luar kontrak ditolak `load_config()`, dan `tests/test_config.py` menjaga kontrak tetap selaras dengan field `AppConfig`. Tiga key baru untuk mode statis: `static.enabled` (default `false`), `static.model_path_huruf`, dan `static.model_path_angka`.
+The TOML file holds only the keys you want to override, for example `camera.device_index = 2`. Keys outside the contract are rejected by `load_config()`, and `tests/test_config.py` keeps the contract in sync with the `AppConfig` fields. The three new keys for static mode are `static.enabled` (default `false`), `static.model_path_huruf`, and `static.model_path_angka`.
 
-## Kejujuran model
+## Model honesty
 
-Semua angka di bawah terukur, bukan klaim:
+Every number below is measured, not a claim:
 
-| Metrik | Nilai |
+| Metric | Value |
 | --- | --- |
-| Akurasi seluruh window (test signer3) | 0,5745 |
-| Akurasi window bertangan saja (test signer3) | **0,0856** |
-| Gloss yang argmax-nya "Sore" | 12 dari 32 |
-| Gloss dengan ≤10 window bertangan di test | 10 dari 32 |
-| Prediktor kata p50 | 0,066 ms |
-| Prediktor statis p50 (huruf) | 121 µs |
+| Whole-window accuracy (test signer3) | 0.5745 |
+| Hands-only window accuracy (test signer3) | **0.0856** |
+| Glosses whose argmax is "Sore" | 12 of 32 |
+| Glosses with ≤10 hands-only test windows | 10 of 32 |
+| Word predictor p50 | 0.066 ms |
+| Static predictor p50 (letters) | 121 µs |
 
-Angka akurasi seluruh window 7x lebih tinggi daripada kenyataan karena 924 dari 1.718 window test berlabel "tidak ada isyarat", dan kelas itulah yang mendominasi. Pola errornya searah: "Sore" menyerap 251 window dan "Bagaimana" 196 window, sementara arah sebaliknya hampir nol — ciri bias signer, bukan kata yang mirip.
+Whole-window accuracy is 7× higher than reality because 924 of 1,718 test windows are labeled "tidak ada isyarat", and that class dominates. The error pattern is one-directional: "Sore" absorbs 251 windows and "Bagaimana" 196 windows, while the reverse is nearly zero — the mark of signer bias, not of similar words.
 
-Dampak praktis untuk demo: model ini masih sangat bergantung pada satu signer. Pemakaian baru wajar untuk signer0 sampai signer3 sampai kalibrasi per pengguna selesai.
+Practical impact for the demo: this model still depends heavily on one signer. Use is only reasonable for signer0–3 until per-user calibration is done.
 
-## Batas CWD saat dijalankan sebagai EXE
+## CWD limits in the built EXE
 
-Batas ini berbeda per path, jadi jangan digabung menjadi satu keterangan:
+These limits differ per path, so they must not be merged into one statement:
 
-- `models/baseline.npz` (jalur kata) dan berkas `.task` landmark dibaca langsung `Path(...)` tanpa resolver (`src/adapters/predictor.py:33`, `src/adapters/landmark.py:68-76`), begitu pula `configs/app.toml` lewat `DEFAULT_CONFIG_PATH` relatif CWD (`src/core/config.py:20`). Untuk path itu EXE **hanya bisa dijalankan dengan CWD = root repo**; dari folder lain ia gagal dengan `ModuleNotFoundError: No module named 'src'` (terukur).
-- `models/huruf.npz` dan `models/angka.npz` (jalur statis) punya resolver `_resolusi_artifact` yang jatuh kembali ke `sys._MEIPASS` saat dieksekusi (`src/adapters/static_predictor.py:51-67`). Untuk dua berkas itu EXE bisa dijalankan dari folder mana saja, dan ini sudah diverifikasi dengan memuat model dari luar root repo.
+- `models/baseline.npz` (word path), the landmark `.task` files, and `configs/app.toml` are read directly with `Path(...)` and no resolver (`src/adapters/predictor.py:33`, `src/adapters/landmark.py:68-76`), as is `DEFAULT_CONFIG_PATH`, which is CWD-relative (`src/core/config.py:20`). For those, the EXE **only runs with CWD = repository root**; from any other folder it fails with `ModuleNotFoundError: No module named 'src'` (measured).
+- `models/huruf.npz` and `models/angka.npz` (static path) have a resolver, `_resolusi_artifact`, that falls back to `sys._MEIPASS` when frozen (`src/adapters/static_predictor.py:51-67`). The bundled specs `isyaratku-ready.spec:7` and `isyaratku-debug.spec:7` do bundle both files, so the code path for them is present. Running the built EXE from a non-repository CWD has not been exercised yet, so that launch stays unverified.
 
-## Membuat EXE
+## Building the EXE
 
-Tiga EXE terpisah dibundel dengan PyInstaller 6,21,0 dari entry point di `tools/` (bukan `-m`, karena PyInstaller memerlukan nama berkas skrip): `tools/exe_ready.py` untuk mode siap pakai, `tools/exe_debug.py` untuk mode debug, dan `tools/exe_train.py` untuk training sendiri. Detail perintah dan angka terukur ada di `build-exe.md`.
+Three separate EXEs are bundled with PyInstaller 6.21.0 from entry points in `tools/` (not `-m`, because PyInstaller needs a script file name): `tools/exe_ready.py` for ready-to-use mode, `tools/exe_debug.py` for debug mode, and `tools/exe_train.py` for self-training. Commands and measured numbers are in `build-exe.md`.
 
-Inti perintah Target A, dijalankan dari root repo, dengan `<dir-build-sementara>` di luar repo supaya `dist/` dan `build/` tidak menyentuh git:
+Target A core command, run from the repository root, with `<temp-build-dir>` outside the repo so `dist/` and `build/` never touch git:
 
 ```bash
 python -m PyInstaller --noconfirm --clean --onedir --name isyaratku-ready \
-    --distpath <dir-build-sementara> --workpath <dir-build-sementara> \
+    --distpath <temp-build-dir> --workpath <temp-build-dir> \
     --collect-submodules mediapipe --collect-binaries mediapipe --collect-data mediapipe \
     --collect-all PySide6 --collect-all sounddevice \
     --hidden-import piper --hidden-import cv2 --hidden-import numpy \
@@ -173,48 +173,48 @@ python -m PyInstaller --noconfirm --clean --onedir --name isyaratku-ready \
     tools/exe_ready.py
 ```
 
-Perbedaannya antar target harus dibaca di `build-exe.md`, tidak digeneralisasi: `isyaratku-ready.spec:7` dan `isyaratku-debug.spec:7` mem-bundel `models/huruf.npz` dan `models/angka.npz` selain `models/baseline.npz`, sedangkan `isyaratku-train.spec` tidak memuat keduanya karena jalur Target C tidak memakainya. Yang belum terukur tetap dicatat sebagai belum: uji GUI nyata, TTS nyata, mode `--onefile`, dan lintas mesin.
+The differences between targets must be read in `build-exe.md` and not generalized: `isyaratku-ready.spec:7` and `isyaratku-debug.spec:7` bundle `models/huruf.npz` and `models/angka.npz` in addition to `models/baseline.npz`, while `isyaratku-train.spec` does not bundle either, because the Target C path does not use them. Real-GUI, real-TTS, `--onefile`, and cross-machine runs stay recorded as untested.
 
-## Screenshot
+## Screenshots
 
-Tiga berkas ini belum ada; tabel di bawah adalah penanda, bukan klaim bahwa screenshot sudah tersedia.
+These three files do not exist yet; the table below is a marker, not a claim that screenshots are available.
 
-| Area | Berkas | Yang ditampilkan |
+| Area | File | What it shows |
 | --- | --- | --- |
-| Mode siap pakai | `docs/images/ui-siap-pakai.png` | Jendela minimal dengan tombol Start/Stop dan indikator status |
-| Dasbor debug | `docs/images/ui-debug.png` | Panel video mentah dan ber-overlay, FPS output, frame terkirim dan di-drop, status voting beserta cooldown, log kata |
-| Di aplikasi rapat | `docs/images/meeting.png` | Hasil penerjemahan masuk sebagai subtitle OBS Virtual Camera dan audio VB-Cabel terdengar peserta |
+| Ready-to-use mode | `docs/images/ui-siap-pakai.png` | Minimal window with Start/Stop buttons and a running status indicator |
+| Debug dashboard | `docs/images/ui-debug.png` | Panels for raw and overlaid video, output FPS, frames sent and dropped, voting and cooldown status, word log |
+| In a meeting app | `docs/images/meeting.png` | Translation output as an OBS Virtual Camera subtitle, with VB-Cable audio heard by participants |
 
-## Cara pakai pada demo
+## Running the demo
 
-1. Buka aplikasi rapat (Zoom, Google Meet, dan sebagainya).
-2. Pada setelan kamera rapat, pilih **OBS Virtual Camera** sebagai perangkat kamera, sehingga gambar wajah penutur diganti output pipa aplikasi.
-3. Jalankan `python -m src.ui.app`, tekan **Start**, dan tunggu status menjadi "berjalan".
-4. Agar peserta rapat **mendengar**: pilih mikrofon **CABLE In 16 Ch (VB-Audio Virtual Cable)** pada aplikasi rapat. Aplikasi mengarahkan output TTS ke pemutar kabel, dan aplikasi rapat menangkap endpoint capture kabel sebagai mikrofon.
+1. Open the meeting app (Zoom, Google Meet, and so on).
+2. In the meeting camera settings, choose **OBS Virtual Camera** as the camera device, so the speaker's face image is replaced by the app pipeline output.
+3. Run `python -m src.ui.app`, press **Start**, and wait for the status to read "berjalan".
+4. For participants to **hear** you: choose **CABLE In 16 Ch (VB-Audio Virtual Cable)** as the microphone in the meeting app. The app routes TTS output to the cable player, and the meeting app captures the cable capture endpoint as a microphone.
 
-VB-Cabel dan OBS Virtual Camera harus sudah terpasang; pemeriksaan otomatis saat Start memverifikasi kamera, virtual camera, dan kabel, lalu melaporkan galat spesifik bila salah satu belum siap.
+VB-Cable and OBS Virtual Camera must already be installed; the automatic check at Start verifies the camera, the virtual camera, and the cable, then reports a specific error when one of them is not ready.
 
-## Dokumentasi lain dan atribusi
+## Other documentation and attribution
 
-| Berkas | Isi |
+| File | Contents |
 | --- | --- |
-| `build-exe.md` | Build tiga EXE PyInstaller: perintah, opsi wajib, angka terukur |
-| `docs/architecture.md` | Alur pipa, kontrak config, batas antar modul |
-| `docs/tech-decisions.md` | Keputusan terukur, ambang yang ditolak, latensi |
-| `docs/implementation-plan.md` | Kriteria penyelesaian per slice, termasuk yang belum dicentang |
-| `docs/dataset-notes.md` | Dataset kandidat dan lisensinya |
-| `docs/environment.md` | Fakta environment terverifikasi: Python, paket, VB-Cabel, OBS |
+| `build-exe.md` | Building the three PyInstaller EXEs: commands, required options, measured numbers |
+| `docs/architecture.md` | Pipeline flow, config contract, module boundaries |
+| `docs/tech-decisions.md` | Measured decisions, rejected thresholds, latency |
+| `docs/implementation-plan.md` | Per-slice completion criteria, including unchecked ones |
+| `docs/dataset-notes.md` | Candidate datasets and their licenses |
+| `docs/environment.md` | Verified environment facts: Python, packages, VB-Cable, OBS |
 
-Atribusi, dibaca dari repo dan dokumentasi; lisensi komponen perangkat lunak perlu diperiksa ulang sebelum publikasi:
+Attribution, read from the repo and docs; software component licenses need rechecking before publication:
 
-- Dataset KATA `glennleonali/wl-bisindo` (Kaggle) tercatat **CC BY-NC 4.0** di `docs/dataset-notes.md:30`: pakai non-komersial sesuai lisensinya, dan atribusi untuk pemakaian lomba perlu diperiksa.
-- MediaPipe Tasks (hand dan pose landmarker) dari `google/mediapipe`: lisensi perlu diperiksa.
-- piper-tts dan suara Indonesia `rhasspy/piper-voices` (`id_ID-news_tts-medium.onnx`): lisensi perlu diperiksa.
-- BISINDO sebagai bahasa isyarat komunitas; sumber kamus isyarat perlu diperiksa.
-- Dataset huruf dan angka diperoleh dari `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` (CC BY 4,0), `achmadnoer/alfabet-bisindo` (CC0), `agungmrf/indonesian-sign-language-bisindo`, dan `sifaqeinstein/bisindo`, dipakai memverifikasi pemetaan label 0-25 menjadi A-Z.
+- Word dataset `glennleonali/wl-bisindo` (Kaggle), recorded as **CC BY-NC 4.0** in `docs/dataset-notes.md:30`: non-commercial use per its license, and attribution needs checking for competition use.
+- MediaPipe Tasks (hand and pose landmarker), `google/mediapipe`: license needs checking.
+- piper-tts and the Indonesian voice `rhasspy/piper-voices` (`id_ID-news_tts-medium.onnx`): license needs checking.
+- BISINDO as a community sign language; sign dictionary sources need checking.
+- Letter and number datasets come from `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks` (CC BY 4.0), `achmadnoer/alfabet-bisindo` (CC0), `agungmrf/indonesian-sign-language-bisindo`, and `sifaqeinstein/bisindo`, used to verify the 0–25 to A–Z label mapping.
 
 ## Roadmap
 
-1. **Slice 6, melengkapi mode siap pakai dan dasbor debug** (sedang berjalan): menstabilkan kedua mode, pemeriksaan otomatis saat Start, pesan galat yang bisa ditindaklanjuti, dan indikator status.
-2. **Slice 7, angka dan huruf**: dataset sudah terunduh, pemetaan label terverifikasi, model dilatih dan disambungkan sebagai jalur statis dengan default mati. Sisa pekerjaannya adalah mengukur ambang pemisah huruf berulang, memverifikasi arti kelas ke-11 angka, dan menguji pada webcam nyata.
-3. **Setelah angka dan huruf benar-benar stabil**: kalibrasi per pengguna, berupa beberapa repetisi per gloss sebelum demo, yang prasyarat minimumnya sudah didokumentasikan di `docs/tech-decisions.md:45-52`.
+1. **Slice 6 — completing the ready-to-use mode and the debug dashboard** (in progress): stabilizing both modes, the automatic check at Start, actionable error messages, status indicators.
+2. **Slice 7 — numbers and letters**: datasets are downloaded, the label mapping is verified, and models are trained and wired as a static path with a default-off switch. Remaining work is measuring the repeated-letter split threshold, verifying the meaning of the 11th number class, and testing on a real webcam.
+3. **Once numbers and letters are truly stable**: per-user calibration (several repetitions per gloss before a demo), whose minimum prerequisites are already documented in `docs/tech-decisions.md:45-52`.
