@@ -338,10 +338,11 @@ pengecualian `--exclude-module piper` di perintah ini dan nol impor piper di gra
 membuat `python -m training.setup_voice --check` BUKAN prasyarat untuk Target C.
 Prasyarat itu hanya berlaku untuk Target A/B (voice dibutuhkan runtime TTS).
 
-CATATAN pembedaan: `isyaratku-train.spec` (dipegang sesi lain) masih memuat
-`collect_data_files/submodules/dynamic_libs('mediapipe')` dan `--hidden-import cv2`,
-terbukti mati untuk graf ini. Perintah di dokumen ini sudah dibersihkan; kalau build
-nantinya memakai `.spec`, beda itu HARUS diselesaikan dulu (satu sumber kebenaran).
+CATATAN pembedaan sudah diselesaikan: `isyaratku-train.spec` disamakan dengan temuan
+impor Target C: `collect_*('mediapipe')`, `--hidden-import cv2`, dua berkas `.task`,
+dan npz huruf/angka dibuang dari `datas`; `sklearn.pipeline` + `sklearn.preprocessing`
+ditambah ke `hiddenimports`. Build lewat `.spec` dan perintah manual di atas kini
+memakai himpunan opsi yang sama.
 
 Verifikasi setelah build, di root repo:
 
