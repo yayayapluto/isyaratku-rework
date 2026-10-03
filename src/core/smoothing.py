@@ -79,10 +79,16 @@ def hand_present(window: np.ndarray) -> bool:
 class Smoother:
     """Filter gerak lalu tiga tahap dengan satu lock; satu producer thread."""
 
-    def __init__(self, config: AppConfig) -> None:
+    def __init__(
+        self, config: AppConfig, motion_floor: float = IDLE_MOTION_FLOOR
+    ) -> None:
         self._threshold = config.smoothing_confidence_threshold
         self._vote_count = config.smoothing_vote_count
         self._cooldown_seconds = config.smoothing_cooldown_seconds
+        #: Ambang gerak bisa diturunkan per instans (jalur statis butuh 0.0
+        #: supaya pose diam tetap terhitung isyarat). Default tetap konstanta
+        #: global supaya jalur kata berperilaku persis seperti sebelumnya.
+        self._motion_floor = motion_floor
         self._lock = threading.Lock()
         self._candidate: str | None = None
         self._streak = 0
@@ -104,7 +110,7 @@ class Smoother:
         yang diam berarti yang berada di depan kamera sedang tidak menyampaikan
         apa pun.
         """
-        return not hand_present(window) or hand_motion(window) < IDLE_MOTION_FLOOR
+        return not hand_present(window) or hand_motion(window) < self._motion_floor
 
     def feed(
         self,
@@ -165,6 +171,6 @@ class Smoother:
                 "vote_count": self._vote_count,
                 "cooldown_seconds": self._cooldown_seconds,
                 "last_emitted": dict(self._last_emitted),
-                "motion_floor": IDLE_MOTION_FLOOR,
+                "motion_floor": self._motion_floor,
                 "blocked_idle": self._blocked_idle,
             }

@@ -74,6 +74,43 @@ def _flatten(landmarks: LandmarkFrame) -> tuple[np.ndarray, np.ndarray]:
     return coords, present
 
 
+#: Slot tangan: 2 x 21 titik x 3 koordinat. Baris 0..125 dari ``normalise``
+#: (2 x 63) sudah persis blok tangan; pose dan flag tidak ikut.
+STATIC_HAND_COLS = HAND_POINT_COUNT * COORD_COUNT  # 2 x 21 x 3 = 126
+
+
+def slice_tangan_126(row456: np.ndarray) -> np.ndarray:
+    """Ambil blok tangan murni (126 kolom) dari baris fitur 456 kolom.
+
+    Kolom 0..125 keluaran ``normalise`` adalah tangan kiri 63 + tangan kanan
+    63, jadi ini slicing murni: tanpa pooling, tanpa kopi yang bisa dihindari
+    selain ``array`` tipe float. Slot tangan tanpa deteksi tetap 0.0 persis
+    karena ``normalise`` mengisi slot kosong dengan nol.
+    """
+    return np.asarray(row456, dtype=np.float64)[:STATIC_HAND_COLS].copy()
+
+
+def wrist_normalise_126(row: np.ndarray) -> np.ndarray:
+    """Normalisasi tarikan statis: relatif pergelangan, diskala landmark 9.
+
+    Duplikat sadar dari ``training/train_static.py:138-165`` (``pra_proses``):
+    core tidak boleh mengimpor ``training/``, dan train/serve skew pada
+    normalisasi adalah bug yang paling mahal. Aturannya per tangan (awal 0
+    dan 63): ulang 21 titik x 3, pindahkan ke pergelangan (titik 0), skala
+    dengan jarak pergelangan ke landmark 9 (pangkal jari tengah). Jarak di
+    bawah ``_SCALE_FLOOR`` memakai skala 1.0 sehingga tangan yang tidak
+    terdeteksi (slot nol) tetap nol, bukan NaN.
+    """
+    row = np.array(row, dtype=np.float64)
+    for start in (0, 63):
+        block = row[start : start + 63].reshape(21, 3)
+        wrist = block[0:1, :]
+        span = np.linalg.norm(block[9:10, :] - wrist)
+        scale = float(span) if span >= _SCALE_FLOOR else 1.0
+        row[start : start + 63] = ((block - wrist) / scale).ravel()
+    return np.nan_to_num(row, nan=0.0, posinf=0.0, neginf=0.0)
+
+
 class FeatureExtractor:
     """Normalisasi per frame + delta antar frame.
 
