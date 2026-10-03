@@ -77,6 +77,11 @@ class Frame:
     #: latensi label -> layar.
     label_emitted_at: float | None = None
 
+    #: Teks jalur statis: huruf yang sedang disusun, atau kata terakhir
+    #: yang selesai bila sedang kosong. Ditulis thread capture tiap frame
+    #: statis, dibaca worker output — sama seperti ``text``. "" berarti
+    #: jalur statis tidak aktif, jadi overlay lama tak berubah.
+    static_text: str = ""
 
 @dataclass
 class Stats:
@@ -122,6 +127,14 @@ class Pipeline:
     #: frame. Enum label suara (TTS) dan log UI memakai jalur ini; core
     #: tidak tahu apa-apa soal audio, hanya memanggil fungsinya.
     on_label: Callable[[str], None] | None = None
+    #: Jalur statis terpasang lewat ``static_predictor``: huruf dan angka
+    #: dipakai per-frame (tanpa Windower) lalu disusun jadi kata di layer
+    #: komposisi ``StaticPath``. Default None: jalur kata berjalan persis
+    #: seperti sebelumnya dan tidak ada satu pun frame yang diperiksa ganda.
+    static_predictor: object | None = None
+    #: Diberitahu dengan kata yang selesai disusun dari huruf. Core tidak
+    #: tahu apa-apa soal audio atau GUI, hanya menyerahkan teksnya.
+    on_static_word: Callable[[str], None] | None = None
 
     def __post_init__(self) -> None:
         self._frames: queue.Queue[Frame] = queue.Queue(
@@ -175,6 +188,12 @@ class Pipeline:
         self._blocked_cooldown = 0
         self._blocked_idle = 0
         self._last_logged_label: str | None = None
+        # Jalur statis dibangun lazily seperti jalur kata: pipeline tanpa
+        # predictor statis tidak menyentuh import apa pun dan perilakunya
+        # tetap sama.
+        self._static_path = None
+        self._static_letters_emitted = 0
+        self._static_words_completed = 0
 
     # -- kontrol -----------------------------------------------------------------
     def start(self) -> None:
@@ -365,6 +384,11 @@ class Pipeline:
             # mematikan pipeline: dicatat, teks dibiarkan kosong.
             if self.predictor is not None:
                 self._run_predictor(frame)
+            # Jalur statis DI ATAS jalur kata, bukan cabang di dalamnya:
+            # urutannya read -> extract -> predictor kata -> statis ->
+            # queue, dan tanpa ``static_predictor`` tak ada yang berbeda.
+            if self.static_predictor is not None:
+                self._run_static_path(frame)
             with self._lock:
                 self._captured += 1
             try:
@@ -372,6 +396,38 @@ class Pipeline:
             except queue.Full:
                 with self._lock:
                     self._dropped += 1
+
+    def _run_static_path(self, frame: Frame) -> None:
+        """Frame -> huruf/angka stabil -> kata tersusun, non-fatal.
+
+        Kegagalan predictor statis diperlakukan seperti jalur kata: dicatat
+        sebagai galat predict terakhir dan streaming video lanjut. ``text``
+        tetap milik jalur kata; yang statis menulis ``static_text`` supaya
+        overlay yang sudah ada tidak berubah saat jalur statis diam.
+        """
+        if self._static_path is None:
+            self._build_static_path()
+        try:
+            letter, word = self._static_path.feed(frame.landmarks, frame.timestamp)
+            if letter is not None:
+                self._static_letters_emitted += 1
+                logger.info("statis huruf: huruf=%s frame.index=%s", letter, frame.index)
+            if word is not None:
+                self._static_words_completed += 1
+                logger.info("statis kata: kata=%s frame.index=%s", word, frame.index)
+                self._emit_static_word(word)
+            # Lengket: huruf yang sedang disusun; saat jeda pemisah berjalan
+            # yang tampil kata terakhir yang selesai.
+            frame.static_text = self._static_path.letters or self._static_path.word
+        except Exception as exc:
+            with self._lock:
+                if self._last_prediction_error is None:
+                    self._last_prediction_error = exc
+            logger.warning(
+                "Galat predictor statis diabaikan: frame.index=%s exc=%r",
+                frame.index,
+                exc,
+            )
 
     def _run_predictor(self, frame: Frame) -> None:
         """Feed fitur ke extractor + window, lalu predictor dan smoother."""
@@ -504,6 +560,51 @@ class Pipeline:
             stride=self.config.window_stride,
         )
         self._smoother = Smoother(self.config)
+
+    def _build_static_path(self) -> None:
+        """Bangun ``StaticPath`` dari predictor statis yang disuntikkan.
+
+        Import di dalam fungsi mengikuti pola ``_build_prediction_stage``:
+        pipeline tanpa predictor statis tidak pernah mengimpor modul jalur
+        statis. Kalau predictor statis sudah berupa ``StaticPath`` (injeksi
+        test), objek itu yang dipakai apa adanya.
+        """
+        from .static_path import StaticPath
+
+        injected = self.static_predictor
+        if isinstance(injected, StaticPath):
+            self._static_path = injected
+            return
+        self._static_path = StaticPath(injected, self.config)
+
+    def _emit_static_word(self, word: str) -> None:
+        """Beritahu subscriber kata statis; kegagalannya tidak fatal."""
+        hook = self.on_static_word
+        if hook is None:
+            return
+        try:
+            hook(word)
+        except Exception as exc:
+            with self._lock:
+                if self._last_label_error is None:
+                    self._last_label_error = exc
+            logger.warning("Listener statis gagal: exc=%r", exc)
+
+    @property
+    def static_status(self) -> dict[str, object]:
+        """Snapshot jalur statis; kosong sebelum kata pertama.
+
+        Hanya-baca, tidak mengubah state — mencerminkan pola
+        ``smoother_status`` di atas.
+        """
+        if self._static_path is None:
+            return {}
+        with self._lock:
+            status = dict(self._static_path.smoother_status)
+            status["huruf_terbit"] = self._static_letters_emitted
+            status["kata_terbit"] = self._static_words_completed
+        status["huruf_menyusun"] = self._static_path.letters
+        return status
 
     @property
     def smoother_status(self) -> dict[str, object]:
