@@ -74,6 +74,8 @@ cd isyaratku-rework
 python -m pip install -r requirements.txt
 ```
 
+On a fresh install pip may resolve `opencv-contrib-python` for the same 5.0.0.93 version, because mediapipe depends on it; the commands here were verified against the environment already present on the machine.
+
 3. Download the piper TTS voice (~62 MB, one time, needs network):
 
 ```bash
@@ -120,7 +122,7 @@ Uncomment the `[static]` block in `configs/app.toml` and set `enabled = true`, t
 
 All tuning numbers live in a single contract: `_CONTRACT` in `src/core/config.py`, currently 26 `section.key` entries. `configs/app.toml` deliberately holds only comments and no active keys, so out of the box every value comes from `_CONTRACT`. To override values, write a TOML file with just the keys you want and point the app at it:
 
-```bash
+```bat
 set ISYARATKU_CONFIG=%CD%\override.toml
 python -m src.ui.app
 ```
@@ -283,4 +285,4 @@ Those items are missing from the repository and need a human decision:
 - Screenshot assets — `docs/images/` is empty, so no screenshots are embedded above.
 - The 11th digit class is named `?`; its meaning is unverified from the dataset source.
 - Signer metadata for the letter and number datasets, to make their numbers auditable.
-- No CI workflow exists, so the badges above are deliberately absent.
+- This project has no CI workflow, so no badges are shown.
