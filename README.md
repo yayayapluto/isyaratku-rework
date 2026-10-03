@@ -66,7 +66,7 @@ Measured on the source files' train/val split:
 | Model | Classes | Validation accuracy | Macro F1 | Artifact |
 | --- | --- | --- | --- | --- |
 | Letters A–Z | 26 | 0.9576 dedup / 0.9534 as-is | 0.9563 / 0.9530 | `models/huruf.npz` |
-| Static numbers 0–10 | 11 (11th class named `?`) | 0.9868 | 0.9857 | `models/angka.npz` |
+| Static digits | 10 digits `0`–`9` plus `?` (11 classes, 11th named `?`) | 0.9868 | 0.9857 | `models/angka.npz` |
 | Dynamic numbers | 10 | 0.8769 | 0.8730 | `models/angka-dinamis.npz` (not wired into the pipeline) |
 
 Measured latency: 121 µs per frame for letters alone, 280 µs for the letters-plus-numbers hybrid, and only 1.26% of the 33 ms frame budget at 30 fps when combined with the word path. Inference is not the bottleneck.
@@ -100,18 +100,18 @@ Every run writes a log to `logs/isyaratku-YYYY-MM-DD.log`, one file per day, loc
 Dependency direction: `ui` → `core` ← `adapters`. The `src/core/` package does not import `src/ui/`, `src/adapters/`, or GUI code, contains no magic numbers, and every adapter has a fake for tests. The full rules are in `AGENTS.md`.
 
 ```
-kamera ─┐
-        ├─ landmark MediaPipe ─ windowing (30 frame, stride 5) ─ normalisasi
-kamera ─┘                                                        │
-                                                                 ▼
-                                          prediksi LogReg ─ smoothing (vote 3, cooldown 1,5 s)
-                                                                 │
-                            ┌────────────────────────────────────┴───────────────┐
+camera ─┐
+        ├─ MediaPipe landmark ─ windowing (30 frames, stride 5) ─ normalisation
+camera ─┘                                                       │
+                                                                ▼
+                                         LogReg prediction ─ smoothing (vote 3, 1.5 s cooldown)
+                                                                │
+                            ┌───────────────────────────────────┴────────────────┐
                             ▼                                                    ▼
-                 overlay di frame                                        label berdiri
+                    frame overlay                                        standing label
                             │                                                    │
                             ▼                                                    ▼
-              OBS Virtual Camera (pesan ke rapat)                    piper-tts offline ─ VB-Cabel
+              OBS Virtual Camera (message to meeting)              offline piper-tts ─ VB-Cable
 ```
 
 The static path runs after the word predictor, not inside it: `_run_static_path` is called after `_run_predictor` in the capture loop, composed through the `on_static_word` hook. The word path therefore has no letter-specific branch.
@@ -140,7 +140,7 @@ Every number below is measured, not a claim:
 | Word predictor p50 | 0.066 ms |
 | Static predictor p50 (letters) | 121 µs |
 
-Whole-window accuracy is 7× higher than reality because 924 of 1,718 test windows are labeled "tidak ada isyarat", and that class dominates. The error pattern is one-directional: "Sore" absorbs 251 windows and "Bagaimana" 196 windows, while the reverse is nearly zero — the mark of signer bias, not of similar words.
+Whole-window accuracy is 7× higher than reality because 924 of the 1,718 test windows are labeled "tidak ada isyarat", and that class dominates (`docs/tech-decisions.md:47`). The error pattern is one-directional: "Sore" absorbs 251 windows and "Bagaimana" 196 windows, while the reverse is nearly zero — the mark of signer bias, not of similar words.
 
 Practical impact for the demo: this model still depends heavily on one signer. Use is only reasonable for signer0–3 until per-user calibration is done.
 
