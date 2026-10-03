@@ -90,7 +90,7 @@ Satu codebase dan satu pipeline, dua view berbeda.
 
 **Mode debug**
 - Satu jendela dasbor dengan beberapa panel, bukan banyak jendela.
-- Panel: video mentah, video dengan landmark, FPS per tahap, latensi total, tiga prediksi teratas beserta confidence, status voting buffer dan cooldown, persentase frame dengan landmark tidak lengkap, log kata yang sudah diucapkan.
+- Panel: video mentah, video dengan landmark, FPS terkirim (jalur output), Frame dikirim, Frame dibuang, Jendela FPS, Galat suara (TTS), tiga prediksi teratas beserta confidence, status voting buffer dan cooldown, persentase frame dengan landmark tidak lengkap, log kata yang sudah diucapkan.
 - Panel tambahan opsional: tombol rekam satu sample landmark dari webcam.
 - Mode debug hanya mengamati pipeline yang sama. Tidak ada logika terpisah.
 - Ukuran performa dilakukan di mode ready-to-use karena mode debug menambah beban render.
