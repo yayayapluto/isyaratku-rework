@@ -25,7 +25,7 @@ Real-time BISINDO (Indonesian Sign Language) word translator for everyday conver
 - Two interfaces: a ready-to-use mode (Start/Stop) and a debug dashboard with FPS, frames sent/dropped, voting status, and a word log.
 - A separate per-frame letter and number path (`static.*` config keys), off by default.
 - A headless smoke run with fake camera and fake virtual camera: `python -m src.ui.app --headless --seconds 3` prints `Headless smoke: LOLOS`.
-- 276 automated tests pass (`python -m pytest -q -p no:cacheprovider`), 0 skipped, ~90 s.
+- Run the automated suite with `python -m pytest -q -p no:cacheprovider` (read the current count and duration from its final line; no count is asserted here because the suite keeps growing).
 
 ## Current accuracy — read before trusting a demo
 
@@ -170,7 +170,7 @@ isyaratku-rework/
 │   ├── adapters/      everything that touches the outside: camera, MediaPipe, TTS, virtual camera, model artifacts
 │   └── ui/            PySide6 views (ready + debug), overlay rendering, headless entry point
 ├── training/          extraction, training, export — not imported by the runtime
-├── tests/             23 test modules plus a shared `conftest.py`, run against fake adapters
+├── tests/             pytest suite using fake adapters
 ├── models/            trained artifacts (tracked in git)
 │   ├── baseline.{joblib,json,npz}       33-class word model
 │   ├── huruf.{joblib,json,npz}          26-class letter model
@@ -194,7 +194,7 @@ Run the whole suite:
 QT_QPA_PLATFORM=offscreen python -m pytest -q -p no:cacheprovider
 ```
 
-`-p no:cacheprovider` is not optional: without it an earlier run stalled long enough to exceed the harness timeout. Expected last line: `276 passed`. The suite occasionally hangs during teardown; the printed count is still valid. Offscreen mode is needed on a headless machine, though the tests never open a window.
+`-p no:cacheprovider` is not optional: without it an earlier run stalled long enough to exceed the harness timeout. Read the pass count from the final line; the suite occasionally hangs during teardown, and the printed count is still valid. Offscreen mode is needed on a headless machine, though the tests never open a window.
 
 Quickest check without any hardware:
 
