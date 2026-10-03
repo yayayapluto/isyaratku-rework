@@ -44,15 +44,40 @@ Python 3.14 dengan PyInstaller 6.21.0; semua perintah dijalankan dari root repo;
 1. `isyaratku-train.exe --help` dari root repo → exit 0; semua flag muncul: `--extracted`,
    `--limit-window`, `--skip-save`, `--signer-tambahan-train`, `--stem`, `--confusion`.
 2. `isyaratku-train.exe --skip-save --limit-window 10 --extracted data/extracted` → exit 0,
-   durasi 10,40 s. Output akhir antara lain: `Akurasi test: 0.426`,
-   `Akurasi gloss saja: 0.004`, `Kelas dilatih: 13 dari 35`.
-   `--skip-save` terbukti: tidak ada artifact baru yang ditulis ke `models/` atau `docs/`.
+   durasi 10,40 s (EXE). Jalur sumber diukur ulang 2026-10-03:
+   `python -m training.train --skip-save --limit-window 10 --stem ujicoba` → exit 0,
+   14,08 s (isi run: `Durasi fit: 0.6s, total 11.0s`). Output akhir cocok:
+   `Akurasi test: 0.426`, `Akurasi gloss saja: 0.004`, `Kelas dilatih: 13 dari 35`.
+   PENTING soal `--limit-window N`: di `training/train.py:311` argumen sampai sebagai
+   `limit_windows`, lalu `training/dataset.py:99` memakainya sebagai `limit_files * 100`
+   di `iter_examples()`, jadi N=10 membatasi 1000 window PER SPLIT, bukan 10 window.
+   Bukan percobaan cepat: dataset lengkap terukur 8.549/1.850/1.718 window
+   (train/val/test, 12.117 total), jadi run ini tetap melatih 1000 window per split
+   (`Window: train 1000 ... val 1000, test 1000` tercetak). Kalimat "percobaan 10
+   window" tidak boleh dipakai; argumen ini tidak menghasilkan dataset kecil untuk
+   dataset ukuran ini.
+   `--skip-save` TIDAK memengaruhi metrik: `cetak_laporan(hasil)` dijalankan di
+   `training/train.py:312`, SEBELUM penjagaan `if not args.skip_save:` di baris 314.
+   Terukur juga tidak ada artifact baru: `git status --short models docs` tetap
+   bersih setelah run.
+3. Rantai impor Target C diukur 2026-10-03 (diff `sys.modules`):
+   `tools/exe_train.py` → `training.train` → `training.dataset` → `src.core.config`,
+   `src.core.features`, `src.core.landmarks`, plus `numpy`, `joblib`, `tomllib`;
+   sklearn dimuat LAMBAT di dalam `latih()` (`training/train.py:112-115`), jadi tidak
+   ikut biaya start-up entry point. Hasil: `mediapipe` False, `cv2` False,
+   `piper` False, `PySide6` False, `sounddevice` False, `pyvirtualcam` False.
+4. `training/train_static.py` (model statis 126-fitur, flag `--target
+   huruf/angka/angka-dinamis`) TIDAK bisa dijalankan dari EXE Target C: `tools/exe_train.py`
+   hanya mengimpor `training.train` (dicek AST: satu-satunya impor paket adalah itu),
+   tidak ada `--target` di `python -m training.train --help`. Model statis adalah
+   sesi terpisah; Target C melatih model kata saja.
 
-Target C dibundel dari `tools/exe_train.py` (`--name isyaratku-train`). Catatan opsi,
-terukur: `training/extract.py:40-43` memakai `cv2`, `mediapipe`, dan paket `src` tanpa
-PySide6 (impor `training.extract` baru: `PySide6 loaded: False`,
-`pyvirtualcam loaded: False`, `cv2: True`, `mediapipe: True`). Karena itu Target C tidak
-memakai `--collect-all PySide6` dan tidak perlu `--hidden-import pyvirtualcam`.
+Target C dibundel dari `tools/exe_train.py` (`--name isyaratku-train`). Alasan Target C
+tidak memakai `--collect-all PySide6` dan tidak perlu `--hidden-import pyvirtualcam`
+adalah hasil ukuran di atas (impor None), bukan alasan lama yang menyebut
+`training/extract.py` — modul itu TIDAK ada di graf impor Target C, jadi tidak lebih
+kuat dari opini. Modul `training.extract` memang memakai `cv2` + `mediapipe`
+(`training/extract.py:40-43`), tetapi Target C tidak pernah menyentuhnya.
 
 ## Status honesty
 
@@ -67,6 +92,11 @@ Ketiga target sudah dibundel dan dijalankan dari root repo; hasil nyatanya ada d
   `cache/`), tetapi jalur `--headless` memakai fake adapter yang tidak bicara, jadi
   pemuatan/pengunduhan piper dari EXE TIDAK TERUKUR.
 - Ukuran paket bila voice `.onnx` ikut dibundel (voice TIDAK dibundel di ketiga target).
+- Prasyarat voice untuk Target C: `python -m training.setup_voice --check` TIDAK PERLU
+  dijalankan sebelum build/run Target C — `models/tts/` tidak ada di `datas`
+  `isyaratku-train.spec`, dan perintah Target C mengecualikan `piper`. Bahasa "prasyarat
+  untuk semua target" TIDAK berlaku; hanya Target A/B yang memerlukannya karena runtime
+  TTS-nya.
 - Perilaku `--onefile`; ketiga target memakai `--onedir`.
 
 PyInstaller yang dipakai: versi 6.21.0 di interpreter Python 3.14 (diverifikasi dengan
@@ -260,7 +290,8 @@ ini membaca `data/extracted/` (argumen `--extracted`, default `data/extracted`),
 menulis `models/<stem>.joblib` + `models/<stem>.json` ke disk, dan
 `docs/confusion-<stem>.csv`. Jadi EXE ini **wajib** punya dua lokasi yang bisa ditulis:
 
-- `data/` — dataset masuk (`data/extracted/`; `data/raw/` bila ingest ulang).
+- `data/` — dataset masuk (`data/extracted/*.npz`; `data/raw/` hanya perlu kalau ingest
+  ulang lewat `training.extract`, jalur yang TIDAK ada di graf impor Target C).
 - `models/` dan `docs/` — artifact keluar (`models/<stem>.joblib`, `models/<stem>.json`,
   `docs/confusion-<stem>.csv`).
 
@@ -270,22 +301,47 @@ jalankan Target C dari root repo, atau copy `data/` ke folder kerja yang akan di
 ```bash
 python -m PyInstaller --noconfirm --clean --onedir --name isyaratku-train \
     --distpath <dir-build-sementara> --workpath <dir-build-sementara> \
-    --collect-submodules mediapipe --collect-binaries mediapipe --collect-data mediapipe \
     --collect-submodules src \
-    --hidden-import cv2 --hidden-import numpy \
-    --hidden-import sklearn --hidden-import sklearn.ensemble --hidden-import sklearn.linear_model \
+    --hidden-import numpy \
+    --hidden-import sklearn --hidden-import sklearn.linear_model \
+    --hidden-import sklearn.pipeline --hidden-import sklearn.preprocessing \
     --exclude-module torch --exclude-module torchvision --exclude-module tensorboard \
     --exclude-module sounddevice --exclude-module piper \
     --add-data "configs/app.toml;configs" \
-    --add-data "models/mediapipe/hand_landmarker.task;models/mediapipe" \
-    --add-data "models/mediapipe/pose_landmarker_lite.task;models/mediapipe" \
     tools/exe_train.py
 ```
 
-Yang HARUS tersedia di disk tujuan (bukan dalam EXE): `data/extracted/`, `data/raw/`, dan
-folder `models/` serta `docs/` yang bisa ditulis. Di dalam bundel hanya config dan dua
-berkas `.task` MediaPipe; Target C tidak memuat `models/baseline.npz` maupun voice
-`.onnx` (tidak ada jalur TTS di training).
+Yang HARUS tersedia di disk tujuan (bukan dalam EXE): `data/extracted/`, dan folder
+`models/` serta `docs/` yang bisa ditulis. Di dalam bundel hanya `configs/app.toml`.
+
+Opsi yang DIHAPUS dari perintah Target C beserta alasan terukur:
+
+- `--collect-submodules mediapipe` + `--collect-binaries mediapipe` +
+  `--collect-data mediapipe` dan `--hidden-import cv2` — MEDIAPIPE dan CV2 TIDAK ADA di
+  graf impor Target C (terukur di "Hasil terukur" Target C): `training.train`,
+  `training.dataset`, dan `src.core.*` tidak mengimpor keduanya. Opsi itu memaksa
+  PyInstaller memindai grafik yang tidak pernah dipakai.
+- `--hidden-import sklearn.ensemble` — tidak diimpor `training/train.py` (impor lazy
+  yang nyata: `sklearn.linear_model`, `sklearn.metrics`, `sklearn.pipeline`,
+  `sklearn.preprocessing`; `sklearn.ensemble` False). Opsi mati, bukan keselamatan.
+- `--add-data models/mediapipe/*.task` — dua berkas `.task` jadi OPSIONAL untuk
+  Target C, bukan wajib. Tidak ada jalur import dari Target C ke
+  `src/adapters/landmark.py` atau `training/extract.py`, jadi EXE ini tidak punya
+  kemampuan ekstrak/merekam landmark sendiri; ia hanya membaca `data/extracted/` yang
+  sudah jadi (`.npz`) dan menulis `.joblib`/`.json`/CSV. "Extract rekaman mandiri dari
+  EXE" bukan jalur yang ada — kalimat itu tidak boleh dipakai.
+- `models/huruf.npz` + `models/angka.npz` (ada di `isyaratku-train.spec` `datas`) juga
+  tidak dipakai jalur training kata.
+
+`models/tts/` TIDAK masuk `datas` `isyaratku-train.spec`, dan Target C juga tidak butuh:
+pengecualian `--exclude-module piper` di perintah ini dan nol impor piper di graf
+membuat `python -m training.setup_voice --check` BUKAN prasyarat untuk Target C.
+Prasyarat itu hanya berlaku untuk Target A/B (voice dibutuhkan runtime TTS).
+
+CATATAN pembedaan: `isyaratku-train.spec` (dipegang sesi lain) masih memuat
+`collect_data_files/submodules/dynamic_libs('mediapipe')` dan `--hidden-import cv2`,
+terbukti mati untuk graf ini. Perintah di dokumen ini sudah dibersihkan; kalau build
+nantinya memakai `.spec`, beda itu HARUS diselesaikan dulu (satu sumber kebenaran).
 
 Verifikasi setelah build, di root repo:
 
@@ -300,16 +356,26 @@ Urutan bukti untuk Target C (rincian run nyata dicatat di bagian "Hasil terukur"
    (`--extracted`, `--limit-window`, `--skip-save`, `--signer-tambahan-train`, `--stem`,
    `--confusion`) harus muncul sama seperti `python -m training.train --help`.
 2. `isyaratku-train.exe --stem ujicoba --limit-window 10 --skip-save` — harus membuka
-   `data/extracted/`, melatih, dan lapor metrik tanpa menulis artifact.
+   `data/extracted/`, melatih, dan lapor metrik. Metrik tetap DICETAK karena
+   `cetak_laporan()` jalan sebelum penjagaan `--skip-save`; yang ditekan hanya
+   PENULISAN artifact: `models/ujicoba.joblib`, `models/ujicoba.json`, DAN
+   `docs/confusion-ujicoba.csv` (`training/train.py:314-317` — confusion CSV ikut di
+   dalam penjagaan yang sama, jadi juga tidak ditulis). Kalimat lama "melatih tanpa
+   menulis artifact" sudah tepat; tambahan: confusion matrix tetap DIHITUNG dan
+   dipakai untuk laporan, hanya file CSV-nya yang tidak keluar.
+   Peringatan: `--limit-window 10` bukan 10 window, lihat "Hasil terukur" bagian Target C.
 3. `isyaratku-train.exe --stem ujicoba` — harus menulis `models/ujicoba.joblib`,
    `models/ujicoba.json`, `docs/confusion-ujicoba.csv`. Kalau berkas itu tidak muncul,
    penyebab paling mungkin adalah CWD EXE bukan root repo (path output relatif).
 4. Bila `data/` belum ada, kegagalan yang benar adalah galat "dataset tidak ditemukan",
    bukan traceback dari dalam PyInstaller.
 
-Catatan jujur soal argumen: `--skip-save` melatih tanpa menulis. Terukur:
-`isyaratku-train.exe --skip-save --limit-window 10 --extracted data/extracted` exit 0 dalam
-10,40 s (run training penuh di luar skop dokumen ini).
+Catatan jujur soal argumen: `--skip-save` melatih dan menghitung metrik penuh, tapi
+tidak menulis (`training/train.py:314-317`). Terukur jalur sumber 2026-10-03:
+`python -m training.train --skip-save --limit-window 10 --stem ujicoba` exit 0 dalam
+14,08 s; metrik tercetak lengkap; `git status --short models docs` tetap bersih.
+Angka EXE (10,40 s) tetap dicatat dari run build; keduanya bukan hasil yang sama
+(jalur EXE vs interpreter), jadi jangan disamakan.
 
 ## Verifikasi TTS/audio setelah build (Target A dan B)
 
@@ -349,6 +415,15 @@ Daftar ini bukan klaim kelengkapan; tiap baris harus diselesaikan dari build nya
    jadi `--exclude-module` aman untuk Target A/B. Target C mengecualikan
    `sounddevice`/`piper` (tidak ada jalur audio di training) dan TIDAK mengecualikan
    sklearn.
+   Untuk Target C opsi collect mediapipe/cv2 dihapus karena graf impornya tidak
+   menyentuh kedua paket (lihat "Hasil terukur" butir 3); tiga kegagalan
+   `RecursionError` di atas (142/165/98 s, exit 1) berasal dari build yang memang
+   mengimpor mediapipe dan tetap berlaku sebagai larangan `--collect-all mediapipe`
+   untuk Target A/B. Perilaku `--collect-all mediapipe` pada build Target C TIDAK diuji
+   dan tidak diklaim — tidak ada alasannya dicoba karena opsi itu sudah tidak diperlukan.
+   Perintah Target C sekarang memakai `--collect-submodules src` +
+   `--hidden-import numpy/sklearn*` tanpa opsi collect mediapipe/cv2; lihat bagian
+   "Tiga target build → Target C".
    Fakta terukur tambahan: tanpa `--hidden-import pyvirtualcam`, Target A dan B gagal saat
    run dengan `ModuleNotFoundError: No module named 'pyvirtualcam'` (exit 1), berasal dari
    `src/adapters/virtual_camera.py:41`. Ditambahkan `--hidden-import pyvirtualcam` dan
