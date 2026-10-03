@@ -699,6 +699,120 @@ def test_finish_checks_forwards_labels_to_speech_and_view(qapp, monkeypatch) -> 
     view.close()
 
 
+
+def test_static_word_reaches_debug_spoken_log(qapp) -> None:
+    """Kata statis yang sampai ke fanout TTS harus TAMPAK di log panel.
+
+    Fanout dibangun dengan ``_make_static_fanout(speech, view)`` — persis
+    jalur yang dipasang ``finish_checks``. Tanpa hook ``_on_static_word``
+    fanout jatuh ke TTS saja, jadi kata terucapkan tetapi tak pernah tampil.
+    """
+    from src.ui.check_task import _make_static_fanout
+
+    class SpeechDengar:
+        def __init__(self) -> None:
+            self.dengar: list[str] = []
+
+        def feed(self, word: str) -> None:
+            self.dengar.append(word)
+
+    speech = SpeechDengar()
+    debug = DebugView(config())
+    try:
+        fanout = _make_static_fanout(speech, debug)
+        fanout("BUKU")
+
+        assert speech.dengar == ["BUKU"], (
+            f"TTS tidak mendengar kata statis: {speech.dengar}"
+        )
+        debug._flush_labels()
+        rows = [
+            debug._spoken_words.item(i).text()
+            for i in range(debug._spoken_words.count())
+        ]
+        assert rows == ["BUKU"], (
+            f"kata statis tidak muncul di log panel: {rows}"
+        )
+    finally:
+        debug.close()
+
+
+def test_debug_prediction_panel_shows_static_letters(qapp) -> None:
+    """Huruf/angka yang sedang disusun ikut panel prediksi; placeholder tidak.
+
+    ``frame.static_text`` ditulis thread capture tiap frame statis; panel
+    yang sama dengan ``frame.text``. Yang tampil adalah yang terbaru,
+    supaya huruf yang baru masuk menggantikan kata lama — bukan keduanya
+    numpang, bukan juga diam.
+    """
+    debug = DebugView(config())
+    try:
+        frame = Frame(np.zeros((4, 4, 3), dtype=np.uint8), 0.0, 0)
+        assert frame.static_text == "", "Frame baru tidak punya static_text"
+
+        frame.static_text = "S"
+        debug._on_frame(frame)
+        assert debug._predictions.text() == "Top prediksi: S"
+
+        frame.static_text = "SA"
+        debug._on_frame(frame)
+        assert debug._predictions.text() == "Top prediksi: SA"
+
+        # Placeholder overlay bukan prediksi: panel mempertahankan huruf.
+        frame.static_text = PLACEHOLDER_TEXT
+        debug._on_frame(frame)
+        assert debug._predictions.text() == "Top prediksi: SA"
+
+        # Jarak antar huruf: frame tanpa huruf tidak menghapus panel.
+        frame.static_text = ""
+        debug._on_frame(frame)
+        assert debug._predictions.text() == "Top prediksi: SA"
+    finally:
+        debug.close()
+
+
+def test_stop_nulls_the_static_hooks_on_both_views(qapp) -> None:
+    """Setelah Stop, pipeline tidak lagi punya jalur kata statis terpasang.
+
+    Teardown yang sama (Stop -> _release_camera) harus melepas semua hook
+    yang dipasang ``finish_checks``, bukan hanya jalur kata: view sudah
+    melepas widgetnya, dan yang tersisa tetap dipanggil sampai pipeline
+    join selesai.
+    """
+    class PipelinePalsu:
+        def __init__(self) -> None:
+            self.on_frame = lambda frame: None
+            self.on_stats = lambda stats: None
+            self.on_landmarks = lambda lm: None
+            self.on_label = lambda label: None
+            self.on_static_word = lambda word: None
+            self.static_predictor = object()
+
+        def stop(self) -> None:
+            pass
+
+    for view in (ReadyView(config()), DebugView(config())):
+        try:
+            pipelines = [PipelinePalsu() for _ in range(2)]
+            for pipeline in pipelines:
+                view._pipeline = pipeline
+                view._release_camera()
+                for hook in (
+                    "on_frame",
+                    "on_stats",
+                    "on_landmarks",
+                    "on_label",
+                    "on_static_word",
+                ):
+                    assert getattr(pipeline, hook) is None, (
+                        f"{type(view).__name__}: hook {hook} tidak dilepas"
+                    )
+                assert pipeline.static_predictor is None, (
+                    f"{type(view).__name__}: static_predictor tidak dilepas"
+                )
+        finally:
+            view.close()
+
 # ---------------------------------------------------------------------------
 # Regresi: hook pipeline tidak boleh menyentuh widget dari thread non-GUI
 # ---------------------------------------------------------------------------

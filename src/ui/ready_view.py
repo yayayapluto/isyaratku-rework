@@ -183,7 +183,14 @@ class ReadyView(qw.QMainWindow):
         if pipeline is None:
             return
         pipeline.stop()
-        for hook in ("on_frame", "on_stats", "on_landmarks", "on_label"):
+        for hook in (
+            "on_frame",
+            "on_stats",
+            "on_landmarks",
+            "on_label",
+            "on_static_word",
+            "static_predictor",
+        ):
             try:
                 setattr(pipeline, hook, None)
             except Exception:
@@ -206,6 +213,18 @@ class ReadyView(qw.QMainWindow):
         if not self._alive:
             return
         self._newest_frame = frame
+
+    def _on_static_word(self, word: str) -> None:
+        """Kata statis selesai dicatat; tanpa widget, hanya overlay.
+
+        Mode siap pakai tidak punya daftar kata — umpan baliknya overlay
+        yang sudah menampilkan ``frame.static_text``. Hook ini ada supaya
+        kata tidak hilang tanpa jejak di log; tanpa hook ini fanout
+        ``_make_static_fanout`` jatuh ke TTS saja dan view tidak tahu.
+        """
+        if not self._alive:
+            return
+        logger.info("kata statis: %s", str(word))
 
     def _on_stats(self, stats: Stats) -> None:
         """Statistik hanya disimpan; wartanya ditulis di tick 40 ms.

@@ -204,7 +204,14 @@ class DebugView(qw.QMainWindow):
         if pipeline is None:
             return
         pipeline.stop()
-        for hook in ("on_frame", "on_stats", "on_landmarks", "on_label"):
+        for hook in (
+            "on_frame",
+            "on_stats",
+            "on_landmarks",
+            "on_label",
+            "on_static_word",
+            "static_predictor",
+        ):
             try:
                 setattr(pipeline, hook, None)
             except Exception:
@@ -235,17 +242,28 @@ class DebugView(qw.QMainWindow):
         lebih dulu, jadi pada titik ini overlay sudah menimpa ``frame.image``
         in place. Salinannya terjadi di ``_store_raw`` lewat renderer.
 
-        Teks prediksi dibaca dari ``frame.text`` — satu kali per frame yang
-        ditampilkan, bukan sekali per window prediksi. Placeholder subtitle
-        bukan prediksi, jadi tidak pernah dipakai di sini. Urutan tiga
-        teratas dibaca dari probe predictor, bukan dari pipeline, karena
-        pipeline membuang ``Prediction.ranked``.
+        Teks prediksi dibaca dari ``frame.text`` jalur kata DAN
+        ``frame.static_text`` jalur huruf/angka — satu kali per frame yang
+        ditampilkan, bukan sekali per window prediksi. Keduanya bisa datang
+        berurutan tanpa pipeline berhenti di antaranya, jadi yang tampil
+        adalah yang terbaru. Placeholder subtitle bukan prediksi, jadi
+        tidak pernah dipakai di sini. Urutan dua teratas dibaca dari probe
+        predictor, bukan dari pipeline, karena pipeline membuang
+        ``Prediction.ranked``.
         """
         if not self._alive:
             return
         self._newest_frame = frame
+        # Jalur kata (frame.text) dan jalur statis (frame.static_text)
+        # beda jalur prediksi tapi satu panel: yang tampil yang terbaru.
+        # Placeholder overlay bukan prediksi, jadi diabaikan di keduanya.
+        statis = (frame.static_text or "").strip()
         text = (frame.text or "").strip()
-        if text and text != PLACEHOLDER_TEXT:
+        if statis and statis != PLACEHOLDER_TEXT:
+            text = statis
+        elif text == PLACEHOLDER_TEXT:
+            text = ""
+        if text:
             self._newest_predictions = f"Top prediksi: {text}"
         self._newest_ranked = self._read_ranked()
         if _on_gui_thread():
@@ -320,6 +338,21 @@ class DebugView(qw.QMainWindow):
         (``finish_checks``) membungkus pemanggilan ini dalam try/except.
         """
         text = str(label)
+        if not text or not self._alive:
+            return
+        with self._labels_lock:
+            self._pending_labels.append(text)
+        if _on_gui_thread():
+            self._flush_labels()
+
+    def _on_static_word(self, word: str) -> None:
+        """Kata statis selesai masuk daftar tertuhan; widget diisi di tick.
+
+        Sama seperti ``_on_label``: pipeline memanggil ini dari thread
+        capture. Tanpa hook ini kata statis hanya diucapkan TTS dan tidak
+        pernah tampil di log panel.
+        """
+        text = str(word)
         if not text or not self._alive:
             return
         with self._labels_lock:
