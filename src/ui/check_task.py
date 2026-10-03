@@ -207,6 +207,16 @@ def finish_checks(
         step = _Langkah("speech warm_up")
         speech.warm_up(predictor.labels)
         step.selesai()
+        # Jalur statis (huruf/angka) hanya bila config menghidupkannya;
+        # default False: build-nya dilewati dan app berperilaku seperti
+        # sebelumnya. Kegagalan baca artifact tetap muncul sebagai galat
+        # pemeriksaan di sini, bukan thread yang sepinya tanpa tulisan.
+        static_path = None
+        if view._config.static_enabled:
+            step = _Langkah("predictor statis")
+            static_path = _build_static_path(view)
+            speech.warm_up(static_path.labels)
+            step.selesai()
         pipeline = Pipeline(
             camera=camera,
             sink=sink,
@@ -219,6 +229,8 @@ def finish_checks(
             # Tracker landmark hidup di view (punya labelnya), diisi per frame.
             on_landmarks=getattr(view, "_on_landmarks", None),
             on_label=_make_label_fanout(speech, view),
+            static_predictor=static_path,
+            on_static_word=_make_static_fanout(speech, view),
         )
     except Exception as exc:
         # Pipeline gagal dibangun tapi kamera pra-cek tetap hidup: tanpa close
@@ -295,6 +307,43 @@ def _make_label_fanout(speech, view) -> Callable[[str], None]:
     return fanout
 
 
+def _build_static_path(view) -> object:
+    """``StaticPath`` dari artifact npz statis, dengan cleaner model.
+
+    Berekspor dari adapters (bukan core): core tak boleh mengimpor
+    adapters. Deterministik dan impor di dalam fungsi supaya UI tanpa
+    static.enabled tidak memuat numpy stack jalur statis saat start-up.
+    """
+    from ..adapters.static_predictor import StaticHybridPredictor
+    from ..core.static_path import StaticPath
+
+    predictor = StaticHybridPredictor(
+        view._config.static_model_path_huruf,
+        view._config.static_model_path_angka,
+    )
+    return StaticPath(predictor, view._config)
+
+
+def _make_static_fanout(speech, view) -> Callable[[str], None]:
+    """Kata statis mengalir ke TTS lalu view, seperti fanout label kata.
+
+    Pemisah kata di view dan suara sudah diurus ``StaticPath``/``Smoother``:
+    yang sampai di sini kata utuh, bukan huruf lepas.
+    """
+    view_hook = getattr(view, "_on_static_word", None)
+    if view_hook is None:
+        return speech.feed
+
+    def fanout(word: str) -> None:
+        speech.feed(word)
+        try:
+            view_hook(word)
+        except Exception as exc:
+            logger.warning("view _on_static_word gagal: %r", exc)
+
+    return fanout
+
+
 def _release_shared_camera(results) -> None:
     """Lepas kamera pra-cek bila pemeriksaan berakhir tanpa pipeline."""
     release = getattr(results, "release_camera", None)
@@ -341,15 +390,21 @@ def make_renderer(
     ekstraksi landmark dilewati tanpa galat.
     """
     holder = [""]
+    static_holder = [""]
 
     def renderer(frame: Frame) -> Frame:
         if frame.text:
             holder[0] = frame.text
+        if frame.static_text:
+            static_holder[0] = frame.static_text
         if mirror:
             frame.image = mirror_image(frame.image)
         if raw_sink is not None:
             raw_sink(frame.image.copy())
-        draw_overlay(frame, holder[0] or placeholder)
+        # Subtitle: label kata stabil (holder), lalu huruf/kata statis yang
+        # sedang disusun, baru placeholder. Semuanya lengket — frame tanpa
+        # label baru tidak menghapus teks yang sudah tampil.
+        draw_overlay(frame, holder[0] or static_holder[0] or placeholder)
         if landmarks:
             draw_landmarks(frame, frame.landmarks, mirror=mirror)
         return frame
