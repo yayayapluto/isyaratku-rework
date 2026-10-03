@@ -23,3 +23,6 @@ _extract_full.log
 models/tts/
 # log harian runtime (src/core/logging.py), tidak masuk git
 logs/
+
+# .mailmap: pemetaan identitas lokal saja, tidak masuk git
+.mailmap
