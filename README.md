@@ -24,33 +24,54 @@ What actually runs today: the camera → landmark → prediction → smoothing �
 
 ## How to run
 
-Prerequisites: Python 3.14 (this repo is developed and tested on Python 3.14.6). The project has no virtualenv on the developer machine — run directly with the system interpreter.
+### Prasyarat
+
+Python 3.14 (dikembangkan dan diuji di Python 3.14.6). Tidak ada virtualenv di mesin pengembang — pakai langsung interpreter sistem.
 
 ```bash
 git clone https://github.com/yayayapluto/isyaratku-rework.git
 cd isyaratku-rework
-
-python -m training.setup_voice   # unduh voice piper (~62 MB) + pra-sintesis cache label
-python -m training.train         # bangun artefak model di models/baseline.npz
-python -m src.ui.app             # mode siap pakai
 ```
 
-Options:
+Semua perintah di bawah dijalankan dari root repo. Sebagian besar path artifact (`configs/app.toml`, `models/baseline.npz`, `models/mediapipe/*.task`) relatif terhadap CWD, jadi bukan root repo berarti aplikasi gagal memuat config atau model.
 
-```bash
-python -m src.ui.app --mode debug      # dasbor debug satu jendela
-python -m src.ui.app --headless --seconds 5   # smoke test tanpa GUI (camera+sink fake)
-```
+### Daftar perintah
 
-`python -m training.train` needs the KATA dataset in `data/raw/`; `data/` is not tracked by git. `python -m training.setup_voice` can also be used on its own: `--warm-cache` to fill the WAV cache before a demo, `--check` to confirm a voice is present without network access.
+| Perintah | Kegunaan | Catatan |
+| --- | --- | --- |
+| `python -m src.ui.app` | Menjalankan aplikasi mode siap pakai (default) | Tombol Start/Stop; pre-flight cek kamera, virtual camera, dan kabel sebelum Start |
+| `python -m src.ui.app --mode debug` | Dasbor debug satu jendela | Panel video mentah + ber-overlay, FPS output, frame sent/dropped, status voting & cooldown, log kata yang sudah diucapkan |
+| `python -m src.ui.app --headless --seconds 5` | Smoke test penuh tanpa GUI | Pakai `FakeCameraSource` + `FakeVirtualCameraSink` (`src/ui/app.py:53-118`); tanpa hardware; output terakhir harus `Headless smoke: LOLOS` |
+| `python -m training.setup_voice` | Mengunduh voice piper (~62 MB) sekaligus memanaskan cache | Unduh `id_ID-news_tts-medium.onnx` + `.onnx.json` ke `models/tts/`, lalu pra-sintesis seluruh label ke `models/tts/cache/`; perlu jaringan saat pertama kali |
+| `python -m training.setup_voice --check` | Memeriksa apakah voice sudah ada | Tanpa jaringan, tidak mengunduh apa pun |
+| `python -m training.setup_voice --warm-cache` | Hanya memanaskan cache WAV label | Pra-sintesis seluruh label model sebelum demo, supaya Start tidak menunggu sintesis pertama |
+| `python -m training.train` | Melatih ulang model dari `data/extracted/` | Menulis `models/baseline.joblib` + `models/baseline.json` + `docs/confusion-baseline.csv`; flag utama `--stem`, `--extracted`, `--limit-window`, `--skip-save`, `--signer-tambahan-train`, `--confusion` |
+| `python -m training.export_numpy` | Mengonversi joblib → `models/baseline.npz` untuk runtime | Default membaca `models/baseline.joblib`, menulis `models/baseline.npz`; flag `--model` dan `--out` |
+| `python -m training.record_self --max-reps 5 --seconds 4` | Merekam sample landmark sendiri | Backend `DSHOW`, kamera dipilih dengan `--camera` (default 0); `--skip-record` hanya ekstraksi dari video yang sudah ada; output `data/self/` |
+| `python -m training.extract` | Ekstraksi landmark dari video ke `.npz` | Default baca `data/raw/wl-bisindo/`, tulis `data/extracted/` (`training/extract.py:49,52`); flag `--source`/`--out`/`--limit` |
+| `python -m pytest -q -p no:cacheprovider` | Menjalankan seluruh test | 263 lolos, 0 skip; pakai `QT_QPA_PLATFORM=offscreen` bila tanpa display |
 
-Tests:
+### Alur training sendiri
+
+1. Siapkan dataset lalu jalankan `python -m training.extract` untuk ekstraksi landmark ke `data/extracted/` (pola berkas `signer{N}_label{M}_sample{K}.npz`). **Default `--source` adalah `data/raw/wl-bisindo/`** (`training/extract.py:49`), jadi menaruh folder dataset lain di `data/raw/` TIDAK membuatnya terbaca — pakai `--source` dan `--out` eksplisit, mis. `python -m training.extract --source data/raw/dataset-saya --out data/extracted`. Default `--out` adalah `data/extracted/` (`training/extract.py:52`). `data/` tidak masuk git, jadi dataset harus ada di disk mesin sendiri.
+2. Jalankan `python -m training.train --stem <nama>` untuk menghasilkan artifact baru dengan nama sendiri. Bila ingin memakai rekaman mandiri sebagai data training tambahan: `python -m training.train --stem <nama> --signer-tambahan-train 99` — signer 99 hanya masuk train; pembagian val signer4 dan test signer3 tidak berubah.
+3. Konversi ke format runtime: `python -m training.export_numpy --model models/<nama>.joblib --out models/<nama>.npz`.
+4. **Peringatan path runtime:** `models/baseline.npz` adalah target default `src/adapters/predictor.py:33` dan tidak ada config key untuk mengganti path model. Jadi artifact baru HARUS dinamai/ditempatkan sebagai `models/baseline.npz` (salin atau timpa); kalau tidak, aplikasi tetap memuat model lama. `TrainedPredictor` memuat `.npz` dan gagal dengan `FileNotFoundError` bila berkas itu tidak ada — tidak ada fallback ke `.joblib`.
+5. `--stem baseline` MENIMPA artifact lama. Pakai `--stem` lain bila ingin menyimpan baseline. `models/baseline.json`, `models/baseline.npz`, `models/baseline.joblib`, dan `docs/confusion-baseline.csv` adalah artifact terukur yang dirujuk tabel Model honesty; menimpanya menghapus angka yang tertulis di dokumentasi.
+
+Catatan jujur soal dataset: `data/extracted/` saat ini hanya 1600 berkas npz dari signer0-4 (32 gloss kata). Belum ada data angka atau huruf, jadi model belum mengenali isyarat di luar 32 gloss tersebut.
+
+### Test dan log
 
 ```bash
 python -m pytest -q -p no:cacheprovider
 ```
 
-`-p no:cacheprovider` is not optional: a previous run consumed enough time to cause harness timeouts. The test path uses `QT_QPA_PLATFORM=offscreen`, so no display is needed.
+`-p no:cacheprovider` bukan opsional: run sebelumnya sempat menghabiskan waktu sampai menimbulkan timeout harness. Jalur test memakai `QT_QPA_PLATFORM=offscreen`, jadi tidak butuh display. Suite kadang menggantung di teardown — kalau itu terjadi, baca baris output terakhir untuk melihat test mana yang terakhir berjalan.
+
+Setiap run menulis log ke `logs/isyaratku-YYYY-MM-DD.log` (satu berkas per hari, jam lokal dengan offset `+0700`; formatnya tercatat di `docs/AGENTS.md:78-79`). Ini tempat diagnosis ketika UI membeku, pre-flight gagal, atau hasil prediksi tidak sesuai yang terlihat di layar — kegagalan TTS, config, dan predictor semuanya meninggalkan jejak di sana. Bentuk setiap barisnya: `waktu offset LEVEL nama.modul pesan` — baris terakhir menunjukkan aksi atau tahap terakhir yang sedang berjalan. Direktori `logs/` tidak masuk git.
+
+Catatan mesin pengembang (bukan prasyarat umum): pada sebagian mesin, `python` di PATH bukan interpreter yang punya dependensi ini, jadi pastikan `python` menunjuk Python 3.14 dengan dependensi terpasang.
 
 ## How to run the demo
 
@@ -99,7 +120,7 @@ Ketiga berkas belum ada; tabel di atas adalah penanda, bukan klaim screenshot su
 All tuning numbers are centralized in `_CONTRACT` in `src/core/config.py` (23 `section.key` keys, defaults included there). `configs/app.toml` deliberately contains only comments: documentation of defaults and measured results, with no active keys. Override individual values through an environment variable:
 
 ```bash
-set ISYARATKU_CONFIG=D:\jalur\ke\app.toml    # Windows
+set ISYARATKU_CONFIG=<jalur-lengkap-ke>\app.toml    # Windows
 python -m src.ui.app
 ```
 
@@ -133,12 +154,42 @@ For full per-class numbers:
 
 Practical impact for the demo: this model still depends heavily on one signer. Use is only reasonable for signer0–3 until per-user calibration is done.
 
+## Build EXE
+
+Tiga EXE terpisah dibundel dengan PyInstaller 6.21.0 dari entry point di `tools/`
+(bukan `-m`, karena PyInstaller butuh nama berkas script): `tools/exe_ready.py`
+(mode siap pakai), `tools/exe_debug.py` (mode debug), `tools/exe_train.py`
+(training sendiri). Detail, opsi wajib, dan angka terukur ada di `build-exe.md`.
+
+Inti perintah Target A (dijalankan dari root repo; ganti `<dir-build-sementara>` dengan
+folder di luar repo supaya `dist/`/`build/` tidak menyentuh git):
+
+```bash
+python -m PyInstaller --noconfirm --clean --onedir --name isyaratku-ready \
+    --distpath <dir-build-sementara> --workpath <dir-build-sementara> \
+    --collect-submodules mediapipe --collect-binaries mediapipe --collect-data mediapipe \
+    --collect-all PySide6 --collect-all sounddevice \
+    --hidden-import piper --hidden-import cv2 --hidden-import numpy \
+    --hidden-import pyvirtualcam --collect-submodules src \
+    --exclude-module torch --exclude-module torchvision --exclude-module tensorboard \
+    --exclude-module scipy --exclude-module sklearn \
+    --add-data "configs/app.toml;configs" \
+    --add-data "models/baseline.npz;models" \
+    --add-data "models/mediapipe/hand_landmarker.task;models/mediapipe" \
+    --add-data "models/mediapipe/pose_landmarker_lite.task;models/mediapipe" \
+    tools/exe_ready.py
+```
+
+EXE hanya bisa dijalankan dengan CWD = root repo; dari folder lain ia gagal dengan
+`ModuleNotFoundError: No module named 'src'` (terukur).
+
 ## Other documentation and attribution
 
-Supporting documents in `docs/`:
+Supporting documents:
 
 | File | Contents |
 | --- | --- |
+| `build-exe.md` | Build tiga EXE PyInstaller: perintah, opsi wajib, angka terukur |
 | `docs/architecture.md` | Pipeline flow, config contract, module boundaries |
 | `docs/tech-decisions.md` | Measured decisions, rejected thresholds, latency |
 | `docs/implementation-plan.md` | Per-slice completion criteria, including unchecked ones |
