@@ -93,6 +93,12 @@ SCALE_FLOOR = 1e-6
 LABEL_HURUF = tuple(chr(ord("A") + i) for i in range(26))
 LABEL_ANGKA = tuple(str(i) for i in range(10)) + ("?",)  # 10 belum jelas polanya
 LABEL_ANGKA_DINAMIS = tuple(str(i) for i in range(10))
+LABEL_HURUF_ISYARATKU = ("I", "S", "Y", "A", "R", "T", "K", "U")
+#: Indeks label CSV (0=A) untuk huruf yang dipakai demo: I S Y A R T K U.
+PETA_HURUF_ISYARATKU = (
+    ord("I") - 65, ord("S") - 65, ord("Y") - 65, ord("A") - 65,
+    ord("R") - 65, ord("T") - 65, ord("K") - 65, ord("U") - 65,
+)
 
 
 # ---------------------------------------------------------------- baca data
@@ -130,6 +136,19 @@ def muat_npy_dinamis(
             f"{FEATURE_COUNT})."
         )
     return np.ascontiguousarray(x, dtype=np.float32), y.astype(np.int64)
+
+
+def _saring_kelas(
+    x: np.ndarray,
+    y: np.ndarray,
+    peta_indeks: tuple[int, ...],
+    peta_baru: dict[int, int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Ambil baris kelas terpilih, nomor kelas di-map ke 0..len-1."""
+    mask = np.isin(y, peta_indeks)
+    return np.ascontiguousarray(x[mask]), np.asarray(
+        [peta_baru[int(v)] for v in y[mask]], dtype=np.int64
+    )
 
 
 # ------------------------------------------------------------- preprosesing
@@ -431,6 +450,15 @@ def jalankan_statis(args: argparse.Namespace) -> int:
     if args.target == "huruf":
         arti_path, label = DATA_ALPHABET, LABEL_HURUF
         train_csv, val_csv = "landmarks_train.csv", "landmarks_val.csv"
+    elif args.target == "huruf-isyaratku":
+        # Hanya 8 huruf dipakai demo: I S Y A R T K U (indeks label CSV).
+        arti_path, label = DATA_ALPHABET, LABEL_HURUF_ISYARATKU
+        train_csv, val_csv = "landmarks_train.csv", "landmarks_val.csv"
+    elif args.target == "angka-0-9":
+        # Label 10 ("?") dibuang: hanya 0..9 yang dilatih.
+        arti_path, label = DATA_NUMBERS / "Static", LABEL_ANGKA_DINAMIS
+        train_csv = "landmarks_numbers_train.csv"
+        val_csv = "landmarks_numbers_val.csv"
     else:
         arti_path, label = DATA_NUMBERS / "Static", LABEL_ANGKA
         train_csv = "landmarks_numbers_train.csv"
@@ -440,6 +468,21 @@ def jalankan_statis(args: argparse.Namespace) -> int:
     val_path = arti_path / val_csv
     x_train, y_train = muat_csv(train_path)
     x_val, y_val = muat_csv(val_path)
+    if args.target == "huruf-isyaratku":
+        # Indeks label CSV 0..25 (0=A) dipetakan ke kelas baru 0..7 sesuai
+        # LABEL_HURUF_ISYARATKU, supaya urutan label_json sinkron dengan
+        # classes_ (terurut naik) di model.
+        peta = {lama: baru for baru, lama in enumerate(PETA_HURUF_ISYARATKU)}
+        x_train, y_train = _saring_kelas(
+            x_train, y_train, PETA_HURUF_ISYARATKU, peta
+        )
+        x_val, y_val = _saring_kelas(
+            x_val, y_val, PETA_HURUF_ISYARATKU, peta
+        )
+    elif args.target == "angka-0-9":
+        # Label 10 ("?") dibuang: hanya 0..9 yang dilatih.
+        x_train, y_train = x_train[y_train <= 9], y_train[y_train <= 9]
+        x_val, y_val = x_val[y_val <= 9], y_val[y_val <= 9]
     return proses(
         args, x_train, y_train, x_val, y_val, label,
         keterangan={
@@ -577,7 +620,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--target",
         required=True,
-        choices=["huruf", "angka", "angka-dinamis"],
+        choices=["huruf", "huruf-isyaratku", "angka", "angka-0-9", "angka-dinamis"],
         help="Dataset target.",
     )
     parser.add_argument(
