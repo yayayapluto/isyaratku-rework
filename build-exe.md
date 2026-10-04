@@ -120,17 +120,18 @@ Semua kendala di bawah dibaca dari source, jadi ini fakta kode (bukan ekspektasi
    | `models/baseline.npz` | `src/adapters/predictor.py:33` | `DEFAULT_MODEL = MODEL_PATH_DEFAULT`; bobot model yang dimuat runtime |
    | `models/mediapipe/hand_landmarker.task` | `src/core/config.py:35` | default `landmark.hand_model_path` |
    | `models/mediapipe/pose_landmarker_lite.task` | `src/core/config.py:36` | default `landmark.pose_model_path` |
+   | `models/demo-kata.npz` | `src/ui/check_task.py:32` | `WORD_MODEL_PATH`; model kata demo (3 gloss + filler), dibundel di spec ready/debug tapi tetap direlatifkan ke CWD |
 
    Konsekuensi langsung (TERUKUR): EXE hanya bisa dijalankan dengan CWD = root repo, atau
-   ketiga berkas itu harus ikut dibundel sebagai data. Tidak ada config key untuk mengganti
+   berkas-berkas itu harus ikut dibundel sebagai data. Tidak ada config key untuk mengganti
    path model; `ISYARATKU_CONFIG` hanya menggeser tempat config dibaca, bukan lokasi model.
    Bila `models/baseline.npz` tidak ada, `TrainedPredictor` gagal dengan `FileNotFoundError`
    — tidak ada fallback ke `.joblib`.
-   Bukti eksperimen: menjalankan `isyaratku-ready.exe --help` dari LUAR root repo menghasilkan
-   `ModuleNotFoundError: No module named 'src'` (exit 1) pada percobaan pertama, karena
-   `Path(__file__).resolve().parent.parent` saat dibeku menunjuk folder bundel, bukan root
-   repo. Pengembang repo TIDAK menambah resolver `_MEIPASS`/`argv[0]` di `src/**`;
-   penyelesaiannya lewat entry point di `tools/`, dan catatannya: jalankan dari root repo.
+   Bundel di `.spec` saja TIDAK membuat `Path(WORD_MODEL_PATH).exists()` di
+   `src/ui/check_task.py:202` menemukan artifact: path itu direlatifkan ke CWD proses, bukan
+   ke bundel, karena repo sengaja tidak menambah resolver `_MEIPASS`. Jadi dari CWD selain
+   root repo, pemeriksaan `.exists()` gagal diam-diam dan runtime jatuh ke
+   `models/baseline.npz` — EXE jalan, tapi demo-nya memakai model baseline, bukan model kata.
 
 2. **Voice TTS 62 MB tidak masuk git** (`docs/AGENTS.md:49`). Dua berkas:
    `models/tts/id_ID-news_tts-medium.onnx` (62.950.044 byte terukur) dan

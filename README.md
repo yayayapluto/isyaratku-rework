@@ -90,7 +90,7 @@ QT_QPA_PLATFORM=offscreen python -m src.ui.app --headless --seconds 3
 
 Expected last line: `Headless smoke: LOLOS`.
 
-Most artifact paths are relative to the current working directory (`configs/app.toml`, `models/baseline.npz`, `models/mediapipe/*.task`), so run every command from the repository root.
+Most artifact paths are relative to the current working directory (`configs/app.toml`, `models/baseline.npz`, `models/demo-kata.npz`, `models/mediapipe/*.task`), so run every command from the repository root. The demo word model is bundled into both `.spec` files, but `src/ui/check_task.py:202` resolves it against the process CWD (no `_MEIPASS` resolver by repo decision), so the demo path only works from the repository root — otherwise it silently falls back to `models/baseline.npz`.
 
 ## Usage
 

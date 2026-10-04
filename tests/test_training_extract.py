@@ -27,6 +27,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from src.adapters.landmark import MediaPipeLandmarkExtractor
+from src.core.config import load_config
 from src.core.features import FEATURE_COUNT
 from training.extract import DEFAULT_SOURCE_DIR, extract_video, run
 
@@ -147,3 +149,65 @@ def test_determinism_two_processes_byte_identical(config):
     assert first["windows"].shape[0] == (
         (first["frames"] - FRAME_COUNT) // STRIDE + 1
     )
+
+
+class _StopExtraction(BaseException):
+    """Hendikan loop pembacaan frame segera setelah satu frame tercatat."""
+
+
+def test_frame_passed_to_extractor_keeps_bgr_channel_order(monkeypatch):
+    """Frame ``capture.read()`` diteruskan BGR, bukan dikonversi sebelum adapter.
+
+    Adapter ``src/adapters/landmark.py:100`` melakukan BGR -> SRGB sendiri;
+    konversi tambahan di ``training/extract.py`` menukar merah/biru sehingga
+    MediaPipe menerima channel tertukar dan deteksi tangan runtuh (terukur
+    pada video demo: 2/73 vs 54/73 frame bertangan). Keluaran ekstraksi
+    harus konvergen dengan jalur serve, bukan lebih buruk darinya.
+    """
+    rng = np.random.default_rng(7)
+    frame_bgr = rng.integers(0, 256, size=(480, 640, 3), dtype=np.uint8)
+    probe: dict[str, np.ndarray] = {}
+
+    def fake_extract(self, frame):
+        probe["image"] = np.asarray(frame.image)
+        raise _StopExtraction
+
+    # Jalur extract_video penuh dijalankan; hanya extractor dan capture
+    # yang diganti supaya tes tidak butuh video berkas maupun model .task.
+    monkeypatch.setattr(MediaPipeLandmarkExtractor, "__init__", lambda self, c: None)
+    monkeypatch.setattr(MediaPipeLandmarkExtractor, "extract", fake_extract)
+    monkeypatch.setattr(MediaPipeLandmarkExtractor, "close", lambda self: None)
+    monkeypatch.setattr(cv2, "VideoCapture", _FakeCapture)
+
+    with pytest.raises(_StopExtraction):
+        extract_video(Path("signer1_label2_sample3.mp4"), load_config())
+
+    assert "image" in probe
+    # Warna yang diterima extractor == warna capture.read() apa adanya.
+    assert np.array_equal(probe["image"], frame_bgr)
+    assert probe["image"].dtype == np.uint8
+    # Channel tertukar (hasil konversi ganda) wajib gagal.
+    assert not np.array_equal(probe["image"], frame_bgr[:, :, ::-1])
+
+
+class _FakeCapture:
+    """``cv2.VideoCapture`` tiruan: satu frame acak (seed sama dengan tes), lalu habis."""
+
+    def __init__(self, *_args, **_kwargs) -> None:
+        self._fired = False
+
+    def isOpened(self) -> bool:
+        return True
+
+    def get(self, _prop) -> float:
+        return 30.0
+
+    def read(self):
+        if self._fired:
+            return False, None
+        self._fired = True
+        rng = np.random.default_rng(7)
+        return True, rng.integers(0, 256, size=(480, 640, 3), dtype=np.uint8)
+
+    def release(self) -> None:
+        pass

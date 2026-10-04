@@ -117,11 +117,10 @@ def extract_video(video_path: Path, config) -> dict:
             ok, image_bgr = capture.read()
             if not ok:
                 break
-            # Adapter butuh SRGB: konversi BGR -> RGB sebelum masuk mp.Image
-            # (persis jalur produksi, tanpa konversi ganda).
-            image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+            # Frame dari cv2 sudah BGR — adapter landmark.py:100 yang
+            # mengubahnya ke SRGB, jadi jangan dikonversi dua kali di sini.
             landmarks = extractor.extract(
-                Frame(image=image_rgb, timestamp=index / SYNTHETIC_FPS, index=index)
+                Frame(image=image_bgr, timestamp=index / SYNTHETIC_FPS, index=index)
             )
             windows.extend(windower.feed(features.feed(landmarks)))
             index += 1
