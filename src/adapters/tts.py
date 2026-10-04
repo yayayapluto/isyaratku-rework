@@ -611,6 +611,12 @@ class SpeechSink:
         self._lock = threading.Lock()
         #: Thread pemutaran yang masih hidup; dipakai uji dan ``join``.
         self._threads: list[threading.Thread] = []
+        #: Teks terbaru yang menunggu giliran. Satu slot saja, sengaja:
+        #: ucapan yang lebih baru menimpa yang belum sempat terucap —
+        #: subtitle yang user lihat adalah baris TERBARU, bukan semua
+        #: baris yang sudah lewat.
+        self._pending: str | None = None
+
         self._spoken_at: dict[str, float] = {}
 
     def warm_up(self, labels) -> None:
@@ -656,6 +662,43 @@ class SpeechSink:
             self.sent.append(label)
         self._spawn_play(spoken)
 
+    def feed_subtitle(self, text: str) -> None:
+        """Baris subtitle terbaru masuk; ganti antrean, jangan tumpuk.
+
+        Thread label memanggil ini hanya saat baris subtitle BENAR-BENAR
+        berubah (satu kali per label stabil), bukan tiap prediksi: TTS
+        menyuarakan persis yang TERLIHAT user. Yang lebih baru mengganti
+        yang belum sempat terucap, bukan mengantre di belakangnya — jadi
+        tidak ada tumpukan ucapan lama saat tampilan sudah maju.
+        Satu worker daemon melayani jalur ini: dia ambil ``_pending``,
+        mainkan, ulangi sampai ``_pending`` kosong. Sintesis dan
+        pemutaran tetap di thread itu, tidak pernah di thread pemanggil —
+        kontrak yang sama dengan ``feed``.
+
+        ``_spoken_at`` dipakai bersama supaya cooldown ini nolak teks
+        yang identik dengan ucapan terdahulu (sama seperti ``feed``).
+        """
+        if not self.enabled:
+            return
+        teks = (text or "").strip()
+        if not teks or teks == NO_SIGN_LABEL:
+            return
+        now = self._clock()
+        with self._lock:
+            last = self._spoken_at.get(teks)
+            if last is not None and now - last < self._cooldown:
+                return
+            self._spoken_at[teks] = now
+            self.sent.append(teks)
+            self._pending = teks
+            self._threads = [t for t in self._threads if t.is_alive()]
+            # NAMA thread adalah penjaga yang benar: satu worker jalur
+            # subtitle. Bukan jumlah `_threads` — thread `feed()` biasa
+            # juga tinggal di daftar ini sambil memainkan labelnya
+            # sendiri, dan tanpa worker ini baris terbaru akan
+            # menggantung tak terucap untuk selalu.
+            self._spawn_play_locked("_subtitle_worker")
+
     def _spawn_play(self, label: str) -> None:
         """Jalankan pra-sintesis plus pemutaran di thread daemon baru."""
         thread = threading.Thread(target=self._play, args=(label,), daemon=True)
@@ -665,10 +708,37 @@ class SpeechSink:
             self._threads.append(thread)
         thread.start()
 
+    def _spawn_play_locked(self, name: str) -> None:
+        """Daftarkan worker ``name`` satu kali. Lock harus sudah dipegang."""
+        if any(t.is_alive() and t.name == name for t in self._threads):
+            return
+        thread = threading.Thread(
+            target=self._play_subtitle, args=(name,), daemon=True, name=name
+        )
+        self._threads.append(thread)
+        thread.start()
+
+    def _play_subtitle(self, name: str) -> None:
+        """Mainkan ``_pending`` sampai kosong; nama hanya untuk identifikasi.
+
+        Slot diambil lalu DIBUANG di bawah lock yang sama dengan
+        ``feed_subtitle``, jadi yang datang saat worker memutar mengganti
+        yang sudah selesai, bukan mengantre: ucapan mengikuti baris
+        terbaru yang user lihat.
+        """
+        while True:
+            with self._lock:
+                text = self._pending
+                if text is None:
+                    return
+                self._pending = None
+            self._play(text)
+
     def reset(self) -> None:
-        """Buang catatan cooldown; pipeline start ulang memakainya."""
+        """Buang catatan cooldown dan slot pending; start ulang bersih."""
         with self._lock:
             self._spoken_at.clear()
+            self._pending = None
 
     def _play(self, label: str) -> None:
         try:

@@ -381,6 +381,172 @@ def test_kata_statis_bertanda_tanya_tidak_menghitung_galat(tts_dengan_voice) -> 
     assert tts_dengan_voice._cache_dir.joinpath("A_B.wav").is_file()
 
 
+def test_feed_subtitle_mengganti_antrean_bukan_menumpuk() -> None:
+    """BUG yang dilaporkan user: TTS mengucapkan SETIAP label stabil, jadi
+    ucapan mengantre dan yang terdengar tertinggal dari yang TERLIHAT.
+
+    Satu baris subtitle = satu slot pending: baris baru MENIMPA yang belum
+    sempat terucap. Yang dipakai ulang dari berkas ini: factory ``cfg()``
+    dan pola adapter perekam lokal (``_VoicePalsu``/``TtsGalat`` di atas).
+    """
+    import threading
+
+    from src.adapters.tts import SpeechSink
+
+    class TtsTahanBaris:
+        """Perekam yang MENAHAN worker di ``speak`` baris pertama sampai
+        semua baris baru masuk — seperti PiperTts asli yang sintesis
+        pertama ~1,6 s (26,9 FPS turun) sementara label stabil sudah
+        berubah beberapa kali."""
+
+        def __init__(self) -> None:
+            self.spoken: list[str] = []
+            self.played: list[str] = []
+            self.pegang = threading.Event()
+            self.lepas = threading.Event()
+
+        @property
+        def voice_model_available(self) -> bool:
+            return True
+
+        def speak(self, label: str):
+            self.spoken.append(label)
+            if len(self.spoken) == 1:
+                self.pegang.set()
+                self.lepas.wait(timeout=5.0)
+            return Path(label)
+
+        def play(self, label: str) -> float:
+            self.played.append(label)
+            return 0.0
+
+    tts = TtsTahanBaris()
+    speech = SpeechSink(tts, cooldown_seconds=0.0)
+
+    speech.feed_subtitle("Halo")
+    assert tts.pegang.wait(timeout=5.0), "worker tidak menjalankan baris pertama"
+    # Semua baris baru masuk SELAGI worker masih menggantung: inilah
+    # kondisi di mana versi lama membentuk antrian ucapan.
+    speech.feed_subtitle("Halo A")
+    speech.feed_subtitle("tidak ada isyarat")  # filler: tidak diucapkan
+    speech.feed_subtitle("MAKAN")
+    tts.lepas.set()
+
+    for thread in speech._threads:
+        thread.join(timeout=5.0)
+
+    # Baris yang belum sempat terucap DIBUANG saat digantikan: "Halo A"
+    # tidak pernah berbunyi, sementara baris TERBARU yang user lihat
+    # tetap berbunyi. Ucapan yang sudah hafal tidak bisa dibatalkan, jadi
+    # paling banyak dua baris — bukan antrian tiap label stabil.
+    assert "Halo A" not in tts.played, (
+        f"baris yang sudah digantikan masih berbunyi: {tts.played}"
+    )
+    assert tts.played[-1] == "MAKAN", (
+        f"baris terbaru harus berbunyi: {tts.played}"
+    )
+    assert len(tts.played) <= 2, f"ucapan menumpuk: {tts.played}"
+    assert speech.sent == ["Halo", "Halo A", "MAKAN"]
+
+
+def test_feed_subtitle_tetap_jalan_saat_thread_feed_masih_hidup() -> None:
+    """Regresi liveness: worker subtitle harus lahir walau ada thread
+    ``feed()`` lain yang masih bermain.
+
+    Bug: ``feed_subtitle`` men-spawn worker hanya bila ``_threads``
+    kosong. Thread ``feed()`` biasa TIDAK bernama ``_subtitle_worker``
+    tapi juga tinggal di daftar itu, jadi selama ia hidup baris subtitle
+    terbaru menggantung di ``_pending`` TAK TERUCAP untuk selalu. Penjaga
+    yang benar adalah NAMA thread, bukan jumlah isi daftar.
+
+    Pola adapter perekam sama dengan ``_VoicePalsu``/``TtsGalat``; gate
+    berbasis Event, tanpa sleep dan tanpa menggantung pada waktu dinding.
+    """
+    import threading
+
+    from src.adapters.tts import SpeechSink
+
+    class TtsTahanFeed:
+        """Perekam yang menahan MULANYA ``feed()`` di ``speak`` sampai
+        baris subtitle sudah benar-benar berbunyi."""
+
+        def __init__(self) -> None:
+            self.spoken: list[str] = []
+            self.played: list[str] = []
+            self.subtitle_terbunyi = threading.Event()
+            self.lepas = threading.Event()
+
+        @property
+        def voice_model_available(self) -> bool:
+            return True
+
+        def speak(self, label: str):
+            self.spoken.append(label)
+            if len(self.spoken) == 1:
+                # Thread `feed()` menggantung di SINI. Ia bertahan lebih
+                # lama dari satu feed_subtitle, dan tanpa worker subtitle
+                # yang terpisah baris terbaru tak akan pernah terucap.
+                self.lepas.wait(timeout=5.0)
+            return Path(label)
+
+        def play(self, label: str) -> float:
+            self.played.append(label)
+            if label == "MAKAN D":
+                self.subtitle_terbunyi.set()
+            return 0.0
+
+    tts = TtsTahanFeed()
+    speech = SpeechSink(tts, cooldown_seconds=0.0)
+
+    # 1) feed() biasa: thread per-ucapan lahir, menggantung di speak.
+    speech.feed("MAKAN")
+
+    # 2) Beberapa baris subtitle masuk SELAGI thread feed masih hidup.
+    speech.feed_subtitle("Halo B")
+    speech.feed_subtitle("Halo C")
+    speech.feed_subtitle("MAKAN D")
+
+    # 3) Nama worker harus ADA — penjaga regresi liveness. Dulu gate-nya
+    #    "daftar thread kosong", dan thread `feed()` yang hidup membuat
+    #    worker ini tak pernah lahir.
+    worker = [t for t in speech._threads if t.name == "_subtitle_worker"]
+    assert worker, "_subtitle_worker tidak ada padahal _pending terisi"
+
+    # Baris terbaru terbunyi SELAGI thread feed() masih menggantung: ini
+    # yang membuktikan worker-nya benar-benar jalan sendiri.
+    assert tts.subtitle_terbunyi.wait(timeout=5.0), (
+        f"baris subtitle terbaru tidak berbunyi: {tts.played}"
+    )
+    tts.lepas.set()
+    for thread in speech._threads:
+        thread.join(timeout=5.0)
+
+    # 4) Baris TERAKHIR berbunyi, yang ditimpa dibuang — bukan antrian.
+    assert "Halo B" not in tts.played and "Halo C" not in tts.played, (
+        f"ucapan yang sudah digantikan masih berbunyi: {tts.played}"
+    )
+    assert tts.played.count("MAKAN D") == 1, f"ucapan: {tts.played}"
+    assert speech.sent == ["MAKAN", "Halo B", "Halo C", "MAKAN D"]
+
+
+def test_feed_subtitle_mengucapkan_baris_gabungan_sebagai_satu_ucapan(
+    tts_dengan_voice,
+) -> None:
+    """Baris gabungan (kata + huruf) diucapkan sebagai SATU ucapan, lewat
+    jalur ``feed_subtitle`` yang sama, dengan fixture ``tts_dengan_voice``
+    yang sudah dipakai berkas ini."""
+    from src.adapters.tts import SpeechSink
+
+    speech = SpeechSink(tts_dengan_voice, cooldown_seconds=0.0)
+    speech.feed_subtitle("MAKAN F R")
+    for thread in speech._threads:
+        thread.join(timeout=30.0)
+
+    assert tts_dengan_voice._palsu.calls == ["MAKAN F R"]
+    assert speech.sent == ["MAKAN F R"]
+    assert speech.speech_errors == 0
+
+
 # -- klaim dengan artefak NYATA (models/tts/*.onnx) ---------------------
 
 def _voice_nyata_ada() -> bool:
