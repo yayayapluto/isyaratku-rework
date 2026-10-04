@@ -86,13 +86,22 @@ class Frame:
 
 @dataclass
 class Stats:
-    """Angka pengukuran pipeline; fps dihitung dari frame yang terkirim."""
+    """Angka pengukuran pipeline; fps dihitung dari frame yang terkirim.
+
+    ``mode``/``mode_switches`` jadi bagian Stats, bukan aksesor terpisah:
+    pengukur lain sudah sampai ke view lewat jalur ini (``on_stats`` lalu
+    tick GUI), jadi panel mode tidak perlu mekanisme polling kedua.
+    """
 
     fps: float = 0.0
     frames_captured: int = 0
     frames_sent: int = 0
     frames_dropped: int = 0
     elapsed_seconds: float = 0.0
+    #: Mode aktif saat snapshot diambil ("" = tidak ada sakelar).
+    mode: str = MODE_BERSAMA
+    #: Berapa kali ganti mode SUDAH terjadi sejak pipeline dibangun.
+    mode_switches: int = 0
 
 
 def _identity(frame: Frame) -> Frame:
@@ -137,7 +146,10 @@ class Pipeline:
     #: tahu apa-apa soal audio atau GUI, hanya menyerahkan teksnya.
     on_static_word: Callable[[str], None] | None = None
     #: Mode aktif. Kosong (default) berarti tidak ada sakelar: kedua jalur
-    # jalan bersamaan seperti sebelumnya.
+    # jalan bersamaan seperti sebelumnya. Dituju langsung dari thread
+    # capture, alias seperti ``mode_switches`` yang juga ditulis di
+    # ``_switch_mode``: pembacaan di ``stats()`` aman karena diambil
+    # di bawah lock yang sama.
     mode: str = MODE_BERSAMA
     #: Dipanggil HANYA saat mode BENAR-BENAR berubah (bukan tiap frame),
     # dengan nama mode baru. Core tidak tahu apa-apa soal audio atau GUI,
@@ -837,4 +849,6 @@ class Pipeline:
                 frames_sent=self._sent,
                 frames_dropped=self._dropped,
                 elapsed_seconds=span,
+                mode=self.mode,
+                mode_switches=self._mode_switches,
             )

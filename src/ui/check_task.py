@@ -258,7 +258,9 @@ def finish_checks(
             # ``mode`` default kosong dan kedua jalur jalan bersamaan,
             # seperti sebelum mode ada.
             mode=MODE_KATA,
-            on_mode_change=_make_mode_switch_handler(speech_state),
+            on_mode_change=_make_mode_switch_handler(
+                speech_state, on_switch=view._queue_mode
+            ),
         )
     except Exception as exc:
         # Pipeline gagal dibangun tapi kamera pra-cek tetap hidup: tanpa close
@@ -279,6 +281,10 @@ def finish_checks(
     view._pipeline.start()
     view._timer.start()
     view._set_status(*view.STATUS_RUNNING)
+    # Baris mode ikut terisi sejak Start: pipeline lahir di MODE_KATA, dan
+    # user boleh melihatnya SEBELUM gestur pertama, sebagai bukti indikator
+    # memang hidup. Nama mode apa adanya dari core.
+    view._set_mode(MODE_KATA)
     logger.info("finish_checks selesai dalam %.3f s; pipeline berjalan", time.monotonic() - t0)
     return camera
 
@@ -408,7 +414,7 @@ def _make_static_fanout(speech, view, state=None) -> Callable[[str], None]:
     return fanout
 
 
-def _make_mode_switch_handler(state=None):
+def _make_mode_switch_handler(state=None, on_switch=None):
     """Handler ``on_mode_change``: bersihkan baris subtitle saat ganti mode.
 
     Ganti mode berarti mode lama sudah tidak berlaku: kata stabil yang
@@ -418,18 +424,25 @@ def _make_mode_switch_handler(state=None):
     ``Pipeline`` hanya tahu "mode berubah", tidak boleh tahu apa-apa soal
     subtitle/format/TTS — layering ``ui -> core <- adapters``.
 
-    ``state`` boleh ``None`` (renderer/tes tanpa state): tulisannya hanya
-    no-op dan tidak boleh memecahkan jalur lama.
+    ``state`` dan ``on_switch`` sama-sama opsional dan TIDAK saling
+    bergantung: ``state is None`` hanya membuat penghapusan subtitle
+    menjadi no-op, sedangkan ``on_switch`` tetap dipanggil selama ada —
+    indikator mode yang TERLIHAT harus ikut berubah walaupun tidak ada
+    state, karena keduanya kewajiban berbeda untuk pemanggil berbeda.
     """
 
     def handler(new_mode: str) -> None:
-        if state is None:
-            return
-        # Baris gabungan direset: state kosong = compose mengembalikan
-        # placeholder, dan "bersih aja deh tiap ganti mode" terpenuhi di
-        # persil tempat teks lama tinggal.
-        state.word = ""
-        state.static = ""
+        # Baris gabungan direset KALAU ada state: state kosong = compose
+        # mengembalikan placeholder, dan "bersih aja deh tiap ganti mode"
+        # terpenuhi di persil tempat teks lama tinggal.
+        if state is not None:
+            state.word = ""
+            state.static = ""
+        # on_switch tidak boleh bergantung pada state: indikator mode yang
+        # TERLIHAT kewajiban lain, dan pemanggil tanpa state tetap berhak
+        # atas kabar mode baru.
+        if on_switch is not None:
+            on_switch(new_mode)
         logger.info("subtitle dibersihkan setelah ganti mode -> %s", new_mode)
         # TIDAK ADA placeholder & TIDAK ADA pembatalan: ``SpeechSink`` tidak
         # punya API cancel dan placeholder bukan label. Yang dijamin hanya

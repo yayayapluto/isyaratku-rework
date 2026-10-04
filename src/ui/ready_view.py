@@ -17,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 PREVIEW_INTERVAL_MS = 40
 PLACEHOLDER_TEXT = "Menunggu prediksi..."
+#: Baris mode yang terlihat. "-" = belum Start (bukan mode kosong); nama
+#: mode nyata datang dari MODE_KATA/MODE_STATIS di finish_checks.
+MODE_LABEL_PREFIX = "Mode: "
+MODE_PLACEHOLDER = "-"
 STATUS_IDLE = ("stopped", "color: #475569;")
 STATUS_RUNNING = ("running", "color: #1b7f3b; font-weight: 600;")
 STATUS_ERROR = ("error", "color: #b91c1c; font-weight: 600;")
@@ -81,6 +85,9 @@ class ReadyView(qw.QMainWindow):
         self._check_task = None
         self._newest_frame: Frame | None = None
         self._newest_stats: Stats | None = None
+        # Nama mode terbaru dari thread capture, menunggu ditulis di tick
+        # berikutnya; None = tidak ada ganti mode sejak flush terakhir.
+        self._pending_mode: str | None = None
         # False sejak closeEvent: semua hook jadi no-op. Pipeline.join bisa
         # kehabisan waktu (config.pipeline_stop_timeout_seconds), jadi pemeriksaan
         # ini lapis pertahanan kedua setelah hook pipeline di-null.
@@ -109,6 +116,12 @@ class ReadyView(qw.QMainWindow):
         self._status = qw.QLabel("Status: stopped")
         self._status.setStyleSheet(STATUS_IDLE[1])
         layout.addWidget(self._status, alignment=qc.Qt.AlignmentFlag.AlignLeft)
+
+        # Indikator mode: gestur tahan mengubah mode di core, tapi tanpa
+        # baris ini user tidak pernah melihat hasilnya. "-" = belum ada
+        # pipeline (belum Start), bukan berarti mode kosong.
+        self._mode_label = qw.QLabel(f"{MODE_LABEL_PREFIX}{MODE_PLACEHOLDER}")
+        layout.addWidget(self._mode_label, alignment=qc.Qt.AlignmentFlag.AlignLeft)
 
         buttons = qw.QHBoxLayout()
         self._start_button = qw.QPushButton("Start")
@@ -212,6 +225,8 @@ class ReadyView(qw.QMainWindow):
         self._release_camera()
         self._newest_frame = None
         self._newest_stats = None
+        self._pending_mode = None
+        self._set_mode(MODE_PLACEHOLDER)
         self._set_status(*STATUS_IDLE)
         self._details.setText("")
 
@@ -243,6 +258,42 @@ class ReadyView(qw.QMainWindow):
             return
         self._newest_stats = stats
 
+    def _set_mode(self, mode: str) -> None:
+        """Tulis nama mode ke baris indikator; hanya dari GUI thread.
+
+        Dipanggil tick _paint_preview (lihat ``_pending_mode``) dan sekali
+        saat pipeline dibangun, jadi teksnya tidak pernah berubah dari
+        thread capture. Nama mode tampil apa adanya (MODE_KATA/
+        MODE_STATIS, "kata"/"statis") — UI tidak menciptakan nama baru.
+        """
+        text = mode or MODE_PLACEHOLDER
+        self._mode_label.setText(f"{MODE_LABEL_PREFIX}{text}")
+
+    def _queue_mode(self, mode: str) -> None:
+        """Tampung mode dari thread pipeline; ditulis tick berikutnya.
+
+        Satu slot, bukan queue: yang penting mode TERAKHIR. Dipanggil dari
+        thread capture lewat on_mode_change, jadi hanya menyimpan nama.
+        """
+        if not self._alive:
+            return
+        self._pending_mode = mode
+        if _on_gui_thread():
+            self._flush_mode()
+
+    def _flush_mode(self) -> None:
+        """Tulis mode yang tertahan; dipanggil dari _paint_preview.
+
+        Slot baru bersih SETELAH tertulis: kalau pipeline belum hidup,
+        nama mode terakhir tetap ada supaya tick berikutnya menampilkannya,
+        bukan "-" yang ketinggalan.
+        """
+        mode = self._pending_mode
+        if mode is None or self._pipeline is None:
+            return
+        self._pending_mode = None
+        self._set_mode(mode)
+
     def _set_status(self, state: str, style: str) -> None:
         self._status.setText(f"Status: {state}")
         logger.info("status -> %s", state)
@@ -265,6 +316,10 @@ class ReadyView(qw.QMainWindow):
         self._newest_stats = None
         frame = self._newest_frame
         self._newest_frame = None
+        # Baris mode ditulis di tick yang sama dengan angka lain: satu
+        # tempat, GUI thread, tanpa polling terpisah. Sumber tunggal
+        # adalah on_mode_change; Stats.mode hanya dipakai jalur debug.
+        self._flush_mode()
         if frame is None:
             if stats is not None:
                 self._details.setText(

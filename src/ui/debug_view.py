@@ -28,6 +28,8 @@ from .ready_view import (
     STATUS_ERROR,
     STATUS_IDLE,
     STATUS_RUNNING,
+    MODE_LABEL_PREFIX,
+    MODE_PLACEHOLDER,
     _on_gui_thread,
     pixmap_bgr,
 )
@@ -59,6 +61,9 @@ class DebugView(qw.QMainWindow):
         self._pending_labels: list[str] = []
         self._labels_lock = threading.Lock()
         self._newest_landmarks = None
+        # Nama mode terbaru dari thread capture, menunggu ditulis di tick
+        # berikutnya; None = belum ada ganti mode sejak flush terakhir.
+        self._pending_mode: str | None = None
         # False sejak closeEvent: semua hook jadi no-op. Pipeline.join bisa
         # kehabisan waktu, jadi ini lapis pertahanan setelah hook di-null.
         self._alive = True
@@ -122,6 +127,9 @@ class DebugView(qw.QMainWindow):
         self._dropped_label = _metric_row("Frame dropped")
         self._window_label = _metric_row("FPS window")
         self._speech_label = _metric_row("Speech error (TTS)")
+        # Mode aktif diekspos core (Stats.mode); tampil di sini supaya ganti
+        # mode lewat gestur terlihat, bukan cuma terasa di subtitle.
+        self._mode_label = _metric_row("Mode")
         layout = qw.QVBoxLayout()
         for widget in (
             self._fps_label,
@@ -130,6 +138,7 @@ class DebugView(qw.QMainWindow):
             self._dropped_label,
             self._window_label,
             self._speech_label,
+            self._mode_label,
         ):
             layout.addWidget(widget)
         layout.addStretch(1)
@@ -243,6 +252,8 @@ class DebugView(qw.QMainWindow):
         self._newest_landmarks = None
         self._newest_predictions = ""
         self._newest_ranked = ""
+        self._pending_mode = None
+        self._mode_label.setText(f"{MODE_LABEL_PREFIX}{MODE_PLACEHOLDER}")
         with self._labels_lock:
             self._pending_labels.clear()
         self._set_status(*STATUS_IDLE)
@@ -395,6 +406,48 @@ class DebugView(qw.QMainWindow):
         self._status.setText(f"Status: {state}")
         self._status.setStyleSheet(style)
 
+    def _set_mode(self, mode: str) -> None:
+        """Tulis nama mode ke baris metrics; hanya dari GUI thread.
+
+        Dipanggil sekali saat pipeline dibangun (finish_checks) dan dari
+        ``_flush_mode``. Nama mode apa adanya dari core — UI tidak
+        mengarang nama baru. Baris sudah terisi SEBELUM gestur pertama,
+        jadi user tahu indikatornya memang hidup.
+        """
+        self._mode_label.setText(f"{MODE_LABEL_PREFIX}{self._mode_text(mode)}")
+
+    def _mode_text(self, mode: str) -> str:
+        """Nama mode yang tampil; "-" bila belum ada yang berjalan.
+
+        Nama mode dipakai apa adanya dari core ("kata"/"statis") — UI tidak
+        mengarang nama baru dan tidak menerjemahkannya sendiri.
+        """
+        return mode or MODE_PLACEHOLDER
+
+    def _queue_mode(self, mode: str) -> None:
+        """Tampung nama mode dari thread capture; ditulis tick berikutnya.
+
+        Dipanggil dari thread capture lewat ``on_mode_change``, jadi hanya
+        menyimpan nama — penulisan QLabel menyusul di ``_paint_preview``.
+        """
+        if not self._alive:
+            return
+        self._pending_mode = mode
+        if _on_gui_thread():
+            self._flush_mode()
+
+    def _flush_mode(self) -> None:
+        """Tulis mode yang tertahan; slot baru bersih setelah tertulis.
+
+        Pipeline belum hidup = nama mode terakhir tetap tertahan, supaya
+        tick berikutnya menampilkannya, bukan "-" yang ketinggalan.
+        """
+        mode = self._pending_mode
+        if mode is None or self._pipeline is None:
+            return
+        self._pending_mode = None
+        self._set_mode(mode)
+
     def _paint_preview(self) -> None:
         """Satu-satunya tempat widget disentuh: frame terbaru saja.
 
@@ -413,6 +466,7 @@ class DebugView(qw.QMainWindow):
         frame = self._newest_frame
         self._newest_frame = None
         self._flush_labels()
+        self._flush_mode()
         self._flush_stats()
         self._flush_landmarks()
         self._flush_panels()

@@ -1020,6 +1020,83 @@ def test_switch_mode_clears_shared_subtitle_state() -> None:
         f"baris gabungan harus kosong setelah switch: {state.line()!r}"
     )
 
+class _PipelineModeSkrip:
+    """Pipeline tiruan: cukup untuk tick GUI yang hanya membaca error."""
+
+    def __init__(self, mode: str) -> None:
+        self.mode = mode
+        self.error = None
+        self.stopped = 0
+
+    def stop(self) -> None:
+        self.stopped += 1
+
+
+def test_switch_mode_updates_visible_mode_label(qapp) -> None:
+    """Ganti mode harus TERLIHAT di kedua view, bukan cuma di subtitle.
+
+    User memegang gestur tahan dan tidak menerima apa pun: core sudah
+    berganti mode dan subtitle dibersihkan, tapi tidak ada baris yang
+    menyebut mode aktif. Tes ini memanggil handler sungguhan (bukan menulis
+    label langsung) lewat view, lalu tick GUI — jalur yang sama seperti
+    pipeline berjalan, sehingga watak thread-safety-nya teruji juga.
+    """
+    from src.ui.check_task import _SubtitleState, _make_mode_switch_handler
+
+    for view in (ReadyView(config()), DebugView(config())):
+        try:
+            state = _SubtitleState()
+            state.word = "Halo"
+            state.static = "FAR"
+            handler = _make_mode_switch_handler(state, on_switch=view._queue_mode)
+
+            modes = ("kata", "statis", "kata")
+            for mode in modes:
+                handler(mode)
+                # Tick GUI menulis, bukan thread capture yang menyentuh widget.
+                view._paint_preview()
+                assert view._mode_label.text() != f"Mode: {mode}", (
+                    f"{type(view).__name__}: label tidak boleh mengejar nama "
+                    f"sebelum pipeline hidup: {view._mode_label.text()!r}"
+                )
+                assert state.word == "" and state.static == "", (
+                    f"{type(view).__name__}: subtitle harus dibersihkan "
+                    f"saat ganti mode: {state.line()!r}"
+                )
+            # Pipeline hidup (Start): tick GUI menulis nama TERAKHIR yang
+            # ditampung, bukan pipeline tiruan — mode yang tampil adalah
+            # yang user terakhir picu, sama seperti pipeline sungguhan.
+            view._pipeline = _PipelineModeSkrip("kata")
+            view._paint_preview()
+            assert view._mode_label.text() == "Mode: kata", (
+                f"{type(view).__name__}: mode terakhir harus tampil: "
+                f"{view._mode_label.text()!r}"
+            )
+            view._pipeline = None
+        finally:
+            view.close()
+
+
+def test_mode_switch_handler_calls_on_switch_without_state() -> None:
+    """``on_switch`` harus jalan walau ``state is None``.
+
+    Dua kewajiban handler ini independen: membersihkan subtitle butuh
+    state, memberitahu indikator mode tidak. Kalau ``on_switch`` ditaruh
+    di balik guard ``state is None``, view tanpa state diam-diam tidak
+    pernah mengabari user soal mode baru — tes ini mengunci pemisahan itu.
+    """
+    from src.ui.check_task import _make_mode_switch_handler
+
+    dilihat: list[str] = []
+    handler = _make_mode_switch_handler(state=None, on_switch=dilihat.append)
+    handler("statis")
+    assert dilihat == ["statis"], (
+        f"on_switch harus menerima mode baru tanpa state: {dilihat!r}"
+    )
+
+    # Tanpa on_switch, handler tetap tidak meledak (jalur renderer lama).
+    _make_mode_switch_handler(state=None)("kata")
+
 
 def test_switch_mode_empty_state_is_placeholder_not_raw_label() -> None:
     """State kosong = placeholder, bukan string kosong.
