@@ -44,7 +44,7 @@ Arah tunggal: `ui -> core <- adapters`.
 - Setiap perubahan wajib di-commit segera, sekecil apa pun. Tidak boleh ada perubahan menggantung saat menyerahkan hasil. Commit kecil lebih baik daripada satu commit besar.
 - Branch utama: `main`. Semua development dikerjakan di `dev`. Tidak ada branch baru (tidak ada feature branch); cukup `dev`.
 - `main` hanya menerima hasil yang sudah jadi dan terverifikasi lewat merge dari `dev`. Langsung commit ke `main` dilarang.
-- Remote sudah ada: `origin` = `https://github.com/<owner>/isyaratku-rework.git` (fetch dan push). `dev` melacak `origin/dev`, tapi belum pernah di-push; `main` lokal masih level dengan `dev`.
+- Remote sudah ada: `origin` = `https://github.com/yayayapluto/isyaratku-rework.git` (fetch dan push). `dev` melacak `origin/dev` dan sudah di-push; cabang lokal `main` masih level dengan `dev` dan TIDAK di-push. Jumlah commit belum di-push berubah setiap sesi, jadi acuannya `git log origin/dev..dev --oneline`, bukan angka di dokumen ini.
 - Pesan commit: Conventional Commits dengan deskripsi imperatif Bahasa Indonesia (mis. `feat: tambah normalisasi landmark`, `fix: ...`, `docs: ...`, `chore: ...`). Commit root/inisiasi boleh tanpa prefix.
 - `data/` tidak masuk git (`.gitignore`). Artefak model di `models/` MASUK git — model adalah bagian deliverable demo. Pengecualian: `models/tts/` (voice piper 62 MB) TIDAK masuk git, diunduh sekali lewat `python -m training.setup_voice`; artefak runtime seperti `models/tts/cache/` juga tidak masuk git.
 

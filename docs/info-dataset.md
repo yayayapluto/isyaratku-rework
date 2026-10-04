@@ -205,14 +205,16 @@ Supaya tidak terbawa ke dokumen final:
 
 ## Status inspeksi lokal
 
-| Item | Status |
-| --- | --- |
-| Dataset unduh ke `data/raw/` | belum diunduh |
-| Struktur direktori lokal | belum diinspeksi |
-| Jumlah kelas, sample, signer | belum diinspeksi |
-| Resolusi dan FPS video | belum diinspeksi |
-| Konsistensi penamaan label | belum diinspeksi |
-| Varian BISINDO antar signer | belum diinspeksi |
-| Model pretrained tertaut | belum diinspeksi |
+Tabel di bawah adalah rekon survey; keadaan disk sekarang lebih maju dan fakta resminya ada di `docs/dataset-notes.md`. Yang sudah terunduh ke `data/raw/`: `wl-bisindo` (dan zip-nya), `suryaadji`, `achmadnoer`, `agungmrf`, `sifaqeinstein`, `anggiyohanespardede`, plus `pilih75` (447 berkas mp4 pilihan, urutan nama sama seperti `wl-bisindo`).
+
+| Item | Status survey lama | Keadaan sekarang |
+| --- | --- | --- |
+| Dataset unduh ke `data/raw/` | belum diunduh | sudah — `wl-bisindo` 1600 mp4 + zip, `suryaadji` (HURUF landmark), `achmadnoer`/`agungmrf`/`sifaqeinstein` (pembanding huruf), `anggiyohanespardede` (kandidat kata), dan `pilih75` (447 mp4 pilihan). Dataset ANGKA terpilih (`muhammaddhiaulhaq/bahasa-isyarat-indonesia-statis`) belum diunduh; `bonarsitorus/sign-language-bisindo` juga belum |
+| Struktur direktori lokal | belum diinspeksi | sudah untuk `wl-bisindo`, `suryaadji`, `achmadnoer`, `agungmrf`, `sifaqeinstein`, `anggiyohanespardede` |
+| Jumlah kelas, sample, signer | belum diinspeksi | sudah untuk `wl-bisindo` (32 gloss × 50 sampel, signer0-4) dan `suryaadji` (26 kelas 0..25, TANPA signer) |
+| Resolusi dan FPS video | belum diinspeksi | sudah untuk `wl-bisindo` (1280x720/1920x1080, 25-30 fps) dan `anggiyohanespardede` (400x300, 29.97 fps) |
+| Konsistensi penamaan label | belum diinspeksi | sudah untuk `wl-bisindo` (`signer<N>_label<N>_sample<N>.mp4`) dan `suryaadji` (kolom angka 0..25) |
+| Varian BISINDO antar signer | belum diinspeksi | sudah terukur pada `wl-bisindo` — lihat bagian "Varian antar signer (terukur)" di `docs/dataset-notes.md` |
+| Model pretrained tertaut | belum diinspeksi | `wl-bisindo` tidak ada; `raihanazarina` (belum diunduh) memuat `bisindo_model.pkl` |
 
 Temuan lengkap ditulis di `docs/dataset-notes.md`, bagian "Temuan Inspeksi". Aturan keras tetap: tidak ada training sebelum seluruh item checklist di dokumen itu tercentang, dan tidak boleh ada angka kelas, sample, signer, atau akurasi yang muncul di kode bila belum tercatat di sana.

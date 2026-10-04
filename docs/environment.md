@@ -15,7 +15,7 @@ Dokumen ini berisi fakta lingkungan development hasil rekon slice 0 pada commit 
 | Webcam | ✅ Terkonfirmasi: satu webcam fisik `USB2.0 HD UVC WebCam` terbaca di index 0 dan 2 backend DSHOW; perangkat virtual `OBS Virtual Camera` juga terdaftar |
 | ffmpeg | ❌ Tidak ada: `ffmpeg` tidak ditemukan di PATH dan di `C:\Program Files` |
 | wmic | ❌ Tidak ada: `command not found: wmic` |
-| Remote git | ❌ Belum dikonfigurasi (`git remote -v` kosong) |
+| Remote git | ✅ Terkonfirmasi: `origin` = `https://github.com/yayayapluto/isyaratku-rework.git` (dikonfigurasi setelah rekon slice 0; `dev` melacak `origin/dev` dan sudah di-push) |
 
 ## Runtime
 
@@ -267,16 +267,16 @@ Daftar resolusi dan FPS maksimal per format: **tidak dapat diverifikasi** — ti
 
 | Perintah | Output |
 | --- | --- |
-| `git branch -a` | `* dev`, `main` |
-| `git log --oneline --all` | `5813c1a docs: selaraskan aturan pesan commit dengan Conventional Commits`, `8dba41c docs: catat keputusan models/ masuk git`, `16b99a2 inisiasi dokumentasi proyek` |
-| `git remote -v` | kosong — remote belum ada |
-| `git rev-parse HEAD` | `5813c1aabac4533dee7bbd7f5d23e3a8bfbe52d8` |
+| `git branch -a` | `* dev`, `main`, `remotes/origin/dev` |
+| `git log --oneline --all` | lebih dari 74 commit; commit terakhir sesi ini `ef8dcb5 docs(readme): trigger sakelar posisi, bukan gerak` (data yang tercatat ini adalah rekon slice 0 pada `5813c1a`) |
+| `git remote -v` | `origin` = `https://github.com/yayayapluto/isyaratku-rework.git` (fetch dan push) — tabel lama "remote belum ada" sudah tidak berlaku |
+| `git rev-parse HEAD` | berubah setiap commit; acukan ke `git log --oneline -1` |
 | `git rev-parse --abbrev-ref HEAD` | `dev` |
-| `git status --short` | kosong — working tree bersih |
-| `ls -la docs/` | `AGENTS.md` 4035, `architecture.md` 7375, `dataset-notes.md` 2839, `implementation-plan.md` 6108, `project-overview.md` 2546, `tech-decisions.md` 4195; direktori `drwxrwxrwx 1 somebody somegroup 0` |
+| `git status --short` | tidak kosong — `build/`, `dist/`, berkas `.spec`, shortcut `.lnk`, dan `docs/build-exe-cmd.md` untracked; `data/raw/` ada (7 dataset Kaggle terunduh) |
+| `ls -la docs/` | sekarang 13 berkas `.md`: AGENTS, architecture, dataset-notes, environment, implementation-plan, info-dataset, project-overview, tech-decisions, build-exe-cmd (ditambah 6 berkas `.csv` confusion dan direktori `images/`) |
 | `df -h .` | `D: 444G 127G 317G 29% /d` |
 
-Direktori kerja isinya hanya `docs/` dan `.gitignore`. Belum ada `src/`, `models/`, `configs/`, `training/`, `tests/`, `requirements.txt`, atau venv.
+Catatan: subtree `docs/` di baris di atas adalah rekon slice 0. Struktur repo sekarang lengkap: `src/`, `models/`, `configs/`, `training/`, `tests/`, `data/raw/`, `logs/`, dan artefak bundel `build/` + `dist/` ada di disk; `requirements.txt` masih belum ada (daftar paket tercatat di bagian Paket Python dokumen ini).
 
 ## Feasibility MediaPipe
 

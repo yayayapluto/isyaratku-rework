@@ -26,7 +26,7 @@ Aturan proyek: tidak ada angka ajaib di kode. Kontrak ini menentukan cara konfig
 - Validasi saat load: tipe salah atau key wajib tidak ada = gagal cepat dengan pesan jelas yang menyebut nama key. Key tak dikenal = peringatan lalu diabaikan, tidak pernah diterima diam-diam.
 - Environment: variabel `ISYARATKU_CONFIG` boleh menunjuk path konfigurasi alternatif, untuk jalankan debug.
 
-Tabel di bawah punya 20 baris untuk 23 key karena `camera.width`, `camera.height`, dan `camera.fps` berbagi satu baris.
+Tabel di bawah punya 23 baris untuk 26 key karena tiga key kamera — `camera.width`, `camera.height`, `camera.fps` — berbagi satu baris. Jumlah 26 dan urutannya berasal dari `_CONTRACT` (`src/core/config.py:28`) dan dijaga oleh `test_contract_key_names_are_documented_exactly` (tests/test_config.py:131).
 
 | Key | Tipe | Default awal | Dipakai di |
 | --- | --- | --- | --- |
@@ -42,14 +42,18 @@ Tabel di bawah punya 20 baris untuk 23 key karena `camera.width`, `camera.height
 | `smoothing.vote_count` | int | 3 | smoothing |
 | `smoothing.cooldown_seconds` | float | 1.5 | smoothing |
 | `queue.max_size` | int | 4 | threading |
+| `pipeline.stats_window` | int | 240 | sliding window statistik: jumlah sampel FPS dan latensi label stabil -> tampil (`Pipeline.label_latency`, deque `maxlen`) |
 | `pipeline.stop_timeout_seconds` | float | 2.0 | pipeline stop |
 | `pipeline.read_failure_timeout_seconds` | float | 5.0 | toleransi `read()` None: durasi gagal berurutan yang ditoleransi sebelum pipeline dihentikan (batas waktu, bukan jumlah read — read gagal kembali dalam ~0,1 ms) |
-| `pipeline.read_failure_poll_seconds` | float | 0.05 | jeda antar polling saat `read()` None masih ditoleransi: 20 Hz, supaya loop capture tidak berputar secepat CPU (~3 juta putaran dalam jendela mati 3 s terukur) sambil tetap mengantar frame < 0,05 s setelah kamera pulih |
+| `pipeline.read_failure_poll_seconds` | float | 0.05 | jeda antar polling saat `read()` None masih ditoleransi: 20 Hz, supaya loop capture tidak berputar secepat CPU (jendela mati 3 s terukur 2.766.776 putaran; dengan polling ini = 56 siklus, ~49.000x lebih sedikit) sambil tetap mengantar frame < 0,05 s setelah kamera pulih |
 | `tts.device_name` | str | "CABLE Output" | speech sink: nama keluarga kabel untuk memilih endpoint PEMUTAR (lihat catatan pencocokan) |
 | `tts.rate` | int | 160 | speech sink |
 | `tts.enabled` | bool | true | pemilih sink di UI: false memakai FakeTTS, video tetap jalan tanpa suara |
 | `tts.speak_cooldown_seconds` | float | 2.5 | cooldown per label di speech sink: mencegah ucapan menumpuk saat audio lebih panjang dari jeda label (beda dari `smoothing.cooldown_seconds` yang menentukan kapan label boleh keluar) |
 | `virtual_camera.backend` | str | "obs" | virtual camera sink (OBS Virtual Camera) |
+| `static.enabled` | bool | true | nyala jalur statis huruf + angka; app memuat model di start-up |
+| `static.model_path_huruf` | str | "models/huruf.npz" | model statis 26 huruf (A-Z) |
+| `static.model_path_angka` | str | "models/angka.npz" | model statis angka (0-9 plus kelas "?") |
 
 Pencocokan device TTS (`match_cable_device()` di `src/adapters/tts.py`, dipakai juga `checks._check_vb_cable()`): endpoint PEMUTAR dicari dengan dua syarat — nama mengandung string kabel dari `tts.device_name` (case-insensitive; untuk keluarga kabel pencariannya disetarakan ke "cable", jadi nama config "CABLE Output" tetap cocok) DAN `max_output_channels > 0`. Endpoint capture bernama mirip ("CABLE Output", 2 in / 0 out) disaring — dulu pencocokan literal mengembalikan `None`, audio jatuh ke speaker default lokal dan aplikasi meeting menerima keheningan. Bila beberapa cocok, indeks terkecil dipakai (deterministik). Tidak cocok apa pun: `DeviceTtsError`, tidak ada fallback ke speaker lokal.
 
@@ -84,7 +88,7 @@ Satu codebase dan satu pipeline, dua view berbeda.
 **Mode ready-to-use**
 - UI minimal dengan tombol Start dan Stop.
 - Tidak ada pemilihan perangkat kamera atau audio. Pemilihan perangkat terjadi di Zoom atau Meet.
-- Saat Start, aplikasi menjalankan pemeriksaan otomatis: kamera, virtual camera OBS, VB-Cabel.
+- Saat Start, aplikasi menjalankan pemeriksaan otomatis: kamera, virtual camera OBS, VB-Cabel. Handle kamera hasil pra-cek dipakai ulang pipeline lewat `CheckResults.camera` + `_SharedCameraSource` (satu acquisisi; `finish_checks` terukur 0,162 s — tanpa pemakaian ulang acquisisi kedua terukur 26,9-31,4 s).
 - Kegagalan pemeriksaan menampilkan pesan jelas, misalnya "Virtual camera OBS belum terdaftar di DirectShow".
 - Ada indikator status kecil: berjalan, berhenti, atau error.
 

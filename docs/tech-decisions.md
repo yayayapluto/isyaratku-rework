@@ -204,7 +204,7 @@ gambar bergerak dari pipeline bukan layar hitam atau noise beku R1, dan
 | Pertanyaan | Catatan |
 | --- | --- |
 | Konfirmasi user atas pilihan PySide6 | Dipilih karena sudah terpasang, tidak butuh instalasi. CustomTkinter cadangan. |
-| Mesin TTS offline: piper-tts atau pyttsx3 | pyttsx3 hanya punya voice Inggris di mesin ini, jadi jalur Indonesia kemungkinan lewat piper-tts 1.8.0 (suara Indonesia belum diuji). Blocker slice 5 bila tidak ada suara Indonesia. |
+| Mesin TTS offline: piper-tts atau pyttsx3 | SUDAH DIPUTUSKAN slice 5: piper-tts 1.8.0 lewat library, voice `id_ID-news_tts-medium` (62.95 MB) diunduh sekali via `python -m training.setup_voice` dan tidak masuk git. pyttsx3 ditolak karena hanya punya voice Inggris di mesin ini sehingga jalur Indonesia mati. Baris ini tinggal sejarah; keputusan resmi dirinci di baris "Mesin TTS dan penyimpanan voice Indonesia" lebih bawah. |
 | Apakah Holistic pernah dibutuhkan | Dipakai hanya kalau pose dari Hands + Pose terbukti tidak cukup. Untuk sekarang jangan dipakai. |
 | Lisensi dataset untuk lomba | Sebagian besar aman (MIT, CC BY 4.0, CC0, Apache 2.0); `glennleonali/wl-bisindo` CC BY-NC 4.0 (non-komersial), dan beberapa kandidat lisensi Unknown yang harus diverifikasi sebelum dipublikasikan. |
 | Daftar kata minimum untuk v1 | Usulan awal 20 sampai 30 kata relevan meeting, tapi daftar pastinya belum diputuskan. Asumsi: daftar awal belum ada, jadi belum bisa dijadikan label model. |
@@ -216,6 +216,8 @@ gambar bergerak dari pipeline bukan layar hitam atau noise beku R1, dan
 | Pemisahan modul dalam satu file atau beberapa file | Ditetapkan per direktori saat slice dikerjakan, tidak harus didahului. |
 | Definisi pengukuran latensi prediksi | DIPUTUSKAN slice 5 (2026-10-03): selang waktu dari Smoother mengeluarkan label stabil di thread capture sampai frame yang membawa label itu sampai ke `on_frame` di worker output ("label stabil -> tampil"). Definisi penuh, mekanisme minimal, dan angka terukur ada di bagian "Latensi label stabil -> tampil" lebih bawah. Yang BELUM terukur dan tidak diklaim: label sampai suara terdengar di VB-Cable, itu butuh jalur loopback audio. |
 | Mesin TTS dan penyimpanan voice Indonesia | DIPUTUSKAN slice 5: mesin `piper-tts` 1.8.0 lewat library (bukan subprocess — subprocess muat model 63 MB tiap panggilan); voice `id_ID-news_tts-medium` 62.95 MB TIDAK masuk git, setup sekali pakai `python -m training.setup_voice`; Git LFS ditolak karena clone tanpa `lfs install` menghasilkan pointer file sehingga demo rusak senyap. |
+| Kata tertukar yang dibuang dari demo | BELUM DIPUTUSKAN (2026-10-04): (a) buang hanya "Lagi"+"Sore" (test gloss 31 gloss 0.0856 -> 0.1111 menurut commit `fe32616`, angka itu tanpa skrip/artifact pendukung sehingga diperlakukan klaim terverifikasi rendah), (b) simpan semua 32 gloss, atau (c) buang "Bagaimana" juga karena menyerap 7 gloss. Tidak ada satu pun yang dipakai: label set runtime tidak diubah sampai pemilik repo memutus. |
+| Kalibrasi per pengguna untuk demo | BELUM DIPUTUSKAN (2026-10-04): rekam window kalibrasi per pengguna lewat `training/record_self.py` (signer=99, direkomendasikan) versus klaim jujur bahwa akurasi terukur hanya berlaku untuk signer0-3 (test signer3 gloss 0.0856, leave-one-signer-out 0.0806-0.6058). `training/record_self.py` belum tersambung ke UI dan belum menghasilkan `data/self/`. |
 
 ## Asumsi yang dipakai di dokumen ini
 
@@ -255,11 +257,6 @@ fabrikasi). Supaya metrik ini nyata, `Stats` perlu kolom cap waktu per tahap di
 `src/core/pipeline.py` — itu pemilik pipeline, bukan panel debug.
 
 ## Latensi label stabil -> tampil (2026-10-03)
-
-Kriteria slice 5 dan slice 6 menuntut latensi TERUKUR, bukan diklaim.
-Definisinya diputuskan di sini (mengisi baris "Definisi pengukuran latensi
-prediksi" sebelumnya):
-
 **Selang waktu dari Smoother mengeluarkan label stabil di thread capture
 sampai frame yang membawa label itu sampai ke `on_frame` di worker
 output** — dengan kata lain waktu label sampai gambar masuk ke view.
@@ -291,3 +288,29 @@ adalah fabrikasi. Yang sudah terukur dan dicatat terpisah adalah latensi
 predictor itu sendiri: p50 0.066 ms, p95 0.084 ms, maks 0.191 ms
 (bagian "Diagnosa slice 4b" di atas). Latensi label ke TTS membutuhkan
 pengukuran baru, bukan angka pinjaman.
+
+## Toleransi `read()` None berbasis durasi + reuse kamera pra-cek (2026-10-04)
+
+Dua perubahan yang sudah terukur di mesin ini, keduanya soal Start yang terasa
+membeku:
+
+**1. Jendela mati kamera tidak lagi dihitung sebagai jumlah read.** Dulu maksimum
+gagal berurutan dihitung satu per read; karena `read()` yang gagal kembali dalam
+~0,1 ms, loop capture berputar secepat CPU — jendela mati 3 s terukur
+**2.766.776 putaran**. Kontrak sekarang memakai durasi:
+`pipeline.read_failure_timeout_seconds` = 5.0 (batas gagal berurutan, bukan
+jumlah read) dan `pipeline.read_failure_poll_seconds` = 0.05 (polling 20 Hz).
+Efek terukur: jendela mati 3 s = **56 siklus poll**, bukan 2.766.776 —
+perbaikan faktor **~49.000x**. Sleep berada DI LUAR lock supaya `read()` yang
+memegah lock tetap secepat selesainya.
+
+**2. Satu kali acquisisi kamera, bukan dua.** `run_checks`
+(`src/adapters/checks.py`) sekarang mengembalikan `CheckResults(list)` dengan
+`.camera` (handle hasil pra-cek) dan `release_camera()` yang aman dipanggil
+berulang; `finish_checks` memakai ulang handle itu lewat
+`_SharedCameraSource(OpenCvCameraSource)` yang mengadopsi capture tanpa membuka
+`cv2.VideoCapture` baru. Sebelumnya pemeriksaan dan pipeline bisa membuka kamera
+masing-masing: biaya acquisisi kedua terukur **26,9-31,4 s** (penyebabnya
+`set()` W/H/FPS sebelum `read()` pertama — re-init MSMF ~6-7 s per properti).
+Sesudah pemakaian ulang: **`finish_checks` 0,162 s**. Kenapa ini belum ditulis
+sebelumnya: angka ini baru terukur sesi ini, bukan hasil ukuran lama.
