@@ -1,0 +1,75 @@
+KATA (jalur kata, 33 kelas; 32 isyarat + 1 filler)
+Air
+Belajar
+Cari
+Hari
+Ingat
+Lagi
+Maaf
+Makan
+Motor
+Saya
+Terima kasih
+Tuli
+Apa
+Siapa
+Kapan
+Di mana
+Mengapa
+Bagaimana
+Merah
+Kuning
+Hijau
+Hitam
+Dengar
+Berangkat
+Datang
+Teman
+Keluarga
+Rumah
+Pagi
+Siang
+Sore
+Malam
+tidak ada isyarat (bukan isyarat)
+
+HURUF (jalur statis, fingerspell)
+A
+B
+C
+D
+E
+F
+G
+H
+I
+J
+K
+L
+M
+N
+O
+P
+Q
+R
+S
+T
+U
+V
+W
+X
+Y
+Z
+
+ANGKA (jalur statis)
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+?
