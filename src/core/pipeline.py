@@ -409,9 +409,16 @@ class Pipeline:
             # sebelumnya. Sakelar maju DULU, sebelum eksekusi jalur mana pun
             # di frame ini, supaya frame yang memicu sakelar sudah memakai
             # jalur baru dan tidak memicu keduanya.
-            self._run_mode_switch(frame)
+            #
+            # Baris fitur dihitung SATU kali per frame lalu dipakai bersama
+            # kedua konsumen. ``FeatureExtractor`` stateful (satu baris
+            # ``_previous``) dan feed kedua untuk frame yang sama hanya
+            # menghasilkan blok delta nol — sedangkan window predictor butuh
+            # delta antar frame NYATA, sama seperti data latih modelnya.
+            row = self._feed_features(frame)
+            self._run_mode_switch(frame, row)
             if self.mode in (MODE_BERSAMA, MODE_KATA) and self.predictor is not None:
-                self._run_predictor(frame)
+                self._run_predictor(frame, row)
             # Jalur statis DI ATAS jalur kata, bukan cabang di dalamnya:
             # urutannya read -> extract -> predictor kata -> statis ->
             # queue, dan tanpa ``static_predictor`` tak ada yang berbeda.
@@ -428,28 +435,46 @@ class Pipeline:
                 with self._lock:
                     self._dropped += 1
 
-    def _run_mode_switch(self, frame: Frame) -> None:
+    def _feed_features(self, frame: Frame) -> np.ndarray | None:
+        """Satu baris fitur per frame; ``None`` bila ekstraksi gagal.
+
+        SATU pemanggil, di loop capture, dan satu baris itu lalu dibaca dua
+        konsumen (jalur sakelar dan jalur kata). ``FeatureExtractor``
+        menyimpan satu baris ``_previous`` untuk menghitung delta, jadi satu
+        instance TIDAK BOLEH di-feed dua kali untuk frame yang sama: panggilan
+        kedua akan mengembalikan ``row - row`` = blok delta nol, padahal
+        window predictor harus berisi delta antar frame nyata seperti data
+        latih modelnya. Satu baris menghapus pertanyaannya sepenuhnya — tidak
+        ada dua pemanggil yang bisa bersaing.
+        """
+        if self._feature_extractor is None:
+            self._build_feature_extractor()
+        try:
+            return self._feature_extractor.feed(frame.landmarks)
+        except Exception as exc:
+            logger.warning(
+                "Galat ekstraksi fitur diabaikan: frame.index=%s exc=%r",
+                frame.index,
+                exc,
+            )
+            return None
+
+    def _run_mode_switch(self, frame: Frame, row: np.ndarray | None) -> None:
         """Deteksi gesture sakelar mode; non-fatal, tanpa model.
+
+        ``row`` = baris fitur yang sudah dihitung loop capture (lihat
+        ``_feed_features``). Sakelar memakainya, BUKAN mem-feed ulang
+        ekstraktor: kalau ia mem-feed sendiri, delta pemanggilan kedua
+        nol dan baris yang dipakai window predictor ikut rusak.
 
         Hanya aktif bila ``mode`` sudah diset (``kata``/``statis``) DAN
         ekstraktor terpasang: tanpa fitur, tidak ada cara mendeteksi gesture
         dan pipeline lama tetap tepat seperti sebelumnya.
         """
-        if self.mode == MODE_BERSAMA or self.extractor is None:
+        if self.mode == MODE_BERSAMA or self.extractor is None or row is None:
             return
         if self._mode_switch is None:
             self._mode_switch = ModeSwitch()
-        if self._feature_extractor is None:
-            self._build_feature_extractor()
-        try:
-            row = self._feature_extractor.feed(frame.landmarks)
-        except Exception as exc:
-            logger.warning(
-                "Galat ekstraksi fitur sakelar diabaikan: frame.index=%s exc=%r",
-                frame.index,
-                exc,
-            )
-            return
         new_mode = self._mode_switch.feed(row, frame.timestamp)
         if new_mode is not None:
             self._switch_mode(frame, new_mode)
@@ -524,12 +549,22 @@ class Pipeline:
                 exc,
             )
 
-    def _run_predictor(self, frame: Frame) -> None:
-        """Feed fitur ke extractor + window, lalu predictor dan smoother."""
+    def _run_predictor(self, frame: Frame, row: np.ndarray | None) -> None:
+        """Feed baris fitur ke window, lalu predictor dan smoother.
+
+        ``row`` = baris fitur yang sudah dihitung loop capture (lihat
+        ``_feed_features``). TIDAK di-feed ulang ke ekstraktor di sini: satu
+        ``FeatureExtractor`` per pipeline, dan feed kedua untuk frame yang sama
+        hanya menghasilkan blok delta nol — sedangkan model dilatih dengan
+        delta antar frame nyata. ``_build_prediction_stage`` juga tidak lagi
+        menyentuh ekstraktor; satu-satunya pemanggil ``_build_feature_extractor``
+        adalah ``_feed_features``.
+        """
         if self._smoother is None:
             self._build_prediction_stage()
+        if row is None:
+            return
         try:
-            row = self._feature_extractor.feed(frame.landmarks)
             for window in self._windower.feed(row):
                 self._windows_fed += 1
                 predicted = self.predictor.predict(window)
@@ -645,11 +680,19 @@ class Pipeline:
             )
 
     def _build_prediction_stage(self) -> None:
-        """Bangun extractor fitur, window, dan smoother dari config."""
+        """Bangun window dan smoother dari config.
+
+        Ekstraktor BUKAN milik bangunan ini: satu-satunya yang membuatnya
+        adalah ``_feed_features``. Dulu di sini juga ada
+        ``_build_feature_extractor()``, dan itu membuang instance yang sudah
+        dipakai jalur lain — kalau ekstraktor hanya satu (lihat
+        ``_feed_features``), siapapun terakhir memanggilnya di sini akan
+        menghapus riwayat ``_previous`` milik pemanggil pertama. Window dan
+        smoother tetap milik tahap ini.
+        """
         from .features import Windower
         from .smoothing import Smoother
 
-        self._build_feature_extractor()
         self._windower = Windower(
             frame_count=self.config.window_frame_count,
             stride=self.config.window_stride,
@@ -657,7 +700,14 @@ class Pipeline:
         self._smoother = Smoother(self.config)
 
     def _build_feature_extractor(self) -> None:
-        """Bangun extractor fitur; dipakai jalur sakelar mode.
+        """Bangun SATU extractor fitur; pemanggilnya cuma ``_feed_features``.
+
+        Instance ini milik pipeline, bukan salah satu jalur. Ia menyimpan satu
+        baris ``_previous`` untuk menghitung delta: feed-nya terjadi SATU kali
+        per frame (``_feed_features``) dan barisnya dipakai bersama jalur
+        sakelar DAN jalur kata. Feed kedua untuk frame yang sama hanya akan
+        menghasilkan ``row - row`` = blok delta nol, sedangkan window predictor
+        butuh delta antar frame NYATA seperti data latih modelnya.
 
         Sama lazily-nya: pipeline yang tidak memasang mode (``mode`` kosong)
         tidak pernah mengimpor modul fitur.

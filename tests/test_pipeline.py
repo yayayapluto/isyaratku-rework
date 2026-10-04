@@ -11,6 +11,7 @@ from src.adapters.camera import FakeCameraSource
 from src.adapters.landmark import FakeLandmarkExtractor
 from src.adapters.virtual_camera import FakeVirtualCameraSink
 from src.core.config import AppConfig, load_config
+from src.core.features import FeatureExtractor
 from src.core.landmarks import HandLandmarks, LandmarkFrame, PoseLandmarks
 from src.core.pipeline import Frame, Pipeline
 from src.core.predictor import Prediction
@@ -885,3 +886,154 @@ def test_sakelar_mode_nonaktif_dua_jalur_bersamaan() -> None:
     assert pipeline.error is None, f"pipeline tidak boleh mati: {pipeline.error}"
     assert static.diberi > 0, "jalur statis tetap jalan"
     assert label_dilihat, "jalur kata tetap jalan"
+
+
+# -- regresi: satu baris fitur per frame, dipakai dua konsumen ----------------- #
+class _EkstraktorSkrip:
+    """Ekstraktor landmark buatan: landmark dari urutan skrip."""
+
+    def __init__(self, skrip: list[LandmarkFrame] | None = None) -> None:
+        self._skrip = skrip or []
+        self.extract_dipanggil = 0
+
+    def extract(self, frame: Frame) -> LandmarkFrame:
+        index = min(frame.index, len(self._skrip) - 1)
+        self.extract_dipanggil += 1
+        return self._skrip[index]
+
+    def close(self) -> None:
+        pass
+
+
+class _SakelarPerekam:
+    """Sakelar buatan: rekam setiap baris yang diberikan pipeline; tak flip."""
+
+    def __init__(self) -> None:
+        self.baris_dilihat: list[np.ndarray] = []
+
+    def feed(self, row, timestamp):
+        del timestamp
+        self.baris_dilihat.append(row)
+        return None
+
+
+class _PrediktorPerekam:
+    """Predictor kata buatan: rekam setiap window yang sampai kepadanya."""
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        return ("Halo",)
+
+    def __init__(self) -> None:
+        self.window_dilihat: list[np.ndarray] = []
+
+    def predict(self, window):
+        self.window_dilihat.append(np.asarray(window))
+        return Prediction(label="Halo", confidence=0.99, ranked=(("Halo", 0.99),))
+
+
+class _EkstraktorPerekam(FeatureExtractor):
+    """Ekstraktor asli + rekam SETIAP baris yang keluar dari feed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.baris: list[np.ndarray] = []
+
+    def feed(self, landmarks):  # type: ignore[override]
+        baris = super().feed(landmarks)
+        self.baris.append(baris)
+        return baris
+
+
+def test_satu_baris_fitur_per_frame_blok_delta_tetap_nyata() -> None:
+    """Baris yang sampai jalur kata harus feed PERTAMA frame, bukan yang kedua.
+
+    Regresi konkret: ``FeatureExtractor`` stateful (satu baris ``_previous``).
+    Dulu pipeline mem-feed ekstraktor yang sama DUA kali per frame — sekali
+    dari jalur sakelar, sekali dari jalur kata. Panggilan KEDUA mengembalikan
+    ``row_N - row_N``: blok delta nol. Itu baris yang masuk window predictor,
+    ``Smoother`` menganggapnya idle, dan tidak ada label yang terbit walau
+    tangan bergerak — sementara model dilatih dengan delta antar frame NYATA.
+
+    Dua pembeda: (1) jumlah baris = jumlah frame (feed kedua akan menambah
+    baris), dan (2) baris TERAKHIR punya delta NYATA, bukan nol.
+    """
+    cfg = fast_config()
+    # Tangan bergerak naik turun tiap frame, tajam-tajam supaya delta antar
+    # frame jelas jauh di atas nol. Bahu ikut bergerak supaya skala
+    # normalisasi sendiri ikut berubah — itu bagian dari delta nyata.
+    peran: list[LandmarkFrame] = []
+    for i in range(45):
+        fase = (i % 4) * 0.3
+        pose_koord = np.zeros((33, 3), np.float32)
+        pose_koord[11] = [-0.4, -0.3 - fase, 0.0]
+        pose_koord[12] = [0.4, -0.3 - fase, 0.0]
+        tangan_koord = np.zeros((21, 3), np.float32)
+        tangan_koord[:, 0] = np.linspace(-0.2, 0.2, 21) + fase
+        tangan_koord[:, 1] = np.linspace(-0.4, 0.2, 21) - fase
+        tangan_koord[:, 2] = 0.0
+        tangan = HandLandmarks(coords=tangan_koord, present=True)
+        pose = PoseLandmarks(coords=pose_koord, present=True)
+        peran.append(LandmarkFrame(hands=(tangan, tangan), pose=pose, complete=True))
+
+    kamera = _KameraSkrip(peran)
+    pipeline = Pipeline(
+        kamera,
+        FakeVirtualCameraSink(cfg),
+        cfg,
+        extractor=_EkstraktorSkrip(peran),
+        predictor=_PrediktorPerekam(),
+        mode="kata",
+    )
+    ekstraktor = _EkstraktorPerekam()
+    pipeline._feature_extractor = ekstraktor
+    prediktor: _PrediktorPerekam = pipeline.predictor
+    sakelar = _SakelarPerekam()
+    pipeline._mode_switch = sakelar
+    _jalankan_sampai_switch(pipeline, 10.0)
+
+    # Kamera skrip memang habis setelah 45 frame (read() None fatal), sama
+    # seperti tes sakelar lain di berkas ini: yang terbukti bukan "pipeline
+    # hidup", tapi tidak ada galat LAIN selain kamera habis.
+    assert pipeline.error is None or "read() None" in str(pipeline.error)
+    assert pipeline.mode == "kata"
+    assert pipeline._mode_switches == 0, "gesture ini bukan tahan: tetap kata"
+
+    # (1) SATU baris per frame — bukan dua. Feed kedua bagi frame yang sama
+    # akan memunculkan baris tambahan, jadi larangannya terlihat langsung.
+    assert len(ekstraktor.baris) == len(peran), (
+        f"extractor harus di-feed sekali per frame, dapat "
+        f"{len(ekstraktor.baris)} baris untuk {len(peran)} frame"
+    )
+
+    # (2) Baris TERAKHIR (frame bergerak) harus punya delta NYATA. Inilah
+    # baris yang sampai jalur kata. Dulu pemanggilan kedua frame ini
+    # menghasilkan ``row - row``; baris nol itulah yang masuk window.
+    terakhir = ekstraktor.baris[-1]
+    assert (
+        np.abs(terakhir[228:354]).max() > 0.0
+    ), (
+        "blok delta baris yang sampai jalur kata harus nyata "
+        f"(row_N - row_N-1), dapat {np.abs(terakhir[228:354]).max()}"
+    )
+    # Window benar-benar sampai ke predictor kata — bukan diam saja.
+    assert prediktor.window_dilihat, "jalur kata tidak menerima window apa pun"
+
+    # (3) Baris ke sakelar: satu per frame, dan objek YANG SAMA dengan
+    # keluaran ekstraktor — bukan feed terpisah yang deltanya nol.
+    assert len(sakelar.baris_dilihat) == len(peran), (
+        f"sakelar harus menerima satu baris per frame, dapat "
+        f"{len(sakelar.baris_dilihat)} untuk {len(peran)} frame"
+    )
+    for i, baris in enumerate(sakelar.baris_dilihat):
+        assert baris is ekstraktor.baris[i], (
+            f"baris frame {i} ke sakelar bukan objek yang sama dengan "
+            "hasil ekstraktor — ada feed terpisah"
+        )
+
+    # (4) Kalau ekstraktor di-feed ULANG dengan landmark frame terakhir, delta
+    # memang nol. Itu bugnya: baris nol itu dulu lolos ke window predictor.
+    ulang = ekstraktor.feed(peran[-1])
+    assert (
+        np.abs(ulang[228:]).max() == 0.0
+    ), "feed kedua untuk frame yang sama memang nol — itu bug yang dulu bocor"
