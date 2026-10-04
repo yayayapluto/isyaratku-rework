@@ -11,13 +11,14 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 import PySide6.QtCore as qc
 
 from ..adapters.camera import OpenCvCameraSource
 from ..adapters.checks import _SharedCameraSource, run_checks
 from ..adapters.landmark import MediaPipeLandmarkExtractor
-from ..adapters.predictor import TrainedPredictor
+from ..adapters.predictor import MODEL_PATH_DEFAULT, TrainedPredictor
 from ..adapters.virtual_camera import VirtualCameraSink
 from ..core.pipeline import Frame, Pipeline
 from .render import draw_landmarks, draw_overlay, mirror_image
@@ -25,6 +26,10 @@ from .prediction_probe import PredictionProbe
 
 
 logger = logging.getLogger(__name__)
+
+#: Artifact kata demo: 3 isyarat (Halo, Kami, Terima kasih) + 1 filler "tidak
+#: ada isyarat"; dipakai hanya bila berkasnya ADA, kalau tidak baseline.
+WORD_MODEL_PATH = "models/demo-kata.npz"
 
 
 class _Langkah:
@@ -190,8 +195,13 @@ def finish_checks(
         step.selesai()
         # Predictor asli dibangun di sini juga: model hilang harus muncul
         # sebagai galat pemeriksaan, bukan demo yang diam tanpa teks.
+        # Model kata demo dipakai hanya bila artifact-nya ADA; belum ada =
+        # jatuh ke models/baseline.npz, tiap commit tetap bisa dijalankan.
         step = _Langkah("predictor")
-        predictor = PredictionProbe(TrainedPredictor(view._config))
+        model_kata = (
+            WORD_MODEL_PATH if Path(WORD_MODEL_PATH).exists() else MODEL_PATH_DEFAULT
+        )
+        predictor = PredictionProbe(TrainedPredictor(view._config, model_path=model_kata))
         step.selesai()
         # TTS: speech sink dibuat lebih dulu supaya VoiceModel hilang
         # muncul sebagai galat pemeriksaan, bukan thread yang mati
