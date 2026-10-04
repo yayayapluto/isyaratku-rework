@@ -1,0 +1,79 @@
+{
+  "nama_model": "demo 4 kata: Halo, Kami, Terima kasih, tidak ada isyarat",
+  "format": "joblib (sklearn) + .npz (numpy, dipakai runtime)",
+  "butuh_torch_runtime": false,
+  "label": [
+    "Halo",
+    "Kami",
+    "Terima kasih",
+    "tidak ada isyarat"
+  ],
+  "kelas_model": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "jumlah_kelas_dilatih": 4,
+  "split": {
+    "jenis": "per-video (per-sample), signer tunggal",
+    "signer": 99,
+    "latih": "sample 001-035",
+    "uji": "sample 036-050",
+    "catatan": "Holdout signer yang SAMA, bukan generalisasi antar signer; lebih optimistis daripada baseline LOSO di models/baseline.json (akurasi_test 0.5745, akurasi_gloss_saja 0.0856 atas 794 window isyarat) dan docs/tech-decisions.md:41,50."
+  },
+  "sumber_data": {
+    "gloss": "data/extracted/demo3",
+    "filler": "data/extracted",
+    "filler_berkas_latih": [
+      "signer1_label3_sample1.npz",
+      "signer2_label16_sample6.npz",
+      "signer4_label24_sample6.npz",
+      "signer1_label30_sample9.npz",
+      "signer4_label19_sample9.npz",
+      "signer1_label30_sample13.npz",
+      "signer1_label5_sample10.npz",
+      "signer4_label30_sample9.npz",
+      "signer2_label15_sample1.npz",
+      "signer3_label1_sample3.npz",
+      "signer1_label20_sample14.npz",
+      "signer4_label20_sample8.npz"
+    ],
+    "filler_berkas_uji": [
+      "signer1_label7_sample6.npz",
+      "signer2_label13_sample5.npz",
+      "signer1_label5_sample7.npz",
+      "signer2_label23_sample8.npz",
+      "signer1_label19_sample9.npz",
+      "signer2_label21_sample13.npz",
+      "signer4_label21_sample1.npz",
+      "signer4_label14_sample5.npz",
+      "signer2_label30_sample8.npz",
+      "signer1_label20_sample15.npz",
+      "signer4_label23_sample1.npz",
+      "signer3_label22_sample2.npz"
+    ],
+    "filler_jumlah_latih": 68,
+    "filler_jumlah_uji": 68
+  },
+  "jumlah_window": {
+    "latih": 1203,
+    "uji": 557,
+    "per_kelas_latih": {
+      "Halo": 372,
+      "Kami": 342,
+      "Terima kasih": 421,
+      "tidak ada isyarat": 68
+    },
+    "per_kelas_uji": {
+      "Halo": 163,
+      "Kami": 143,
+      "Terima kasih": 183,
+      "tidak ada isyarat": 68
+    }
+  },
+  "akurasi_test": 1.0,
+  "uji_jenis": "same-signer per-video holdout (optimistis, bukan LOSO)",
+  "durasi_fit_detik": 0.13,
+  "dilatih": "2026-10-04 11:04:34"
+}
