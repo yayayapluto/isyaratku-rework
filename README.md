@@ -14,9 +14,6 @@ Real-time BISINDO (Indonesian Sign Language) word translator for everyday conver
 - [Development](#development)
 - [Building a standalone executable](#building-a-standalone-executable)
 - [Documentation](#documentation)
-- [Contributing](#contributing)
-- [License](#license)
-- [TODO](#todo)
 
 ## What works today
 
@@ -46,6 +43,30 @@ Three limits sit behind these numbers:
 3. **Never tested with a real meeting app.** Zoom and Meet have not been run against this feed, so whether the virtual camera device shows up and renders correctly there is unproven. Only a local two-process round trip is proven.
 
 Consequence for a demo: today the word path is reliable mainly for the signers in the recording set, and the meeting integration is unverified. The letter/number path needs the on-camera signer to match the recorded population.
+
+### Which models the app actually loads
+
+`src/ui/check_task.py` prefers the demo artifact when the file exists and silently
+falls back to the frozen default otherwise, so both tables above can be true at
+once — check which files are in `models/`.
+
+| Artifact | Classes | Validation accuracy | Holdout type |
+| --- | --- | --- | --- |
+| `models/demo-kata.npz` | 4 — `Halo`, `Saya`, `Terima kasih`, `tidak ada isyarat` | 1.0000 | same-signer per-video (optimistic, not LOSO) |
+| `models/demo-huruf.npz` | 8 — `I S Y A R T K U` | 0.971119 dedup / 0.962094 as-is | as-is train/val split, no signer metadata |
+| `models/demo-angka.npz` | 10 — `0`–`9` | 0.946154 dedup / 0.946154 as-is | as-is train/val split, no signer metadata |
+
+Two honest limits:
+
+1. **The 8-letter and 10-digit models have no reject path.** Any letter outside
+   `ISYARTKU` is silently absorbed at high confidence — measured: `B` maps to
+   `K`/`R`/`T`/`Y`/`S`/`U` at mean confidence 0.9312; `E` maps to `Y`/`T`/`R`/`S`/`K`
+   at 0.8220; `M` to `Y`/`S`/`U` at 0.8439; `O` to `I`/`S`/`R` at 0.8013; `Z` to
+   `I`/`S`/`K`/`R`/`A`/`Y` at 0.7990. Signing a letter outside the set still produces
+   text; it just produces the wrong text.
+2. **Weakest classes, by per-class F1** — letters `Y` 0.9259 and `A` 0.9455; digit
+   `4` 0.7273. The letter validation set had 100 rows byte-identical to training rows
+   (dropped from training with `--dedup`); the digit set had 0.
 
 ## Prerequisites
 
@@ -90,7 +111,7 @@ QT_QPA_PLATFORM=offscreen python -m src.ui.app --headless --seconds 3
 
 Expected last line: `Headless smoke: LOLOS`.
 
-Most artifact paths are relative to the current working directory (`configs/app.toml`, `models/baseline.npz`, `models/demo-kata.npz`, `models/mediapipe/*.task`), so run every command from the repository root. The demo word model is bundled into both `.spec` files, but `src/ui/check_task.py:202` resolves it against the process CWD (no `_MEIPASS` resolver by repo decision), so the demo path only works from the repository root — otherwise it silently falls back to `models/baseline.npz`.
+Most artifact paths are relative to the current working directory (`configs/app.toml`, `models/baseline.npz`, `models/demo-kata.npz`, `models/mediapipe/*.task`), so run every command from the repository root. The demo word model is bundled into both `.spec` files, but `src/ui/check_task.py:215` resolves it against the process CWD (no `_MEIPASS` resolver by repo decision), so the demo path only works from the repository root — otherwise it silently falls back to `models/baseline.npz`.
 
 ## Usage
 
@@ -132,10 +153,23 @@ python -m src.ui.app --mode debug
 
 Each recognized letter appends to a word; a 1.5 s pause closes the word. That pause
 threshold reuses `smoothing.cooldown_seconds`, so a repeated letter in one name can
-split into two words. While a word label is stable, the word-path subtitle can hide
-the static letters: `src/ui/check_task.py:407` picks
-`holder[0] or static_holder[0] or placeholder`. This has not been measured on real
-recordings.
+split into two words. `_SubtitleState` in `src/ui/check_task.py` (class at `:483`, `line()` at `:490-492`)
+holds both the word label and the static text, and `compose_subtitle` (definition at
+`:453`, join filter at `:474`, placeholder fallback at `:476`) joins them word-first
+separated by a single space. Both feed the overlay at `:561` via
+`state.line(placeholder)`, and the same holder feeds TTS. The placeholder appears
+only when both sources are empty. Nothing hides anything.
+
+### Switching between word mode and letter/digit mode
+
+Only one path runs at a time, and both write to the same subtitle line.
+
+- **Word mode** (the startup mode) recognizes `Halo` / `Saya` / `Terima kasih`.
+- **Letter/digit mode** recognizes letters `I S Y A R T K U` and digits `0`–`9`.
+- To switch, hold **both hands up and motionless for about 2.5 s** (`MODE_HOLD_SECONDS` in `src/core/mode_switch.py`). The trigger is property-based — two hands present with motion below `IDLE_MOTION_FLOOR` — and uses no model class, so it survives any future change to the trained label set.
+- The switch clears the subtitle line, the pending letters, and the voting window, so the next label comes from the new mode only. Clean on every switch, per user requirement.
+- A 1.5 s cooldown follows each switch (`MODE_SWITCH_COOLDOWN_SECONDS`) so the gesture cannot toggle the mode repeatedly.
+- TTS speaks the combined subtitle line, not a queue of labels; a newer line replaces one that has not been spoken yet. Audio already in flight cannot be cancelled — there is no cancel API in `src/adapters/tts.py`.
 
 ## Configuration
 
@@ -248,6 +282,8 @@ python -m training.export_numpy --model models/<name>.joblib --out models/<name>
 # 4. train the static letter / digit models separately
 python -m training.train_static --target huruf
 python -m training.train_static --target angka
+python -m training.train_static --target huruf-isyaratku --stem demo-huruf
+python -m training.train_static --target angka-0-9 --stem demo-angka
 ```
 
 Three gotchas:
@@ -284,24 +320,3 @@ The `.spec` files in the repository root (`isyaratku-ready.spec`, `isyaratku-deb
 - [MediaPipe Tasks](https://ai.google.dev/edge/mediapipe/solutions/vision) — hand and pose landmarker bundles; license see upstream.
 - [piper-tts](https://github.com/rhasspy/piper) and the Indonesian voice `rhasspy/piper-voices` (`id_ID-news_tts-medium.onnx`); licenses see upstream.
 - BISINDO is a community sign language; dictionary sources still need checking before publication.
-
-## Contributing
-
-There is no `CONTRIBUTING.md`. Read `docs/AGENTS.md` first — it defines the dependency direction, the ban on GUI imports inside `src/core/`, the no-magic-numbers rule, the requirement of a fake for every adapter, and the commit-per-change discipline. Commits use Conventional Commits in Indonesian subjects, at most 72 characters.
-
-## License
-
-No `LICENSE` file exists in the repository yet. All datasets remain under their own terms (see Attribution). Add one before any distribution.
-
-## TODO
-
-Those items are missing from the repository and need a human decision:
-
-- `LICENSE` file — none present.
-- `CONTRIBUTING.md` — workflow is documented only inside `docs/AGENTS.md`.
-- Real-meeting verification — Zoom and Meet have never been tested against this feed.
-- End-to-end test with a real TTS device and real virtual camera.
-- Screenshot assets — `docs/images/` is empty, so no screenshots are embedded above.
-- The 11th digit class is named `?`; its meaning is unverified from the dataset source.
-- Signer metadata for the letter and number datasets, to make their numbers auditable.
-- This project has no CI workflow, so no badges are shown.
