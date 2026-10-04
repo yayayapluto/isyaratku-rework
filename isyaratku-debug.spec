@@ -4,7 +4,7 @@ from PyInstaller.utils.hooks import collect_dynamic_libs
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('configs/app.toml', 'configs'), ('models/baseline.npz', 'models'), ('models/huruf.npz', 'models'), ('models/angka.npz', 'models'), ('models/mediapipe/hand_landmarker.task', 'models/mediapipe'), ('models/mediapipe/pose_landmarker_lite.task', 'models/mediapipe')]
+datas = [('configs/app.toml', 'configs'), ('models/baseline.npz', 'models'), ('models/huruf.npz', 'models'), ('models/angka.npz', 'models'), ('models/demo-kata.npz', 'models'), ('models/mediapipe/hand_landmarker.task', 'models/mediapipe'), ('models/mediapipe/pose_landmarker_lite.task', 'models/mediapipe')]
 binaries = []
 hiddenimports = ['piper', 'cv2', 'numpy', 'pyvirtualcam']
 datas += collect_data_files('mediapipe')
