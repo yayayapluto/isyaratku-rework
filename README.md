@@ -153,12 +153,12 @@ python -m src.ui.app --mode debug
 
 Each recognized letter appends to a word; a 1.5 s pause closes the word. That pause
 threshold reuses `smoothing.cooldown_seconds`, so a repeated letter in one name can
-split into two words. `_SubtitleState` in `src/ui/check_task.py` (class at `:483`, `line()` at `:490-492`)
-holds both the word label and the static text, and `compose_subtitle` (definition at
-`:453`, join filter at `:474`, placeholder fallback at `:476`) joins them word-first
-separated by a single space. Both feed the overlay at `:561` via
-`state.line(placeholder)`, and the same holder feeds TTS. The placeholder appears
-only when both sources are empty. Nothing hides anything.
+split into two words. `_SubtitleState` in `src/ui/check_task.py` holds both the word
+label and the static text, and its `line()` method calls `compose_subtitle`, which
+joins them word-first separated by a single space and drops the placeholder from the
+join. Both feed the overlay through `state.line(placeholder)`, and the same holder
+feeds TTS. The placeholder appears only when both sources are empty. Nothing hides
+anything.
 
 ### Switching between word mode and letter/digit mode
 
