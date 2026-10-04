@@ -1,15 +1,14 @@
-"""Trainer khusus model 4 kata untuk demo: Halo, Kami, Terima kasih, tanpa isyarat.
+"""Trainer khusus model 4 kelas untuk demo: Halo, Saya, Terima kasih, tanpa isyarat.
 
-Dipakai untuk kalimat demo "halo, kami isyaratku, terima kasih"; huruf kata
+Dipakai untuk kalimat demo "halo, saya isyaratku, terima kasih"; huruf kata
 isyaratku tidak dilatih di sini karena sudah dilatih di models/huruf.*.
 
-Kenapa modul baru, bukan menambah gloss ke GLOSSES: id LABEL_NAMES untuk
-Halo=33, Terima kasih=10 sudah benar, tapi id 34 adalah NO_SIGN_ID ("tidak ada
-isyarat"), jadi id 34 TIDAK bisa dipakai untuk 'Kami' dan kata 'Kami' tidak ada
-di GLOSSES sama sekali (grep cari 'Kami' di training/, src/, tests/, docs/
-kosong). Sebagai gantinya modul ini memakai peta id internal 0-3 dan menulis
-label dari kelas yang benar-benar dilatih — pola yang sama dipakai
-training/diagnose_demo_v1.py:74-81 dan :377-423.
+Kenapa modul baru, bukan menambah gloss ke GLOSSES: Halo (id 33), Saya (id 9),
+dan Terima kasih (id 10) memang ada di GLOSSES, tapi modul ini tetap memetakan
+ke id internal 0-3 dan menulis label dari kelas yang benar-benar dilatih, supaya
+kelas filler selalu id terakhir dan tidak bergantung pada urutan GLOSSES —
+pola yang sama dipakai training/diagnose_demo_v1.py:74-81 dan :377-423.
+Kata 'Kami' (dulu id sintetis 34 == NO_SIGN_ID) sudah dihapus dari lingkup demo.
 
 Split: per-video (per-sample) signer tunggal 99, sample 001-035 train /
 036-050 diuji. Ini BUKAN generalisasi antar signer: datanya satu penanda,
@@ -48,11 +47,12 @@ from training.diagnose_demo_v1 import latih_logreg
 from training.train import fitur_batch
 
 #: Label keluaran; urutannya juga urutan baris bobot di .npz.
-KATA_DEMO: tuple[str, ...] = ("Halo", "Kami", "Terima kasih", "tidak ada isyarat")
-ID_HALO, ID_KAMI, ID_TERIMA, ID_TIDAK = 0, 1, 2, 3
+KATA_DEMO: tuple[str, ...] = ("Halo", "Saya", "Terima kasih", "tidak ada isyarat")
+ID_HALO, ID_SAYA, ID_TERIMA, ID_TIDAK = 0, 1, 2, 3
 
-#: id LABEL_NAMES asli sumber data demo (34 == NO_SIGN_ID, bukan kata 'Kami').
-LABEL_ASLI: dict[str, int] = {"Halo": 33, "Kami": 34, "Terima kasih": 10}
+#: id LABEL_NAMES asli sumber data demo: posisi gloss di training/dataset.py
+#: (Halo terakhir, Saya indeks 9, Terima kasih indeks 10).
+LABEL_ASLI: dict[str, int] = {"Halo": 33, "Saya": 9, "Terima kasih": 10}
 
 #: Data demo signer 99 dan sumber window filler.
 DIR_DEMO = Path("data/extracted/demo3")
@@ -93,7 +93,7 @@ def muat_kata() -> dict[str, dict[str, np.ndarray]]:
     file_latih: Counter = Counter()
     file_uji: Counter = Counter()
 
-    for kata in ("Halo", "Kami", "Terima kasih"):
+    for kata in KATA_DEMO[:-1]:
         internal = KATA_DEMO.index(kata)
         label = LABEL_ASLI[kata]
         berkas = sorted(DIR_DEMO.glob(f"signer*_label{label}_*.npz"))
@@ -113,7 +113,7 @@ def muat_kata() -> dict[str, dict[str, np.ndarray]]:
                 file_uji[kata] += 1
 
     print("[muat] demo3 window bertangan (sample 1-35 latih / 36-50 uji):")
-    for i, kata in enumerate(("Halo", "Kami", "Terima kasih")):
+    for i, kata in enumerate(KATA_DEMO[:-1]):
         n_latih = sum(b.shape[0] for b in latih[i])
         n_uji = sum(b.shape[0] for b in uji[i])
         print(
@@ -188,7 +188,7 @@ def latih_demo(jumlah_file_filler: int, seed: int) -> dict[str, object]:
     y_latih = np.concatenate(
         [
             np.full(kata["latih"][0].shape[0], ID_HALO),
-            np.full(kata["latih"][1].shape[0], ID_KAMI),
+            np.full(kata["latih"][1].shape[0], ID_SAYA),
             np.full(kata["latih"][2].shape[0], ID_TERIMA),
             np.full(filler_latih.shape[0], ID_TIDAK),
         ]
@@ -197,7 +197,7 @@ def latih_demo(jumlah_file_filler: int, seed: int) -> dict[str, object]:
     y_uji = np.concatenate(
         [
             np.full(kata["uji"][0].shape[0], ID_HALO),
-            np.full(kata["uji"][1].shape[0], ID_KAMI),
+            np.full(kata["uji"][1].shape[0], ID_SAYA),
             np.full(kata["uji"][2].shape[0], ID_TERIMA),
             np.full(filler_uji.shape[0], ID_TIDAK),
         ]
@@ -294,12 +294,13 @@ def tulis_hasil(hasil: dict[str, object], stem: str) -> list[Path]:
     joblib.dump(hasil["model"], p_joblib)
 
     meta = {
-        "nama_model": "demo 4 kata: Halo, Kami, Terima kasih, tidak ada isyarat",
+        "nama_model": "demo 4 kelas: Halo, Saya, Terima kasih, tidak ada isyarat",
         "format": "joblib (sklearn) + .npz (numpy, dipakai runtime)",
         "butuh_torch_runtime": False,
         # Label dari kelas yang benar-benar dilatih, BUKAN list(LABEL_NAMES):
-        # train.py:207 menulis 35 nama apa pun kelasnya, dan 'Kami' tidak ada
-        # di GLOSSES sehingga tidak bisa keluar dari LABEL_NAMES.
+        # train.py:207 menulis 35 nama apa pun kelasnya, dan 'Saya' adalah
+        # gloss dataset (oleh karena itu ada di LABEL_NAMES), tapi urutan
+        # keluaran di sini tetap disusun trainer supaya id 3 selalu filler.
         "label": list(nama),
         "kelas_model": kelas,
         "jumlah_kelas_dilatih": len(nama),

@@ -1,10 +1,10 @@
 {
-  "nama_model": "demo 4 kata: Halo, Kami, Terima kasih, tidak ada isyarat",
+  "nama_model": "demo 4 kelas: Halo, Saya, Terima kasih, tidak ada isyarat",
   "format": "joblib (sklearn) + .npz (numpy, dipakai runtime)",
   "butuh_torch_runtime": false,
   "label": [
     "Halo",
-    "Kami",
+    "Saya",
     "Terima kasih",
     "tidak ada isyarat"
   ],
@@ -57,23 +57,23 @@
     "filler_jumlah_uji": 68
   },
   "jumlah_window": {
-    "latih": 1203,
-    "uji": 557,
+    "latih": 1186,
+    "uji": 561,
     "per_kelas_latih": {
       "Halo": 372,
-      "Kami": 342,
+      "Saya": 325,
       "Terima kasih": 421,
       "tidak ada isyarat": 68
     },
     "per_kelas_uji": {
       "Halo": 163,
-      "Kami": 143,
+      "Saya": 147,
       "Terima kasih": 183,
       "tidak ada isyarat": 68
     }
   },
   "akurasi_test": 1.0,
   "uji_jenis": "same-signer per-video holdout (optimistis, bukan LOSO)",
-  "durasi_fit_detik": 0.13,
-  "dilatih": "2026-10-04 11:04:34"
+  "durasi_fit_detik": 0.24,
+  "dilatih": "2026-10-04 12:07:17"
 }
