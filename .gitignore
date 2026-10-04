@@ -26,3 +26,6 @@ logs/
 
 # .mailmap: pemetaan identitas lokal saja, tidak masuk git
 .mailmap
+
+# pindah_mode.mp4: video demo lokal, tidak masuk git
+pindah_mode.mp4
