@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .config import AppConfig
+from .mode_switch import MODE_BERSAMA, MODE_KATA, MODE_STATIS, ModeSwitch
 from .predictor import Prediction
 
 
@@ -135,6 +136,13 @@ class Pipeline:
     #: Diberitahu dengan kata yang selesai disusun dari huruf. Core tidak
     #: tahu apa-apa soal audio atau GUI, hanya menyerahkan teksnya.
     on_static_word: Callable[[str], None] | None = None
+    #: Mode aktif. Kosong (default) berarti tidak ada sakelar: kedua jalur
+    # jalan bersamaan seperti sebelumnya.
+    mode: str = MODE_BERSAMA
+    #: Dipanggil HANYA saat mode BENAR-BENAR berubah (bukan tiap frame),
+    # dengan nama mode baru. Core tidak tahu apa-apa soal audio atau GUI,
+    # hanya menyerahkan nama mode-nya.
+    on_mode_change: Callable[[str], None] | None = None
 
     def __post_init__(self) -> None:
         self._frames: queue.Queue[Frame] = queue.Queue(
@@ -194,6 +202,8 @@ class Pipeline:
         self._static_path = None
         self._static_letters_emitted = 0
         self._static_words_completed = 0
+        self._mode_switch: ModeSwitch | None = None
+        self._mode_switches = 0
 
     # -- kontrol -----------------------------------------------------------------
     def start(self) -> None:
@@ -382,12 +392,21 @@ class Pipeline:
             # Predictor jalan di thread capture supaya teks sudah menempel
             # ketika frame sampai ke worker output. Kegagalan predict tidak
             # mematikan pipeline: dicatat, teks dibiarkan kosong.
-            if self.predictor is not None:
+            # Sakelar mode: hanya satu jalur jalan dalam satu waktu. Saat
+            # ``mode`` kosong (tidak ada sakelar) keduanya jalan seperti
+            # sebelumnya. Sakelar maju DULU, sebelum eksekusi jalur mana pun
+            # di frame ini, supaya frame yang memicu sakelar sudah memakai
+            # jalur baru dan tidak memicu keduanya.
+            self._run_mode_switch(frame)
+            if self.mode in (MODE_BERSAMA, MODE_KATA) and self.predictor is not None:
                 self._run_predictor(frame)
             # Jalur statis DI ATAS jalur kata, bukan cabang di dalamnya:
             # urutannya read -> extract -> predictor kata -> statis ->
             # queue, dan tanpa ``static_predictor`` tak ada yang berbeda.
-            if self.static_predictor is not None:
+            if (
+                self.mode in (MODE_BERSAMA, MODE_STATIS)
+                and self.static_predictor is not None
+            ):
                 self._run_static_path(frame)
             with self._lock:
                 self._captured += 1
@@ -396,6 +415,70 @@ class Pipeline:
             except queue.Full:
                 with self._lock:
                     self._dropped += 1
+
+    def _run_mode_switch(self, frame: Frame) -> None:
+        """Deteksi gesture sakelar mode; non-fatal, tanpa model.
+
+        Hanya aktif bila ``mode`` sudah diset (``kata``/``statis``) DAN
+        ekstraktor terpasang: tanpa fitur, tidak ada cara mendeteksi gesture
+        dan pipeline lama tetap tepat seperti sebelumnya.
+        """
+        if self.mode == MODE_BERSAMA or self.extractor is None:
+            return
+        if self._mode_switch is None:
+            self._mode_switch = ModeSwitch()
+        if self._feature_extractor is None:
+            self._build_feature_extractor()
+        try:
+            row = self._feature_extractor.feed(frame.landmarks)
+        except Exception as exc:
+            logger.warning(
+                "Galat ekstraksi fitur sakelar diabaikan: frame.index=%s exc=%r",
+                frame.index,
+                exc,
+            )
+            return
+        new_mode = self._mode_switch.feed(row, frame.timestamp)
+        if new_mode is not None:
+            self._switch_mode(frame, new_mode)
+
+    def _switch_mode(self, frame: Frame, new_mode: str) -> None:
+        """Pindah mode: satu jalur jalan, baris subtitle dibersihkan.
+
+        Bersih di TIGA tempat: teks frame ini (``text``/``static_text``),
+        jalur yang tadinya aktif (``Smoother``/``StaticPath``), dan lewat
+        ``on_mode_change`` yang membuat view membuang teksnya sendiri.
+
+        Teks frame WAJIB dikosongkan di sini meski view menyimpan barisnya
+        di state sendiri: renderer hanya menimpa state ketika ``frame.text``
+        tidak kosong (tulis-jika-isi). Kalau teks lama dibiarkan, satu kali
+        lagi baris mode lama masuk ke state yang baru saja dibersihkan.
+        """
+        logger.info(
+            "mode: %s -> %s frame.index=%s", self.mode, new_mode, frame.index
+        )
+        self.mode = new_mode
+        self._mode_switches += 1
+        # Utterance TTS yang SUDAH terucap tidak bisa dibatalkan: tidak ada
+        # API cancel di ``SpeechSink``. Yang dijamin: setelah sakelar, tidak
+        # ada utterance BARU lagi sampai mode berikutnya.
+        frame.text = ""
+        frame.static_text = ""
+        # Jalur yang tadinya aktif dibersihkan sepenuhnya: huruf tertahan,
+        # window, dan voting-nya. Kalau tidak, kembali ke jalur itu berarti
+        # melanjutkan setengah jalan yang sudah tidak tampil di layar.
+        if self._smoother is not None:
+            self._smoother.reset()
+        if self._static_path is not None:
+            self._static_path.reset()
+        callback = self.on_mode_change
+        if callback is not None:
+            try:
+                callback(new_mode)
+            except Exception as exc:
+                logger.warning(
+                    "on_mode_change gagal: mode=%s exc=%r", new_mode, exc
+                )
 
     def _run_static_path(self, frame: Frame) -> None:
         """Frame -> huruf/angka stabil -> kata tersusun, non-fatal.
@@ -551,15 +634,25 @@ class Pipeline:
 
     def _build_prediction_stage(self) -> None:
         """Bangun extractor fitur, window, dan smoother dari config."""
-        from .features import FeatureExtractor, Windower
+        from .features import Windower
         from .smoothing import Smoother
 
-        self._feature_extractor = FeatureExtractor()
+        self._build_feature_extractor()
         self._windower = Windower(
             frame_count=self.config.window_frame_count,
             stride=self.config.window_stride,
         )
         self._smoother = Smoother(self.config)
+
+    def _build_feature_extractor(self) -> None:
+        """Bangun extractor fitur; dipakai jalur sakelar mode.
+
+        Sama lazily-nya: pipeline yang tidak memasang mode (``mode`` kosong)
+        tidak pernah mengimpor modul fitur.
+        """
+        from .features import FeatureExtractor
+
+        self._feature_extractor = FeatureExtractor()
 
     def _build_static_path(self) -> None:
         """Bangun ``StaticPath`` dari predictor statis yang disuntikkan.

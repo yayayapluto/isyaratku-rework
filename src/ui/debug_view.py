@@ -17,6 +17,7 @@ from ..core.config import AppConfig, load_config
 from ..core.landmarks import IncompleteTracker
 from ..core.pipeline import Frame, Pipeline, Stats
 from .check_task import (
+    _SubtitleState,
     compose_subtitle,
     finish_checks,
     make_renderer,
@@ -178,15 +179,25 @@ class DebugView(qw.QMainWindow):
             if self._alive:
                 self._stop_requested = False
             return
+        # Satu state subtitle untuk MEMBACA (renderer) dan MENDENGAR
+        # (fanout TTS): ucapan = baris yang tampil, bukan tiap label
+        # stabil yang sempat lewat.
+        state = _SubtitleState()
         finish_checks(
             self,
             results,
             details=None,
             # Salinan piksel mentah disimpan SEBELUM draw_overlay menimpa
-            # frame; turutannya sudah dicerminkan supaya kedua panel debug
+            # frame; turunannya sudah dicerminkan supaya kedua panel debug
             # tampak sama (selfie), bedanya hanya overlay. Teks overlay
             # adalah satu baris compose: label kata lalu huruf/angka statis.
-            renderer=make_renderer(PLACEHOLDER_TEXT, self._store_raw, mirror=True),
+            renderer=make_renderer(
+                PLACEHOLDER_TEXT,
+                self._store_raw,
+                mirror=True,
+                state=state,
+            ),
+            speech_state=state,
             # Mode debug: ucapan yang sama juga ke speaker ruangan supaya
             # terdengar saat demo; kabel tetap jalan untuk OBS/Zoom.
             local_speech=True,

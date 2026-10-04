@@ -11,7 +11,7 @@ import PySide6.QtWidgets as qw
 
 from ..core.config import AppConfig, load_config
 from ..core.pipeline import Frame, Pipeline, Stats
-from .check_task import finish_checks, make_renderer, start_checks
+from .check_task import _SubtitleState, finish_checks, make_renderer, start_checks
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +153,9 @@ class ReadyView(qw.QMainWindow):
             if self._alive:
                 self._stop_requested = False
             return
+        # State subtitle dibagi renderer dan fanout TTS: ucapan mengikuti
+        # baris yang tampil, bukan antrian tiap label stabil.
+        state = _SubtitleState()
         camera = finish_checks(
             self,
             results,
@@ -161,7 +164,10 @@ class ReadyView(qw.QMainWindow):
             # kecuali (1) tanpa raw sink — view ini tak punya panel mentah,
             # (2) tanpa titik/garis landmark — permintaan user, mode siap
             # pakai hanya menampilkan frame dan subtitle.
-            make_renderer(PLACEHOLDER_TEXT, mirror=True, landmarks=False),
+            make_renderer(
+                PLACEHOLDER_TEXT, mirror=True, landmarks=False, state=state
+            ),
+            speech_state=state,
         )
         if camera is not None and self._alive:
             self._details.setText(

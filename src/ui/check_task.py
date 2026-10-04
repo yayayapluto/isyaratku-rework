@@ -21,15 +21,21 @@ from ..adapters.landmark import MediaPipeLandmarkExtractor
 from ..adapters.predictor import MODEL_PATH_DEFAULT, TrainedPredictor
 from ..adapters.virtual_camera import VirtualCameraSink
 from ..core.pipeline import Frame, Pipeline
+from ..core.mode_switch import MODE_KATA
 from .render import draw_landmarks, draw_overlay, mirror_image
 from .prediction_probe import PredictionProbe
 
 
 logger = logging.getLogger(__name__)
 
-#: Artifact kata demo: 3 isyarat (Halo, Kami, Terima kasih) + 1 filler "tidak
+#: Artifact kata demo: 3 isyarat (Halo, Saya, Terima kasih) + 1 filler "tidak
 #: ada isyarat"; dipakai hanya bila berkasnya ADA, kalau tidak baseline.
 WORD_MODEL_PATH = "models/demo-kata.npz"
+
+#: Artifact statis demo: 8 huruf "Isyaratku" + angka 0..9; dipakai hanya
+#: bila berkasnya ADA, kalau tidak jatuh ke default config.
+DEMO_STATIC_HURUF = "models/demo-huruf.npz"
+DEMO_STATIC_ANGKA = "models/demo-angka.npz"
 
 
 class _Langkah:
@@ -142,7 +148,8 @@ def start_checks(view, details) -> bool:
 
 
 def finish_checks(
-    view, results, details, renderer, local_speech: bool = False
+    view, results, details, renderer, local_speech: bool = False,
+    speech_state: "_SubtitleState | None" = None,
 ) -> object | None:
     """Tuntaskan pemeriksaan: laporkan galat, atau bangun lalu jalankan pipeline.
 
@@ -151,6 +158,12 @@ def finish_checks(
     tanpa label rincian) dan ``renderer`` yang disuntikkan view. Parameter
     ``local_speech`` hanya dikirim mode debug agar ucapan ikut keluar ke
     speaker ruangan; mode siap pakai tetap hanya kabel.
+
+    ``speech_state``: state subtitle yang SAMA dengan milik ``renderer``.
+    Bila diisi, fanout TTS menyuarakan baris subtitle (kata + huruf),
+    bukan tiap label stabil terpisah — yang terdengar persis yang
+    terbaca. Bila ``None`` (uji lama) fanout tetap mem-forward label
+    mentah ke ``speech.feed``.
     """
     t0 = time.monotonic()
     logger.info("finish_checks mulai (%d hasil pemeriksaan)", len(results))
@@ -238,9 +251,14 @@ def finish_checks(
             predictor=predictor,
             # Tracker landmark hidup di view (punya labelnya), diisi per frame.
             on_landmarks=getattr(view, "_on_landmarks", None),
-            on_label=_make_label_fanout(speech, view),
+            on_label=_make_label_fanout(speech, view, speech_state),
             static_predictor=static_path,
-            on_static_word=_make_static_fanout(speech, view),
+            on_static_word=_make_static_fanout(speech, view, speech_state),
+            # Sakelar mode: HANYA setelah ``mode`` diset. Tanpa argumen ini
+            # ``mode`` default kosong dan kedua jalur jalan bersamaan,
+            # seperti sebelum mode ada.
+            mode=MODE_KATA,
+            on_mode_change=_make_mode_switch_handler(speech_state),
         )
     except Exception as exc:
         # Pipeline gagal dibangun tapi kamera pra-cek tetap hidup: tanpa close
@@ -295,20 +313,45 @@ def _close_quietly(camera) -> None:
         pass
 
 
-def _make_label_fanout(speech, view) -> Callable[[str], None]:
+def _ucapkan_baris(speech, teks: str) -> None:
+    """Bacakan baris subtitle persis seperti yang tampil.
+
+    ``feed_subtitle`` ada hanya di ``SpeechSink`` sungguhan (satu slot
+    pending: baris terbaru menimpa, tidak ada antrian prediksi lama).
+    Sink lain (stub tes, adapter sederhana) hanya punya ``feed`` — jadi
+    jalur itu tetap dipakai supaya lama dan baru jalan sama rapi.
+    """
+    dari_subtitle = getattr(speech, "feed_subtitle", None)
+    if dari_subtitle is not None:
+        dari_subtitle(teks)
+        return
+    if teks:
+        speech.feed(teks)
+
+
+def _make_label_fanout(speech, view, state=None) -> Callable[[str], None]:
     """Label stabil mengalir ke TTS dan ke view, untuk label yang sama.
 
     TTS lebih dulu: kegagalan view tidak boleh menghentikan pemutaran suara,
     jadi panggilan view dibungkus try/except sempit dan hanya dicatat.
     Galat TTS sendiri tetap naik — pipeline sudah menoleransi galat listener
     label, dan error speech bukan hal yang boleh didiamkan.
+
+    Dengan ``state`` (view sungguhan): TTS menyuarakan baris subtitle
+    gabungan persis seperti yang tampil — kata lalu huruf pada satu
+    baris. Tanpa ``state`` (uji lama, listener polos) ``speech.feed``
+    menerima label apa adanya, kontrak lama tetap utuh.
     """
     view_hook = getattr(view, "_on_label", None)
-    if view_hook is None:
-        return speech.feed
 
     def fanout(label: str) -> None:
-        speech.feed(label)
+        if state is not None:
+            state.word = label
+            _ucapkan_baris(speech, state.line())
+        else:
+            speech.feed(label)
+        if view_hook is None:
+            return
         try:
             view_hook(label)
         except Exception as exc:
@@ -328,30 +371,71 @@ def _build_static_path(view) -> object:
     from ..core.static_path import StaticPath
 
     predictor = StaticHybridPredictor(
-        view._config.static_model_path_huruf,
-        view._config.static_model_path_angka,
+        DEMO_STATIC_HURUF
+        if Path(DEMO_STATIC_HURUF).exists()
+        else view._config.static_model_path_huruf,
+        DEMO_STATIC_ANGKA
+        if Path(DEMO_STATIC_ANGKA).exists()
+        else view._config.static_model_path_angka,
     )
     return StaticPath(predictor, view._config)
 
 
-def _make_static_fanout(speech, view) -> Callable[[str], None]:
+def _make_static_fanout(speech, view, state=None) -> Callable[[str], None]:
     """Kata statis mengalir ke TTS lalu view, seperti fanout label kata.
 
     Pemisah kata di view dan suara sudah diurus ``StaticPath``/``Smoother``:
     yang sampai di sini kata utuh, bukan huruf lepas.
+
+    Dengan ``state`` yang diucapkan adalah baris subtitle gabungan, supaya
+    kalau kata stabil DAN huruf keduanya tampil, suaranya juga keduanya.
     """
     view_hook = getattr(view, "_on_static_word", None)
-    if view_hook is None:
-        return speech.feed
 
     def fanout(word: str) -> None:
-        speech.feed(word)
+        if state is not None:
+            state.static = word
+            _ucapkan_baris(speech, state.line())
+        else:
+            speech.feed(word)
+        if view_hook is None:
+            return
         try:
             view_hook(word)
         except Exception as exc:
             logger.warning("view _on_static_word gagal: %r", exc)
 
     return fanout
+
+
+def _make_mode_switch_handler(state=None):
+    """Handler ``on_mode_change``: bersihkan baris subtitle saat ganti mode.
+
+    Ganti mode berarti mode lama sudah tidak berlaku: kata stabil yang
+    tampil bukan milik mode baru, dan subtitle lengket tanpa pembersihan
+    akan terus menampilkannya sampai label pertama mode baru datang.
+    State di-nol DI SINI, di pemilik state (view), bukan di ``core``:
+    ``Pipeline`` hanya tahu "mode berubah", tidak boleh tahu apa-apa soal
+    subtitle/format/TTS — layering ``ui -> core <- adapters``.
+
+    ``state`` boleh ``None`` (renderer/tes tanpa state): tulisannya hanya
+    no-op dan tidak boleh memecahkan jalur lama.
+    """
+
+    def handler(new_mode: str) -> None:
+        if state is None:
+            return
+        # Baris gabungan direset: state kosong = compose mengembalikan
+        # placeholder, dan "bersih aja deh tiap ganti mode" terpenuhi di
+        # persil tempat teks lama tinggal.
+        state.word = ""
+        state.static = ""
+        logger.info("subtitle dibersihkan setelah ganti mode -> %s", new_mode)
+        # TIDAK ADA placeholder & TIDAK ADA pembatalan: ``SpeechSink`` tidak
+        # punya API cancel dan placeholder bukan label. Yang dijamin hanya
+        # tidak ada utterance BARU sampai label pertama mode baru.
+
+    return handler
 
 
 def _release_shared_camera(results) -> None:
@@ -393,28 +477,49 @@ def compose_subtitle(
     return SUBTITLE_SEPARATOR.join(bagian)
 
 
+#: State satu run: teks kata/stabil dan statis yang sedang tampil. Dibagi
+#: renderer (untuk menggambar) dan fanout TTS (untuk menyuarakan) supaya
+#: yang TERDENGAR persis baris yang TERLIHAT — satu sumber, bukan dua.
+class _SubtitleState:
+    """Holder subtitle per run: kata lalu statis, keduanya lengket."""
+
+    def __init__(self) -> None:
+        self.word = ""
+        self.static = ""
+
+    def line(self, placeholder: str = "") -> str:
+        """Baris subtitle saat ini; satu-satunya tempat compose dipanggil."""
+        return compose_subtitle(self.word, self.static, placeholder)
+
+
 def make_renderer(
     placeholder: str = "",
     raw_sink=None,
     mirror: bool = False,
     landmarks: bool = True,
+    *,
+    state: "_SubtitleState | None" = None,
 ) -> Callable[[Frame], Frame]:
     """Renderer overlay: subtitle lengket + landmark.
 
-    Subtitle = ``compose_subtitle(holder kata, holder statis, placeholder)``:
+    Subtitle = ``compose_subtitle(state.word, state.static, placeholder)``:
     label kata stabil DAN huruf/angka statis pada SATU BARIS, kata dulu lalu
     statis, dipisah ``SUBTITLE_SEPARATOR``. Keduanya jalur prediksi berbeda
-    yang bisa hidup bersamaan, dan masing-masing lengket — diingat di dua
-    closure ``holder`` di bawah, bukan di pipeline: ``Smoother`` punya
-    cooldown yang sengaja menekan label identik supaya TTS tidak mengulang
-    kata yang sama tiap window — itu benar untuk audio, salah untuk subtitle.
-    ``draw_overlay`` menggambar teks hasil compose itu apa adanya (argumen
-    pemenang; ``frame.text`` hanya fallback bila argumen kosong).
+    yang bisa hidup bersamaan, dan masing-masing lengket — diingat di
+    ``state`` (default: dibuat di sini), bukan di pipeline: ``Smoother``
+    punya cooldown yang sengaja menekan label identik supaya TTS tidak
+    mengulang kata yang sama tiap window — itu benar untuk audio, salah
+    untuk subtitle. ``draw_overlay`` menggambar teks hasil compose itu apa
+    adanya (argumen pemenang; ``frame.text`` hanya fallback bila argumen
+    kosong).
 
-    ``holder`` hidup PER INSTANSI renderer: tiap ``make_renderer()`` membuat
-    closure baru, jadi dua view tidak pernah berbagi subtitle dan Start baru
-    (view memanggil ``make_renderer()`` lagi di ``_on_checks_done``) selalu
-    mulai kosong. Jangan "optimasi" holder jadi variabel modul.
+    ``state`` opsional: view mengirim objek yang sama ke ``finish_checks``
+    supaya fanout TTS menyuarakan baris INI — persis yang user baca —
+    lewat ``SpeechSink.feed_subtitle`` (satu slot: terbaru menimpa, tidak
+    ada antrian prediksi lama). Tanpa ``state`` renderer membuatnya sendiri,
+    jadi tiap ``make_renderer()`` tetap per-instans: dua view tidak pernah
+    berbagi subtitle dan Start baru selalu mulai kosong. Jangan "optimasi"
+    ini jadi variabel modul.
 
     ``raw_sink`` opsional: salinan piksel MENTAH dikirim ke sana lebih dulu.
     Pipeline memanggil renderer lebih dulu, baru ``on_frame``; overlay
@@ -434,27 +539,26 @@ def make_renderer(
     Landmark digambar paling akhir supaya titik tetap terlihat; frame tanpa
     ekstraksi landmark dilewati tanpa galat.
     """
-    holder = [""]
-    static_holder = [""]
+    state = _SubtitleState() if state is None else state
 
     def renderer(frame: Frame) -> Frame:
         if frame.text:
-            holder[0] = frame.text
+            state.word = frame.text
         if frame.static_text:
-            static_holder[0] = frame.static_text
+            state.static = frame.static_text
         if mirror:
             frame.image = mirror_image(frame.image)
         if raw_sink is not None:
             raw_sink(frame.image.copy())
-        # Subtitle: label kata stabil (holder) lalu huruf/angka statis yang
-        # sedang disusun — SATU BARIS, dipisah satu spasi. Keduanya jalur
+        # Subtitle: label kata stabil lalu huruf/angka statis yang sedang
+        # disusun — SATU BARIS, dipisah satu spasi. Keduanya jalur
         # prediksi berbeda, bisa hidup bersamaan (kata stabil sementara
         # huruf masih menumpuk), dan masing-masing lengket: frame tanpa
         # teks baru tidak menghapus yang sudah tampil. Susunan dan
-        # placeholder dijamin satu fungsi dengan panel prediksi debug.
-        draw_overlay(
-            frame, compose_subtitle(holder[0], static_holder[0], placeholder)
-        )
+        # placeholder dijamin satu fungsi dengan panel prediksi debug —
+        # dan dengan yang terdengar: `state.line()` sumber yang sama bagi
+        # renderer ini dan fanout TTS di `finish_checks`.
+        draw_overlay(frame, state.line(placeholder))
         if landmarks:
             draw_landmarks(frame, frame.landmarks, mirror=mirror)
         return frame

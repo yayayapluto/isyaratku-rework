@@ -737,6 +737,102 @@ def test_finish_checks_forwards_labels_to_speech_and_view(qapp, monkeypatch) -> 
     view.close()
 
 
+def test_finish_checks_registers_mode_and_clears_state_on_switch(
+    qapp, monkeypatch
+) -> None:
+    """Regresi user "bersih aja deh tiap ganti mode": sakelar harus TERPASANG.
+
+    ``Pipeline`` tanpa ``mode``/``on_mode_change`` tetap hidup, tapi sakelar
+    mode tidak pernah aktif: ``mode`` default kosong = kedua jalur jalan
+    bersamaan dan handler tak pernah terdaftar. Tes ini menahan argumen
+    ``Pipeline`` (bukan tanda tangannya) lalu memangil handler dari argumen,
+    jadi yang dibuktikan adalah wiring ``finish_checks``, bukan ModeSwitch.
+    """
+    from src.adapters.checks import CheckResults
+
+    class KameraRekam:
+        def read(self):
+            return False, None
+
+        def close(self) -> None:
+            pass
+
+        def release(self) -> None:
+            pass
+
+        def isOpened(self) -> bool:
+            return True
+
+        def getBackendName(self) -> str:
+            return "test"
+
+    class PabrikKamera:
+        def __init__(self, *args, **kwargs) -> None:
+            raise AssertionError("Start tidak boleh membuka kamera kedua")
+
+    class SpeechTutup:
+        def feed(self, label: str) -> None:
+            pass
+
+        def feed_subtitle(self, teks: str) -> None:
+            pass
+
+        def warm_up(self, labels) -> list:
+            return []
+
+    shared = KameraRekam()
+    results = CheckResults([("kamera", True, "siap")], camera=shared)
+    seen: dict[str, object] = {}
+    original = Pipeline.__init__
+
+    def spy(self, *args, **kwargs):
+        seen["mode"] = kwargs.get("mode")
+        seen["on_mode_change"] = kwargs.get("on_mode_change")
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Pipeline, "__init__", spy)
+    monkeypatch.setattr(
+        check_task, "run_checks_async", lambda index, done: done(results)
+    )
+    monkeypatch.setattr(check_task, "OpenCvCameraSource", PabrikKamera)
+    monkeypatch.setattr(
+        check_task,
+        "_build_speech",
+        lambda config, local_speech=False: SpeechTutup(),
+    )
+
+    view = DebugView(config())
+    state = check_task._SubtitleState()
+    finish_checks(
+        view,
+        results,
+        None,
+        make_renderer("Overlay uji", state=state),
+        speech_state=state,
+    )
+
+    assert seen.get("mode") == "kata", (
+        f"finish_checks harus mengirim mode kata: {seen.get('mode')!r}"
+    )
+    handler = seen.get("on_mode_change")
+    assert handler is not None, "on_mode_change tidak terdaftar di Pipeline"
+
+    # Mode lama nyata: kata stabil sudah tampil.
+    state.word = "Halo"
+    assert state.line() == "Halo"
+    handler("statis")
+    assert state.line() == "", (
+        f"switch harus mengosongkan baris: {state.line()!r}"
+    )
+    # Label pertama mode baru mengisi jalur baru saja.
+    state.static = "I"
+    assert state.line() == "I", f"jalur aktif saja: {state.line()!r}"
+
+    if view._pipeline is not None:
+        view._pipeline.stop()
+        view._pipeline = None
+    view.close()
+
 
 def test_static_word_reaches_debug_spoken_log(qapp) -> None:
     """Kata statis yang sampai ke fanout TTS harus TAMPAK di log panel.
@@ -895,6 +991,85 @@ def test_subtitle_placeholder_only_when_both_sources_empty() -> None:
         assert tertangkap[-1] != "", (
             "frame tanpa teks baru menghapus subtitle placeholder"
         )
+
+
+# ---------------------------------------------------------------------------
+# Regresi: ganti mode harus membuang teks mode lama dari baris subtitle
+# ---------------------------------------------------------------------------
+def test_switch_mode_clears_shared_subtitle_state() -> None:
+    """Ganti mode: state yang sama dengan renderer/fanout di-nol.
+
+    Regresi langsung dari laporan user "bersih aja deh tiap ganti mode":
+    sebelum handler ini terpasang, ``on_mode_change`` tidak pernah
+    didaftarkan ``finish_checks``, jadi kata stabil mode lama tetap lengket
+    di layar (dan di utterance pertama baru) sampai label berikutnya datang.
+    """
+    from src.ui.check_task import _SubtitleState, _make_mode_switch_handler
+
+    state = _SubtitleState()
+    state.word = "Halo"
+    state.static = "FAR"
+    assert state.line() == "Halo FAR"
+
+    handler = _make_mode_switch_handler(state)
+    handler("statis")
+
+    assert state.word == "", "kata mode lama harus dibuang saat ganti mode"
+    assert state.static == "", "huruf mode lama harus dibuang saat ganti mode"
+    assert state.line() == "", (
+        f"baris gabungan harus kosong setelah switch: {state.line()!r}"
+    )
+
+
+def test_switch_mode_empty_state_is_placeholder_not_raw_label() -> None:
+    """State kosong = placeholder, bukan string kosong.
+
+    ``draw_overlay`` menggambar apa yang ``state.line(placeholder)`` berikan,
+    jadi subtitle setelah switch harus jadi placeholder (tanpa teks acak),
+    sama seperti Start baru — bukan baris hitam kosong.
+    """
+    from src.ui.check_task import _SubtitleState, _make_mode_switch_handler
+
+    state = _SubtitleState()
+    state.word = "Saya"
+    handler = _make_mode_switch_handler(state)
+    handler("statis")
+
+    with _capture_drawn_text() as tertangkap:
+        draw_overlay(
+            Frame(np.zeros((100, 400, 3), np.uint8), 0.0, 0),
+            state.line(PLACEHOLDER_TEXT),
+        )
+    assert tertangkap and set(tertangkap) == {PLACEHOLDER_TEXT}, (
+        f"setelah switch harus placeholder: {tertangkap!r}"
+    )
+
+
+def test_switch_mode_next_label_only_active_path() -> None:
+    """Setelah switch, label baru HANYA mengisi jalur yang kini aktif.
+
+    Kontrak mutual-exclusion yang terlihat di view: ganti ke ``statis``
+    menghapus kata mode lama, lalu huruf statis sendiri mengisi baris —
+    tanpa kata mode lama yang ikut muncul kembali.
+    """
+    from src.ui.check_task import _SubtitleState, _make_mode_switch_handler
+
+    state = _SubtitleState()
+    state.word = "Halo"
+    handler = _make_mode_switch_handler(state)
+    handler("statis")
+
+    # Fanout statis menulis lewat state.static, persis seperti di UI.
+    state.static = "I"
+    assert state.line() == "I", (
+        f"jalur aktif saja harus mengisi baris: {state.line()!r}"
+    )
+
+    # Ganti balik ke kata: lagi-lagi bersih, lalu kata mode itu jalan.
+    handler("kata")
+    assert state.line() == ""
+    state.word = "Saya"
+    assert state.line() == "Saya"
 
 
 def test_stop_nulls_the_static_hooks_on_both_views(qapp) -> None:

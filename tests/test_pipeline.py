@@ -8,9 +8,13 @@ import time
 import numpy as np
 
 from src.adapters.camera import FakeCameraSource
+from src.adapters.landmark import FakeLandmarkExtractor
 from src.adapters.virtual_camera import FakeVirtualCameraSink
 from src.core.config import AppConfig, load_config
+from src.core.landmarks import HandLandmarks, LandmarkFrame, PoseLandmarks
 from src.core.pipeline import Frame, Pipeline
+from src.core.predictor import Prediction
+from src.core.static_path import StaticPath
 
 NO_FILE = "berkas-yang-tidak-ada.toml"
 
@@ -688,3 +692,196 @@ def test_sink_ditutup_setelah_thread_output_selesai_mengirim() -> None:
     assert sink.closes == 1, "close() sink harus dipanggil tepat satu kali"
     assert pipeline.running() is False
     assert pipeline.error is None
+
+
+# -- sakelar mode: satu jalur jalan -------------------------------------------- #
+def _diam() -> LandmarkFrame:
+    """Kedua tangan hadir dan tidak bergerak: memenuhi gesture sakelar."""
+    hand = HandLandmarks(coords=np.zeros((21, 3), np.float32), present=True)
+    pose = PoseLandmarks(coords=np.zeros((33, 3), np.float32), present=True)
+    return LandmarkFrame(hands=(hand, hand), pose=pose, complete=True)
+
+
+class _KameraSkrip:
+    """Kamera yang memutar urutan landmark; habis = read() None."""
+
+    def __init__(self, skrip: list) -> None:
+        self.skrip = skrip
+        self.calls = 0
+
+    def read(self) -> Frame | None:
+        index = self.calls
+        self.calls += 1
+        if index >= len(self.skrip):
+            return None
+        return Frame(
+            image=np.zeros((4, 4, 3), np.uint8),
+            timestamp=index / 30.0,
+            index=index,
+            landmarks=self.skrip[index],
+        )
+
+    def close(self) -> None:
+        pass
+
+
+def _jalankan_sampai_switch(pipeline, batas: float = 10.0) -> None:
+    """Jalankan sampai pipeline berhenti (kamera habis) atau batas habis.
+
+    Kamera di tes sakelar memang habis (read() None jadi fatal), jadi yang
+    ditunggu adalah pipeline berhenti — bukan sekadar durasi lewat.
+    """
+    pipeline.start()
+    deadline = time.monotonic() + batas
+    while pipeline.running() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    if pipeline.running():
+        pipeline.stop()
+
+
+class _PrediktorKata:
+    """Predictor kata buatan: setiap window jadi label ``Halo``."""
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        return ("Halo",)
+
+    def predict(self, window):
+        del window
+        return Prediction(label="Halo", confidence=0.99, ranked=(("Halo", 0.99),))
+
+
+class _JalurStatis(StaticPath):
+    """``StaticPath`` yang mencatat feed dan reset; huruf tak pernah terbit."""
+
+    def __init__(self, cfg: AppConfig) -> None:
+        super().__init__(_PrediktorKata(), cfg)
+        self.diberi = 0
+        self.reset_ke = 0
+
+    def feed(self, landmarks, timestamp):
+        del landmarks, timestamp
+        self.diberi += 1
+        return (None, None)
+
+    def reset(self) -> None:
+        super().reset()
+        self.reset_ke += 1
+
+
+class _SakelarPalsu:
+    """Sakelar yang menyulut sekali lalu diam: gesture lengkap tanpa 75 frame."""
+
+    def __init__(self) -> None:
+        self.dipanggil = 0
+
+    def feed(self, row, timestamp):
+        del row, timestamp
+        self.dipanggil += 1
+        return "statis" if self.dipanggil == 1 else None
+
+
+def test_sakelar_mode_satu_jalur_jalan_dan_baris_dibersihkan() -> None:
+    """Flip: satu jalur jalan, frame pemicu dibersihkan, jalur lama di-reset.
+
+    Kunci kontraknya: (1) ``on_mode_change`` tepat SEKALI; (2) teks lama di
+    frame pemicu dibersihkan, supaya baris gabungan tidak memuat sisa mode
+    sebelumnya; (3) jalur yang tadinya aktif di-reset, jadi kembali ke sana
+    tidak melanjutkan setengah kata yang sudah tak tampil; (4) jalur kata
+    TIDAK dipanggil lagi setelah mode jadi ``statis``.
+    """
+    from src.core.mode_switch import MODE_STATIS
+
+    cfg = fast_config()
+    mode_dilihat: list[str] = []
+    label_dilihat: list[str] = []
+    statis_dilihat: list[str] = []
+    frames: list[Frame] = []
+
+    static = _JalurStatis(cfg)
+
+    pipeline = Pipeline(
+        _KameraSkrip([_diam() for _ in range(4)]),
+        FakeVirtualCameraSink(cfg),
+        cfg,
+        extractor=FakeLandmarkExtractor(cfg),
+        predictor=_PrediktorKata(),
+        static_predictor=static,
+        on_label=label_dilihat.append,
+        on_static_word=statis_dilihat.append,
+        on_mode_change=mode_dilihat.append,
+        on_frame=frames.append,
+        mode="kata",
+    )
+    pipeline._mode_switch = _SakelarPalsu()
+    _jalankan_sampai_switch(pipeline, 10.0)
+    # Kamera skrip memang habis: read() None fatal, dan itu bukan sakelar
+    # yang salah — pipeline berhenti bersih sesudah flip sudah terkurung di
+    # mode_dilihat/_mode_switches.
+    assert pipeline.error is None or "read() None" in str(pipeline.error)
+    assert mode_dilihat == [MODE_STATIS], f"satu flip, dapat {mode_dilihat}"
+    assert pipeline.mode == MODE_STATIS
+    assert pipeline._mode_switches == 1
+    # Flip menyala DULU sebelum pemilihan jalur di frame yang sama, jadi
+    # jalur statis jalan mulai frame pemicu — bukan frame berikutnya.
+    assert static.diberi == 4, f"statis jalan tiap frame, dapat {static.diberi}"
+    assert label_dilihat == [], "jalur kata mati sejak frame pemicu"
+    assert statis_dilihat == []
+    # Frame terakhir ke view: teks lama sudah dibersihkan pada frame pemicu.
+    assert frames, "tidak ada frame sampai ke on_frame"
+    assert frames[-1].text == ""
+    assert frames[-1].static_text == ""
+
+
+def test_sakelar_mode_tidak_memicu_jalur_kata_setelah_statis() -> None:
+    """Mode ``statis``: jalur kata benar-benar mati, bukan sekadar di-gate.
+
+    Ekspektasi yang berbahaya: mode statis tapi ``_run_predictor`` masih
+    terpanggil sehingga label lama ikut muncul di baris. Diuji sampai
+    ekstrem — landmark berubah 10 kali — dan tetap harus nol label.
+    """
+    from src.core.predictor import Prediction
+
+    cfg = fast_config()
+    label_dilihat: list[str] = []
+    static = _JalurStatis(cfg)
+    pipeline = Pipeline(
+        FakeCameraSource(cfg),
+        FakeVirtualCameraSink(cfg),
+        cfg,
+        extractor=FakeLandmarkExtractor(cfg),
+        predictor=_PrediktorKata(),
+        static_predictor=static,
+        on_label=label_dilihat.append,
+        mode="statis",
+    )
+    # Sakelar palsu tidak perlu: mode sudah statis dari awal.
+    _jalankan_sampai_switch(pipeline, 10.0)
+
+    assert pipeline.error is None, f"pipeline tidak boleh mati: {pipeline.error}"
+    assert label_dilihat == [], f"jalur kata harus mati, dapat {label_dilihat}"
+    assert static.diberi > 0, "jalur statis harus jalan"
+
+
+def test_sakelar_mode_nonaktif_dua_jalur_bersamaan() -> None:
+    """Tanpa ``mode``: perilaku lama utuh — kedua jalur jalan bersamaan."""
+    from src.adapters.camera import FakeCameraSource
+
+    cfg = fast_config()
+    static = _JalurStatis(cfg)
+    label_dilihat: list[str] = []
+    pipeline = Pipeline(
+        FakeCameraSource(cfg),
+        FakeVirtualCameraSink(cfg),
+        cfg,
+        extractor=FakeLandmarkExtractor(cfg),
+        predictor=_PrediktorKata(),
+        static_predictor=static,
+        on_label=label_dilihat.append,
+    )
+    assert pipeline.mode == ""
+    _jalankan_sampai_switch(pipeline, 10.0)
+
+    assert pipeline.error is None, f"pipeline tidak boleh mati: {pipeline.error}"
+    assert static.diberi > 0, "jalur statis tetap jalan"
+    assert label_dilihat, "jalur kata tetap jalan"
