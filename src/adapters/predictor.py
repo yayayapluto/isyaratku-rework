@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 
 from src.core.config import AppConfig
+from src.core.features import pool_mean_std
 from src.core.predictor import (
     NO_SIGN_LABEL,
     Prediction,
@@ -90,7 +91,7 @@ class TrainedPredictor:
         """Label + keyakinan + top-5 ranked untuk satu window (30, 456)."""
         check_window(features, self._config)
         window = np.asarray(features, dtype=np.float32)
-        ringkas = np.concatenate([window.mean(axis=0), window.std(axis=0)], axis=0)
+        ringkas = pool_mean_std(window)
         if ringkas.shape[0] != self._bobot.shape[1]:
             raise ValueError(
                 f"Rangkuman fitur {ringkas.shape[0]} tidak sama dengan input "

@@ -20,6 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
+from src.core.normalization import wrist_normalise_row
 from src.core.predictor import Prediction
 
 #: Nama berkas artifact huruf dan angka statis. Dilalui config
@@ -212,21 +213,13 @@ class StaticTrainedPredictor:
         return Prediction(label=ranked[0][0], confidence=ranked[0][1], ranked=ranked)
 
     def _pra_proses(self, row: np.ndarray) -> np.ndarray:
-        """Wrist-centre + skala per tangan, duplikat ``training/train_static.py``.
+        """Wrist-centre + skala per tangan; delegasi ke aturan tunggal.
 
-        Core tidak boleh mengimpor ``training/``, jadi dua operasi numpy itu
-        ditulis ulang di sini. TIDAK ada penekanan peringatan di sini: kalau
-        baris ini berubah, inference statis bergeser dari training.
+        Aturannya tinggal di ``src/core/normalization.py``, satu tempat yang
+        sama dengan jalur training, jadi inference statis tidak bisa bergeser
+        dari training tanpa terlihat.
         """
-        row = np.array(row, dtype=np.float64)
-        hand_cols = 63
-        for start in (0, hand_cols):
-            block = row[start : start + hand_cols].reshape(21, 3)
-            wrist = block[0:1, :]
-            span = np.linalg.norm(block[9:10, :] - wrist)
-            scale = float(span) if span >= 1e-6 else 1.0
-            row[start : start + hand_cols] = ((block - wrist) / scale).ravel()
-        return np.nan_to_num(row, nan=0.0, posinf=0.0, neginf=0.0)
+        return wrist_normalise_row(row)
 
 
 class StaticFakePredictor:

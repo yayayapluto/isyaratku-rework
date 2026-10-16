@@ -39,6 +39,8 @@ from pathlib import Path
 import joblib
 import numpy as np
 
+from src.core.features import pool_mean_std
+
 from training.dataset import (
     GLOSSES,
     LABEL_NAMES,
@@ -65,12 +67,11 @@ MODEL_STEM = "baseline"
 def fitur_ringkas(window: np.ndarray) -> np.ndarray:
     """Ringkas satu window (30, 456) menjadi vektor (912,) float32.
 
-    Separuh pertama rata-rata tiap fitur separuh kedua std-nya. Urutan dan
-    panjang dimensi tergantung bentuk 456, bukan jumlah window, jadi aman
-    dipakai baik per window maupun per batch.
+    Resepnya tinggal di ``src/core/features.py:pool_mean_std`` supaya jalur
+    training dan serve memakai kode yang sama, bukan dua salinan yang hanya
+    dijaga konvensi.
     """
-    window = np.asarray(window, dtype=np.float32)
-    return np.concatenate([window.mean(axis=0), window.std(axis=0)], axis=0).astype(np.float32)
+    return pool_mean_std(window)
 
 
 def fitur_batch(windows: np.ndarray) -> np.ndarray:

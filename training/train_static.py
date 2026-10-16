@@ -74,6 +74,10 @@ from pathlib import Path
 import joblib
 import numpy as np
 
+# Aturan normalisasi dipakai bersama jalur serve supaya train/serve skew tidak
+# mungkin terjadi diam-diam.
+from src.core.normalization import wrist_normalise_batch
+
 #: Direktori
 DATA_ALPHABET = Path("data/raw/suryaadji/Alphabet")
 DATA_NUMBERS = Path("data/raw/suryaadji/Numbers")
@@ -84,11 +88,7 @@ DOCS_DIR = Path("docs")
 HAND_COLS = 21 * 3
 #: Dua tangan.
 FEATURE_COUNT = HAND_COLS * 2
-#: Landmark wrist (acuan) dan landmark referensi skala (pangkal jari tengah).
-LM_WRIST = 0
-LM_SCALE = 9
-#: Jarak di bawah ini dianggap "tangan tidak ada"; skala 1.0 (nol tetap nol).
-SCALE_FLOOR = 1e-6
+
 
 LABEL_HURUF = tuple(chr(ord("A") + i) for i in range(26))
 LABEL_ANGKA = tuple(str(i) for i in range(10)) + ("?",)  # 10 belum jelas polanya
@@ -157,31 +157,17 @@ def _saring_kelas(
 def pra_proses(x: np.ndarray) -> np.ndarray:
     """Wrist-centre + skala per tangan untuk satu kembar fitur (N, 126).
 
-    Tiap tangan dikurangi landmark wrist-nya (indeks 0, 9 kolom pertama
-    bloknya) lalu dibagi jarak wrist->landmark 9. Slot tanpa deteksi (semua
-    nol) dibiarkan nol karena jaraknya memicu floor skala.
+    Aturannya tinggal di ``src/core/normalization.py`` supaya jalur training
+    dan serve tidak bisa menyimpang (train/serve skew di sini adalah bug yang
+    paling mahal). Fungsi ini hanya menyetel dtype dan bentuk galat yang
+    sudah jadi kebiasaan skrip ini.
     """
     x = np.array(x, dtype=np.float32, copy=True)
     if x.size == 0:
         return x
     if x.shape[-1] != FEATURE_COUNT:
         raise SystemExit(f"Galat: pra_proses butuh {FEATURE_COUNT} kolom.")
-    tangan = 21
-    for awal in (0, HAND_COLS):
-        blok = x[..., awal : awal + HAND_COLS].reshape(
-            x.shape[:-1] + (tangan, 3)
-        )
-        wrist = blok[..., LM_WRIST : LM_WRIST + 1, :]
-        ujung = blok[..., LM_SCALE : LM_SCALE + 1, :]
-        jarak = np.linalg.norm(ujung - wrist, axis=-1, keepdims=True)
-        skala = np.where(jarak >= SCALE_FLOOR, jarak, np.float32(1.0))
-        x[..., awal : awal + HAND_COLS] = (
-            (blok - wrist) / skala
-        ).reshape(x.shape[:-1] + (HAND_COLS,))
-
-    return np.nan_to_num(
-        np.ascontiguousarray(x), nan=0.0, posinf=0.0, neginf=0.0
-    )
+    return np.ascontiguousarray(wrist_normalise_batch(x))
 
 
 def pool_ringkas(sekuens: np.ndarray) -> np.ndarray:

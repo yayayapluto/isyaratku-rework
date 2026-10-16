@@ -16,6 +16,7 @@ from .landmarks import (
     POSE_LANDMARK_COUNT,
     LandmarkFrame,
 )
+from .normalization import wrist_normalise_row
 
 #: MediaPipe Pose: titik 11 = bahu kiri, 12 = bahu kanan.
 LEFT_SHOULDER = 11
@@ -93,22 +94,11 @@ def slice_tangan_126(row456: np.ndarray) -> np.ndarray:
 def wrist_normalise_126(row: np.ndarray) -> np.ndarray:
     """Normalisasi tarikan statis: relatif pergelangan, diskala landmark 9.
 
-    Duplikat sadar dari ``training/train_static.py:138-165`` (``pra_proses``):
-    core tidak boleh mengimpor ``training/``, dan train/serve skew pada
-    normalisasi adalah bug yang paling mahal. Aturannya per tangan (awal 0
-    dan 63): ulang 21 titik x 3, pindahkan ke pergelangan (titik 0), skala
-    dengan jarak pergelangan ke landmark 9 (pangkal jari tengah). Jarak di
-    bawah ``_SCALE_FLOOR`` memakai skala 1.0 sehingga tangan yang tidak
-    terdeteksi (slot nol) tetap nol, bukan NaN.
+    Aturan lengkapnya tinggal di ``src/core/normalization.py`` supaya jalur
+    serve dan training tidak bisa menyimpang. Nama ini dipertahankan karena
+    sudah dipakai ``static_path`` dan test; isinya delegasi tipis.
     """
-    row = np.array(row, dtype=np.float64)
-    for start in (0, 63):
-        block = row[start : start + 63].reshape(21, 3)
-        wrist = block[0:1, :]
-        span = np.linalg.norm(block[9:10, :] - wrist)
-        scale = float(span) if span >= _SCALE_FLOOR else 1.0
-        row[start : start + 63] = ((block - wrist) / scale).ravel()
-    return np.nan_to_num(row, nan=0.0, posinf=0.0, neginf=0.0)
+    return wrist_normalise_row(row)
 
 
 class FeatureExtractor:
@@ -163,3 +153,23 @@ class Windower:
             windows.append(np.stack(self._buffer[: self._frame_count]))
             del self._buffer[: self._stride]
         return windows
+
+
+def pool_mean_std(window: np.ndarray) -> np.ndarray:
+    """Ringkas window (T, F) menjadi (2F,) float32: rata-rata lalu std antar frame.
+
+    Satu definisi untuk jalur training dan jalur serve. Dulu resep ini ditulis
+    dua kali (``training/train.py:fitur_ringkas`` dan inline di
+    ``src/adapters/predictor.py``) dan hanya dijaga oleh konvensi; sekarang
+    keduanya memanggil fungsi ini, jadi skew train/serve tidak mungkin terjadi
+    tanpa terlihat. Urutannya tetap: separuh pertama rata-rata, separuh kedua
+    std, karena bobot model dilatih dengan urutan itu.
+    """
+    data = np.asarray(window, dtype=np.float32)
+    if data.ndim != 2:
+        raise ValueError(
+            f"pool_mean_std butuh window 2 dimensi (T, F), dapat {data.shape}."
+        )
+    return np.concatenate([data.mean(axis=0), data.std(axis=0)], axis=0).astype(
+        np.float32
+    )
