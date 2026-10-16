@@ -3,13 +3,21 @@ rem Jalankan aplikasi. Argumen pertama = mode: ready (default) atau debug;
 rem argumen sisanya diteruskan apa adanya ke aplikasi.
 rem   run.bat                       -> mode ready
 rem   run.bat debug                 -> mode debug
-rem   run.bat ready --headless --seconds 3
+rem   run.bat --headless --seconds 3
 setlocal
 cd /d "%~dp0"
 
 set "mode=ready"
-if /i "%~1"=="ready" set "mode=ready" & shift
-if /i "%~1"=="debug" set "mode=debug" & shift
+if /i "%~1"=="ready" (set "mode=ready" & shift)
+if /i "%~1"=="debug" (set "mode=debug" & shift)
 
-python -m src.ui.app --mode %mode% %*
-pause
+rem %* tidak mengikuti shift, jadi sisa argumen dirangkai ulang di sini.
+set "sisa="
+:loop
+if "%~1"=="" goto lanjut
+set "sisa=%sisa% %1"
+shift
+goto loop
+:lanjut
+
+python -m src.ui.app --mode %mode% %sisa%
