@@ -13,21 +13,14 @@ lock, pemanggil yang menguncinya, supaya urutan lock tidak berubah dari
 perilaku lama.
 """
 
-# Dijalankan langsung (``python src/core/capture.py``) berarti direktori modul
-# ini masuk ``sys.path`` lebih dulu dari pustaka standar. Di situ ada
-# ``logging.py`` milik proyek, yang akan menutupi ``logging`` milik Python dan
-# membuat ``import logging`` di bawah gagal. Buang direktori itu sebelum impor;
-# saat modul dipakai lewat paket, ``sys.path[0]`` bukan direktori ini sehingga
-# langkah berikut tidak berpengaruh.
-if __name__ == "__main__":
-    import os
-    import sys
-
-    _HERE = os.path.dirname(os.path.abspath(__file__))
-    if sys.path and os.path.abspath(sys.path[0]) == _HERE:
-        del sys.path[0]
-
 import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+from .data import Frame
+
+if TYPE_CHECKING:
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +101,104 @@ class ReadFailureGuard:
         time.sleep(self._poll)
 
 
+class CaptureLoop:
+    """Baca frame dari kamera, olah, dorong ke queue; hentikan lewat callback.
+
+    Loop ini tidak memegang state pipeline: setiap field yang dibutuhkannya
+    datang lewat callback, jadi ``Pipeline`` tetap pemilik lock, penghitung,
+    dan siklus hidup thread. Bentuknya mengikuti ``OutputLoop`` supaya dua
+    loop punya pola yang sama.
+
+    Urutan per frame sengaja tetap dan tidak boleh ditukar:
+
+    1. ``read()`` lalu, bila ``None``, toleransi gagal-read (durasi, bukan
+       jumlah — lihat ``ReadFailureGuard``).
+    2. ekstraksi landmark; gagal = hentikan, karena tanpa landmark fitur
+       dan kedua jalur prediksi tidak punya masukan.
+    3. SATU baris fitur per frame, dipakai bersama sakelar mode dan
+       predictor kata. ``FeatureExtractor`` menyimpan satu baris
+       ``_previous``, jadi feed kedua untuk frame yang sama menghasilkan
+       blok delta nol dan merusak window predictor.
+    4. sakelar mode maju DULU, sebelum jalur mana pun, supaya frame yang
+       memicu sakelar sudah memakai jalur baru dan tidak memicu keduanya.
+    5. jalur kata, lalu jalur statis di atasnya (bukan cabang di dalamnya).
+       Keduanya hanya dipanggil bila callable-nya diberikan; pemanggil yang
+       menggerbangi menurut ``mode``, karena hanya dia yang memegangnya.
+    6. dorong ke queue; penuh = buang frame TERBARU, hitung sebagai dropped.
+    """
+
+    def __init__(
+        self,
+        *,
+        should_stop: Callable[[], bool],
+        read_frame: Callable[[], Frame | None],
+        tolerate_read_failure: Callable[[], bool],
+        poll_read_failure: Callable[[], None],
+        clear_read_failure: Callable[[], None],
+        on_error: Callable[[Exception], None],
+        extract_landmarks: Callable[[Frame], None] | None,
+        feed_features: Callable[[Frame], "np.ndarray | None"],
+        run_mode_switch: Callable[[Frame, "np.ndarray | None"], None],
+        run_predictor: Callable[[Frame, "np.ndarray | None"], None] | None,
+        run_static_path: Callable[[Frame], None] | None,
+        push_frame: Callable[[Frame], bool],
+    ) -> None:
+        self._should_stop = should_stop
+        self._read_frame = read_frame
+        self._tolerate_read_failure = tolerate_read_failure
+        self._poll_read_failure = poll_read_failure
+        self._clear_read_failure = clear_read_failure
+        self._on_error = on_error
+        self._extract_landmarks = extract_landmarks
+        self._feed_features = feed_features
+        self._run_mode_switch = run_mode_switch
+        self._run_predictor = run_predictor
+        self._run_static_path = run_static_path
+        self._push_frame = push_frame
+
+    def run(self) -> None:
+        """Jalankan sampai stop, atau sampai satu kegagalan fatal."""
+        while not self._should_stop():
+            try:
+                frame = self._read_frame()
+            except Exception as exc:
+                self._on_error(exc)
+                return
+            if frame is None:
+                # read() None bisa transien: MSMF berhenti mengirim ~19 s lalu
+                # pulih sendiri (diukur), dan kamera yang masih terpasang tidak
+                # boleh mati diam-diam karena satu jendela mati. Selama di dalam
+                # ambang, thread tetap hidup dan satu siklus jeda sampai read()
+                # berikutnya; lewat ambang: gagal persis seperti sebelumnya.
+                if self._tolerate_read_failure():
+                    self._poll_read_failure()
+                    continue
+                if not self._should_stop():
+                    self._on_error(
+                        RuntimeError("Kamera berhenti mengirim frame (read() None).")
+                    )
+                return
+            self._clear_read_failure()
+
+            if self._extract_landmarks is not None:
+                try:
+                    self._extract_landmarks(frame)
+                except Exception as exc:
+                    self._on_error(exc)
+                    return
+
+            row = self._feed_features(frame)
+            self._run_mode_switch(frame, row)
+            # Gerbang mode TIDAK di sini: ``run_predictor``/``run_static_path``
+            # menerima callable yang sudah digerbangi pemanggil, karena hanya
+            # ``Pipeline`` yang memegang ``mode`` dan nilai itu berubah saat
+            # jalan. Menggerbangi di sini menuntut loop ikut tahu soal mode,
+            # dan menyalin nilainya saat init akan membekukan mode lama.
+            if self._run_predictor is not None:
+                self._run_predictor(frame, row)
+            if self._run_static_path is not None:
+                self._run_static_path(frame)
+            self._push_frame(frame)
 if __name__ == "__main__":  # self-check: python src/core/capture.py
     # Peringatan "kamera belum mengirim frame" memang keluaran yang benar,
     # tapi di sini yang diuji angka, bukan log. Ditangkap supaya bisa

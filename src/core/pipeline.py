@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .capture import READ_NONE_ERROR, ReadFailureGuard
+from .capture import READ_NONE_ERROR, CaptureLoop, ReadFailureGuard
 from .config import AppConfig
 from .data import Frame, Stats
 from .mode_switch import MODE_BERSAMA, MODE_KATA, MODE_STATIS, ModeSwitch
@@ -302,72 +302,52 @@ class Pipeline:
             self._last_read_error = None
 
     def _capture_loop(self) -> None:
-        while not self._stop.is_set():
-            try:
-                frame = self.camera.read()
-            except Exception as exc:
-                self._fail(exc)
-                break
-            if frame is None:
-                # read() None bisa transien: MSMF berhenti mengirim ~19 s
-                # lalu pulih sendiri (diukur), dan kamera yang masih terpasang
-                # tidak boleh mati diam-diam karena satu jendela Mati. Selama
-                # di dalam ambang, thread tetap hidup, satu siklus jeda sampai
-                # read() berikutnya (lihat _tolerate_read_failure), tidak ada
-                # frame yang diteruskan, dan kondisinya terlihat lewat
-                # read_error. Lewat ambang: gagal persis seperti sebelum.
-                if self._tolerate_read_failure():
-                    # Jeda polling: satu siklus tidur (detik, bukan per read()),
-                    # supaya loop tidak memakan satu core penuh selagi menunggu.
-                    self._poll_read_failure()
-                    continue
-                if not self._stop.is_set():
-                    self._fail(
-                        RuntimeError(
-                            "Kamera berhenti mengirim frame (read() None)."
-                        )
-                    )
-                break
-            self._clear_read_failure()
-            if self.extractor is not None:
-                try:
-                    frame.landmarks = self.extractor.extract(frame)
-                except Exception as exc:
-                    self._fail(exc)
-                    break
-            # Predictor jalan di thread capture supaya teks sudah menempel
-            # ketika frame sampai ke worker output. Kegagalan predict tidak
-            # mematikan pipeline: dicatat, teks dibiarkan kosong.
-            # Sakelar mode: hanya satu jalur jalan dalam satu waktu. Saat
-            # ``mode`` kosong (tidak ada sakelar) keduanya jalan seperti
-            # sebelumnya. Sakelar maju DULU, sebelum eksekusi jalur mana pun
-            # di frame ini, supaya frame yang memicu sakelar sudah memakai
-            # jalur baru dan tidak memicu keduanya.
-            #
-            # Baris fitur dihitung SATU kali per frame lalu dipakai bersama
-            # kedua konsumen. ``FeatureExtractor`` stateful (satu baris
-            # ``_previous``) dan feed kedua untuk frame yang sama hanya
-            # menghasilkan blok delta nol — sedangkan window predictor butuh
-            # delta antar frame NYATA, sama seperti data latih modelnya.
-            row = self._feed_features(frame)
-            self._run_mode_switch(frame, row)
-            if self.mode in (MODE_BERSAMA, MODE_KATA) and self.predictor is not None:
+        """Baca, olah, dan dorong frame lewat ``CaptureLoop``.
+
+        Urutan dan alasannya ada di ``core/capture.py``. Yang tinggal di
+        sini hanya hal yang memang milik pipeline: state, lock, dan gerbang
+        ``mode`` — gerbang itu dipasang di callable di bawah supaya nilainya
+        dibaca saat frame diproses, bukan dibekukan saat konstruksi.
+        """
+        def jalur_kata(frame: Frame, row: np.ndarray | None) -> None:
+            if self.mode in (MODE_BERSAMA, MODE_KATA):
                 self._run_predictor(frame, row)
-            # Jalur statis DI ATAS jalur kata, bukan cabang di dalamnya:
-            # urutannya read -> extract -> predictor kata -> statis ->
-            # queue, dan tanpa ``static_predictor`` tak ada yang berbeda.
-            if (
-                self.mode in (MODE_BERSAMA, MODE_STATIS)
-                and self.static_predictor is not None
-            ):
+
+        def jalur_statis(frame: Frame) -> None:
+            if self.mode in (MODE_BERSAMA, MODE_STATIS):
                 self._run_static_path(frame)
+
+        CaptureLoop(
+            should_stop=self._stop.is_set,
+            read_frame=self.camera.read,
+            tolerate_read_failure=self._tolerate_read_failure,
+            poll_read_failure=self._poll_read_failure,
+            clear_read_failure=self._clear_read_failure,
+            on_error=self._fail,
+            extract_landmarks=self._extract_landmarks_ke_frame,
+            feed_features=self._feed_features,
+            run_mode_switch=self._run_mode_switch,
+            run_predictor=jalur_kata if self.predictor is not None else None,
+            run_static_path=jalur_statis if self.static_predictor is not None else None,
+            push_frame=self._push_frame,
+        ).run()
+
+    def _extract_landmarks_ke_frame(self, frame: Frame) -> None:
+        """Isi ``frame.landmarks`` dari extractor; tanpa extractor tidak apa-apa."""
+        if self.extractor is not None:
+            frame.landmarks = self.extractor.extract(frame)
+
+    def _push_frame(self, frame: Frame) -> bool:
+        """Dorong frame ke queue berbatas; ``False`` bila queue penuh (dibuang)."""
+        with self._lock:
+            self._captured += 1
+        try:
+            self._frames.put_nowait(frame)
+        except queue.Full:
             with self._lock:
-                self._captured += 1
-            try:
-                self._frames.put_nowait(frame)
-            except queue.Full:
-                with self._lock:
-                    self._dropped += 1
+                self._dropped += 1
+            return False
+        return True
 
     def _feed_features(self, frame: Frame) -> np.ndarray | None:
         """Satu baris fitur per frame; ``None`` bila ekstraksi gagal.
