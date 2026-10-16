@@ -253,3 +253,34 @@ Tiga klaim scout diverifikasi ulang dan **dikoreksi** di dokumen ini:
 5. Duplikasi yang menyatukan logika (P1-4, P1-5, P1-6).
 6. Pemecahan god file (P1-1, P1-2, P1-3) — paling akhir, paling berisiko.
 7. Pelanggaran lapisan (L1, L2) — butuh keputusan arah, karena menyentuh impor test.
+
+---
+
+## Status penyelesaian
+
+Ditambahkan setelah refactor selesai. Commit di branch `refactor/maintainability`.
+
+| Temuan | Status | Bukti |
+| --- | --- | --- |
+| P0-1 `Pipeline.stop()` menelan galat `camera.close()` | SELESAI | `4c105ae`; `join()` dan `sink.close()` tetap jalan, galat di-raise ulang |
+| P0-2 normalisasi pergelangan terduplikasi | SELESAI | `5c50221`; `src/core/normalization.py`, 4 pemanggil jadi delegator |
+| P0-3 kontrak config diklaim lengkap padahal tidak | SELESAI (dokumen) | `62498c0`; yang salah adalah klaim dokumen, bukan `configs/app.toml` |
+| P0-4 path demo hardcoded | BUKAN CACAT | pemilih demo lokal di UI, sengaja tidak jadi key config |
+| P1-1 `pipeline.py` god file | SEBAGIAN | `2e1c30c`, `8826bfb`, `2d8d1ce`; siklus baca, output, dan statistik dipisah — sasaran ~250 baris TIDAK tercapai, lihat laporan akhir |
+| P1-2 `tts.py` terlalu besar | SELESAI | `4495b15`; `audio_devices.py` + `tts_wav.py` |
+| P1-3 `check_task.py` terlalu besar | SELESAI | `b0fce15`; `finish_checks` 140 → 60 baris |
+| P1-5 resep LogReg terkuadruplikasi | SELESAI | `61c29b5`; `training/baseline.py` |
+| P1-6 tiga backend kamera berbeda | BUKAN CACAT | backend per pemakaian memang berbeda; jangan disatukan |
+| P1-7 dead code | SELESAI | `3411a08`; daftar audit tidak akurat, dikurangi dari ~12 ke 6 setelah verifikasi ulang |
+| P1-10 angka ajaib | SELESAI | `62498c0`; `OUTPUT_POLL_SECONDS`, `SAMPLE_RATE_HZ` |
+| P1-11 `lru_cache` device TTS basi setelah hotplug | TERDOKUMENTASI | catatan di `adapters/audio_devices.py`; belum diperbaiki |
+| P1-12 `logging._rotate` memutasi state handler | BELUM | di luar lingkup sesi ini |
+| L1 `render.py` ada di `ui/` | SELESAI | `4904f70`; pindah ke `adapters/` |
+| L2 `types.py` membayangi stdlib `types` | SELESAI | `2e1c30c`; jadi `data.py` — ini perbaikan bug nyata, bukan sekadar rapikan nama |
+| P2-1 gaya impor tidak seragam | SELESAI | `9919328` |
+| P2-2 direktori `scripts/` kosong | SELESAI | tidak pernah masuk git (untracked), jadi tidak muncul di riwayat commit; dihapus dari working tree |
+| P2-3 `isyaratku-train.spec` tidak dipakai `build-exe.cmd` | BUKAN CACAT | target build manual yang memang terdokumentasi |
+| P2-4 angka test usang di `build-exe.md` | SELESAI | `cbd3ed3` |
+| P2-5 `docs/environment.md` salah soal `requirements.txt` | SELESAI | `cbd3ed3` |
+| P2-6 helper config terduplikasi di test | SELESAI | `9919328` |
+| BARU: `isyaratku-ready.spec` tidak membawa config/model | SELESAI | `cbd3ed3`; `datas` kosong → EXE ready rusak. Diverifikasi build + headless smoke |
