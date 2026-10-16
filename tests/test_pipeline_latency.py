@@ -23,16 +23,8 @@ from src.adapters.camera import FakeCameraSource
 from src.adapters.virtual_camera import FakeVirtualCameraSink
 from tests.test_pipeline_predictor import ExplodingPredictor
 
-NO_FILE = "berkas-yang-tidak-ada.toml"
+from conftest import buat_config as config
 
-
-def config(**overrides):
-    from src.core.config import load_config
-
-    base = load_config(NO_FILE)
-    for key, value in overrides.items():
-        object.__setattr__(base, key, value)
-    return base
 
 
 class ScriptedCamera(FakeCameraSource):

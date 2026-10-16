@@ -110,7 +110,7 @@ class IncompleteTracker:
         self._frames = 0
         self._incomplete = 0
 
-    def add(self, landmarks) -> None:
+    def add(self, landmarks: LandmarkFrame | None) -> None:
         """Catat satu frame; frame tanpa hasil ekstraksi tidak dihitung."""
         if landmarks is None:
             return

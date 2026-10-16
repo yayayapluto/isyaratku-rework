@@ -36,16 +36,8 @@ from src.core.smoothing import IDLE_MOTION_FLOOR, Smoother, hand_motion
 from src.adapters.camera import FakeCameraSource
 from src.adapters.virtual_camera import FakeVirtualCameraSink
 
-NO_FILE = "berkas-yang-tidak-ada.toml"
+from conftest import buat_config as config
 
-
-def config(**overrides):
-    from src.core.config import AppConfig, load_config
-
-    base = load_config(NO_FILE)
-    for key, value in overrides.items():
-        object.__setattr__(base, key, value)
-    return base
 
 
 def idle_feeder(amplitude: float, hand: bool = True):

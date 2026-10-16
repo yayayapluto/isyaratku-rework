@@ -17,17 +17,9 @@ from src.core.predictor import (
 )
 from src.core.smoothing import Smoother
 
-NO_FILE = "berkas-yang-tidak-ada.toml"
+from conftest import buat_config as config
+
 ZERO_WINDOW = np.zeros((30, 456), dtype=np.float32)
-
-
-def config(**overrides):
-    from src.core.config import AppConfig, load_config
-
-    base = load_config(NO_FILE)
-    for key, value in overrides.items():
-        object.__setattr__(base, key, value)
-    return base
 
 
 def prediction(label: str, confidence: float = 0.95) -> Prediction:

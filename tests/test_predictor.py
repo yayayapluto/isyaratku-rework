@@ -23,6 +23,7 @@ from src.core.landmarks import (
     missing_hand,
 )
 from src.core.predictor import (
+
     NO_SIGN_LABEL,
     DummyPredictor,
     FakePredictor,
@@ -31,17 +32,9 @@ from src.core.predictor import (
     expected_window_shape,
 )
 
-NO_FILE = "berkas-yang-tidak-ada.toml"
+
+from conftest import buat_config as config
 WINDOW_FRAMES = 30
-
-
-def config(**overrides):
-    from src.core.config import AppConfig, load_config
-
-    base = load_config(NO_FILE)
-    for key, value in overrides.items():
-        object.__setattr__(base, key, value)
-    return base
 
 
 def zeros_window() -> np.ndarray:

@@ -55,8 +55,8 @@ from .audio_devices import (
 
 from piper import PiperVoice
 
-from src.core.config import AppConfig
-from src.core.predictor import NO_SIGN_LABEL
+from ..core.config import AppConfig
+from ..core.predictor import NO_SIGN_LABEL
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +174,7 @@ class PiperTts:
                 self._voice = PiperVoice.load(self._voice_path)
             return self._voice
 
-    def warm_up(self, labels) -> list[Path]:
+    def warm_up(self, labels: "tuple[str, ...] | list[str]") -> list[Path]:
         """Pra-sintesis WAV untuk semua ``labels``; pemutaran tinggal baca berkas.
 
         Dipanggil SATU KALI di fase pra-cek (GUI, ``check_task.finish_checks``),
@@ -469,7 +469,7 @@ class SpeechSink:
 
         self._spoken_at: dict[str, float] = {}
 
-    def warm_up(self, labels) -> None:
+    def warm_up(self, labels: "tuple[str, ...] | list[str]") -> None:
         """Pra-sintesis semua ``labels`` SEBELUM pipeline mulai.
 
         Dipanggil dari fase pra-cek GUI (``check_task.finish_checks``) yang

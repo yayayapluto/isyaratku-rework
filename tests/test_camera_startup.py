@@ -8,16 +8,10 @@ import numpy as np
 from src.adapters.camera import FRAME_WARMUP_MAX, OpenCvCameraSource, warm_up
 from src.core.config import AppConfig, load_config
 
-NO_CONFIG_FILE = "berkas-config-yang-tidak-ada.toml"
+from conftest import buat_config as config
+
 
 W, H, FPS = cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS
-
-
-def config(**overrides) -> AppConfig:
-    base = load_config(NO_CONFIG_FILE)
-    for key, value in overrides.items():
-        object.__setattr__(base, key, value)
-    return base
 
 
 class CapturePalsu:

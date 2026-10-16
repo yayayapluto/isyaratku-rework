@@ -32,12 +32,14 @@ dilakukan di sini, satu tempat.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import cv2
 import mediapipe as mp
 import numpy as np
 from mediapipe.tasks.python import vision
+from mediapipe.tasks.python.components.containers.landmark import NormalizedLandmark
 from mediapipe.tasks.python.core import base_options
 
 from ..core.config import AppConfig
@@ -172,7 +174,9 @@ class FakeLandmarkExtractor:
         return None
 
 
-def _pack_hand(landmarks, present: bool) -> HandLandmarks:
+def _pack_hand(
+    landmarks: Sequence[NormalizedLandmark], present: bool
+) -> HandLandmarks:
     """Salin hasil MediaPipe ke (21, 3); titik yang tidak ada diisi 0.0."""
     coords = np.zeros((HAND_LANDMARK_COUNT, COORD_COUNT), dtype=np.float32)
     for index, landmark in enumerate(landmarks[:HAND_LANDMARK_COUNT]):
@@ -180,7 +184,9 @@ def _pack_hand(landmarks, present: bool) -> HandLandmarks:
     return HandLandmarks(coords=coords, present=present)
 
 
-def _pack_pose(landmarks, present: bool) -> PoseLandmarks:
+def _pack_pose(
+    landmarks: Sequence[NormalizedLandmark], present: bool
+) -> PoseLandmarks:
     """Salin hasil pose MediaPipe ke (33, 3); titik yang tidak ada diisi 0.0."""
     coords = np.zeros((POSE_LANDMARK_COUNT, COORD_COUNT), dtype=np.float32)
     for index, landmark in enumerate(landmarks[:POSE_LANDMARK_COUNT]):

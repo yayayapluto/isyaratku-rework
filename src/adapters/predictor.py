@@ -19,9 +19,9 @@ from pathlib import Path
 
 import numpy as np
 
-from src.core.config import AppConfig
-from src.core.features import pool_mean_std
-from src.core.predictor import (
+from ..core.config import AppConfig
+from ..core.features import pool_mean_std
+from ..core.predictor import (
     NO_SIGN_LABEL,
     Prediction,
     check_window,

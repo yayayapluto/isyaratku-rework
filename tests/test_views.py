@@ -29,14 +29,8 @@ from src.adapters.render import (
     draw_overlay,
 )
 
-NO_FILE = "berkas-yang-tidak-ada.toml"
+from conftest import buat_config as config
 
-
-def config(**overrides) -> AppConfig:
-    base = load_config(NO_FILE)
-    for key, value in overrides.items():
-        object.__setattr__(base, key, value)
-    return base
 
 
 @pytest.fixture(scope="session")

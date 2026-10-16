@@ -20,8 +20,8 @@ from pathlib import Path
 
 import numpy as np
 
-from src.core.normalization import wrist_normalise_row
-from src.core.predictor import Prediction
+from ..core.normalization import wrist_normalise_row
+from ..core.predictor import Prediction
 
 #: Nama berkas artifact huruf dan angka statis. Dilalui config
 #: (``static.model_path_huruf`` / ``static.model_path_angka``); konstanta ini

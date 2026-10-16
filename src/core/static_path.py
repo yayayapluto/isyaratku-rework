@@ -11,14 +11,33 @@ Bentuk inputnya berbeda dari jalur kata: tanpa ``Windower``, satu baris
 from __future__ import annotations
 
 import logging
+from typing import Protocol
 
 import numpy as np
 
+from .config import AppConfig
 from .features import FeatureExtractor, slice_tangan_126, wrist_normalise_126
+from .landmarks import LandmarkFrame
 from .predictor import Prediction
 from .smoothing import Smoother
 
 logger = logging.getLogger(__name__)
+
+
+class StaticPredictorProtocol(Protocol):
+    """Yang dibutuhkan ``StaticPath`` dari predictor statis.
+
+    Kontraknya sengaja struktural, bukan impor kelas konkret: implementasinya
+    (``adapters.static_predictor``) tinggal di lapisan adapters, dan
+    ``src/core`` TIDAK boleh mengimpornya — dijaga
+    ``tests/test_architecture.py``. Yang dipakai di sini hanya dua anggota
+    ini, jadi itu yang ditulis.
+    """
+
+    @property
+    def labels(self) -> list[str]: ...
+
+    def predict(self, row: np.ndarray) -> Prediction: ...
 
 
 class StaticPath:
@@ -41,8 +60,8 @@ class StaticPath:
 
     def __init__(
         self,
-        predictor,
-        config,
+        predictor: StaticPredictorProtocol,
+        config: AppConfig,
         gap_seconds: float | None = None,
     ) -> None:
         self._predictor = predictor
@@ -118,7 +137,7 @@ class StaticPath:
     # -- jalur panas --------------------------------------------------------------
 
     def feed(
-        self, landmarks, timestamp: float
+        self, landmarks: LandmarkFrame, timestamp: float
     ) -> tuple[str | None, str | None]:
         """Satu frame masuk: balas ``(huruf_baru, kata_selesai)``.
 

@@ -32,15 +32,9 @@ from src.core.landmarks import (
 )
 from src.core.pipeline import Pipeline
 
-NO_FILE = "berkas-yang-tidak-ada.toml"
+from conftest import buat_config as config
+
 TINY_IMAGE = np.zeros((8, 8, 3), dtype=np.uint8)
-
-
-def config(**overrides) -> AppConfig:
-    base = load_config(NO_FILE)
-    for key, value in overrides.items():
-        object.__setattr__(base, key, value)
-    return base
 
 
 class RecordingCamera(FakeCameraSource):

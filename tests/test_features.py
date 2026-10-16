@@ -19,6 +19,7 @@ from src.core.features import (
     normalise,
 )
 from src.core.landmarks import (
+
     COORD_COUNT,
     HAND_LANDMARK_COUNT,
     POSE_LANDMARK_COUNT,
@@ -30,21 +31,15 @@ from src.core.landmarks import (
     missing_hand,
 )
 
-NO_FILE = "berkas-yang-tidak-ada.toml"
 
+
+from conftest import buat_config as config
 #: Slot koordinat: tangan kiri, tangan kanan, pose, lalu 3 flag kehadiran.
 LEFT_HAND = slice(0, HAND_LANDMARK_COUNT * COORD_COUNT)
 RIGHT_HAND = slice(
     HAND_LANDMARK_COUNT * COORD_COUNT, HAND_LANDMARK_COUNT * COORD_COUNT * 2
 )
 FLAG_OFFSET = NORM_COUNT - 3
-
-
-def config(**overrides):
-    base = load_config(NO_FILE)
-    for key, value in overrides.items():
-        object.__setattr__(base, key, value)
-    return base
 
 
 def _pose(place, points: dict[int, tuple[float, float]], present: bool = True):

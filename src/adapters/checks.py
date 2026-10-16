@@ -42,7 +42,7 @@ class CheckResults(list):
     tanpa angka: acquisisi kedua tak pernah lebih murah dari memakai ulang.
     """
 
-    def __init__(self, checks, camera=None) -> None:
+    def __init__(self, checks, camera: object | None = None) -> None:
         super().__init__(checks)
         self.camera = camera
 
@@ -64,7 +64,7 @@ class _SharedCameraSource(OpenCvCameraSource):
     agar tidak ada dua implementasi baca frame yang bisa berbeda.
     """
 
-    def __init__(self, capture, config: AppConfig | None = None) -> None:
+    def __init__(self, capture: cv2.VideoCapture, config: AppConfig | None = None) -> None:
         self._capture = capture
         self._index = 0
         if config is not None:

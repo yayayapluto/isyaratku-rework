@@ -18,14 +18,7 @@ from src.core.pipeline import Frame, Pipeline
 from src.core.predictor import Prediction
 from src.core.static_path import StaticPath
 
-NO_FILE = "berkas-yang-tidak-ada.toml"
-
-
-def config(**overrides) -> AppConfig:
-    base = load_config(NO_FILE)
-    for key, value in overrides.items():
-        object.__setattr__(base, key, value)
-    return base
+from conftest import buat_config as config
 
 
 

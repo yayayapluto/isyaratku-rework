@@ -20,7 +20,8 @@ from src.core.pipeline import Frame
 from src.core.predictor import Prediction
 from src.core.static_path import StaticPath
 
-NO_FILE = "berkas-yang-tidak-ada.toml"
+from conftest import buat_config as config
+
 
 
 def landmarks(present: bool = True) -> LandmarkFrame:
@@ -35,15 +36,6 @@ def landmarks(present: bool = True) -> LandmarkFrame:
     hand = HandLandmarks(coords=coords, present=True)
     pose = PoseLandmarks(coords=np.ones((33, 3), dtype=np.float32), present=True)
     return LandmarkFrame(hands=(hand, hand), pose=pose, complete=True)
-
-
-def config(**overrides):
-    from src.core.config import AppConfig, load_config
-
-    base = load_config(NO_FILE)
-    for key, value in overrides.items():
-        object.__setattr__(base, key, value)
-    return base
 
 
 class SequencePredictor:
