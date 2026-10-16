@@ -11,7 +11,7 @@ import PySide6.QtWidgets as qw
 
 from ..core.config import AppConfig, load_config
 from ..core.pipeline import Pipeline
-from ..core.types import Frame, Stats
+from ..core.data import Frame, Stats
 from .check_task import _SubtitleState, finish_checks, make_renderer, start_checks
 
 logger = logging.getLogger(__name__)

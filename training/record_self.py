@@ -39,7 +39,7 @@ if str(_REPO_ROOT) not in sys.path:
 from src.adapters.landmark import MediaPipeLandmarkExtractor  # noqa: E402
 from src.core.config import load_config  # noqa: E402
 from src.core.features import FEATURE_COUNT, FeatureExtractor, Windower  # noqa: E402
-from src.core.types import Frame  # noqa: E402
+from src.core.data import Frame  # noqa: E402
 
 #: Gloss yang direkam: demo dasar + dua gloss baru slice 7 (ID 32 dan 33).
 GLOS = {0: "Air", 9: "Saya", 10: "Terima kasih", 11: "Tuli", 32: "Nama", 33: "Halo"}

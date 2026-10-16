@@ -105,7 +105,7 @@ class FlappingCamera:
 
 
 class JamPalsu:
-    """Jam yang disuntikkan ke ``pipeline._clock``; test tanpa sleep.
+    """Jam yang disuntikkan ke ``pipeline.clock``; test tanpa sleep.
 
     Setiap panggilan maju sebesar ``langkah`` detik, jadi waktu hanya lewat
     saat pipeline memang meminta — tidak ada ``time.sleep`` yang bikin suite
@@ -166,7 +166,7 @@ def test_read_none_toleransi_sebentar_lalu_pulih(monkeypatch) -> None:
     pipeline = Pipeline(camera, sink, cfg)
     # Tiga kali gagal lalu pulih: setiap gagal = 1 s detik fiktif (total 3 s),
     # masih di bawah ambang 5 s — toleransi tetap aktif.
-    monkeypatch.setattr("src.core.pipeline._clock", JamPalsu(langkah=1.0))
+    monkeypatch.setattr("src.core.pipeline.clock", JamPalsu(langkah=1.0))
 
     _jalankan_sampai_frame(pipeline)
     pipeline.stop()
@@ -222,7 +222,7 @@ def test_read_none_selamanya_tetap_fatal_tepat_waktu(monkeypatch) -> None:
     cfg = fast_config(pipeline_read_failure_timeout_seconds=4.0)
     camera = LimitedCamera(0)
     pipeline = Pipeline(camera, FakeVirtualCameraSink(cfg), cfg)
-    monkeypatch.setattr("src.core.pipeline._clock", JamPalsu(langkah=1.0))
+    monkeypatch.setattr("src.core.pipeline.clock", JamPalsu(langkah=1.0))
 
     _jalankan_sampai(pipeline, 5.0)
     pipeline.stop()

@@ -12,7 +12,7 @@ saat refactor, dan keduanya sudah pernah dilanggar sebelum sesi ini:
    dan jalur serve tidak menyimpang.
 
 Test ini memakai AST, bukan grep: komentar dan docstring yang menyebut
-``core.pipeline`` (mis. catatan sejarah di ``core/types.py``) bukan impor dan
+``core.pipeline`` (mis. catatan sejarah di ``core/data.py``) bukan impor dan
 tidak boleh membuat test gagal.
 """
 
@@ -51,7 +51,7 @@ def _python_files(root: Path) -> list[Path]:
 
 
 def test_adapter_dan_core_tidak_mengimpor_pipeline() -> None:
-    """``Frame``/``Stats`` tinggal di ``core.types``; pipeline hanya diui."""
+    """``Frame``/``Stats`` tinggal di ``core.data``; pipeline hanya diui."""
     pelanggaran: list[str] = []
     for folder in ("adapters", "core"):
         for path in _python_files(SRC / folder):
@@ -61,7 +61,7 @@ def test_adapter_dan_core_tidak_mengimpor_pipeline() -> None:
                 if module.endswith("core.pipeline") or module.endswith(".pipeline"):
                     pelanggaran.append(f"{path.relative_to(REPO)}:{lineno} -> {module}")
     assert not pelanggaran, (
-        "adapter/core tidak boleh mengimpor core.pipeline; pakai core.types:\n"
+        "adapter/core tidak boleh mengimpor core.pipeline; pakai core.data:\n"
         + "\n".join(pelanggaran)
     )
 
@@ -86,7 +86,26 @@ def test_frame_dan_stats_adalah_objek_yang_sama() -> None:
     """
     from src.core.pipeline import Frame as PipelineFrame
     from src.core.pipeline import Stats as PipelineStats
-    from src.core.types import Frame, Stats
+    from src.core.data import Frame, Stats
 
     assert PipelineFrame is Frame
     assert PipelineStats is Stats
+
+
+def test_ui_tidak_mengimpor_pustaka_luar() -> None:
+    """``src/ui/`` hanya menampilkan dan memicu aksi; tidak menyentuh pustaka luar.
+
+    Dulu ``render.py`` tinggal di ``src/ui/`` padahal mengimpor cv2 dan
+    MediaPipe, jadi lapisan tampilan menyeret pustaka pemrosesan. Modul itu
+    pindah ke ``src/adapters/render.py``; test ini menjaga agar tidak ada
+    modul ui yang mengulanginya.
+    """
+    terlarang = ("cv2", "mediapipe")
+    pelanggaran: list[str] = []
+    for path in _python_files(SRC / "ui"):
+        for lineno, module in _imports(path):
+            if module.split(".")[0] in terlarang:
+                pelanggaran.append(f"{path.relative_to(REPO)}:{lineno} -> {module}")
+    assert not pelanggaran, (
+        "src/ui/ tidak boleh mengimpor pustaka pemrosesan:\n" + "\n".join(pelanggaran)
+    )

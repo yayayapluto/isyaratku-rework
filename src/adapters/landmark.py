@@ -52,7 +52,7 @@ from ..core.landmarks import (
     missing_hand,
     missing_pose,
 )
-from ..core.types import Frame
+from ..core.data import Frame
 
 #: Mode VIDEO plus cap waktu eksplisit: pipeline ini aliran video, dan mode IMAGE
 #: kehilangan pelacakan antar frame. ``detect_for_video`` menuntut cap waktu

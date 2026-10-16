@@ -20,7 +20,7 @@ import cv2
 import numpy as np
 
 from ..core.config import AppConfig
-from ..core.types import Frame
+from ..core.data import Frame
 
 #: Backend OpenCV default, diukur paling mendekati target 25-30 FPS di mesin ini.
 CAMERA_BACKEND = cv2.CAP_MSMF

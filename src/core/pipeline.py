@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import collections
 import logging
-import math
 import queue
 import threading
 import time
@@ -22,35 +21,18 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .capture import READ_NONE_ERROR, ReadFailureGuard
 from .config import AppConfig
+from .data import Frame, Stats
 from .mode_switch import MODE_BERSAMA, MODE_KATA, MODE_STATIS, ModeSwitch
+from .output import OutputLoop, label_latency_sample
 from .predictor import Prediction
-from .types import Frame, Stats
+from .stats import clock, fps_from_timestamps, latency_summary
 
 
 logger = logging.getLogger(__name__)
 
-#: Batas tunggu pengambilan frame di loop output. Sama konsepnya dengan
-#: ``pipeline.read_failure_poll_seconds`` di sisi capture (20 Hz) tapi tidak
-#: dipakai sebagai tunable: loop output tidak memutar CPU selama menunggu
-#: (``queue.get`` memblokir), jadi hanya perlu angka kecil agar stop() responsif.
-OUTPUT_POLL_SECONDS = 0.05
 
-def _percentile(ordered: list[float], fraction: float) -> float:
-    """Persentil nearest-rank atas daftar yang SUDAH terurut.
-
-    Sengaja bukan pustaka statistik: satu indeks bulat naik, tanpa
-    interpolasi, jadi nilai yang diharapkan bisa dihitung tangan di test
-    dan tidak ada dependensi baru untuk dua angka. ``fraction`` 0.5 =
-    p50, 0.95 = p95.
-    """
-    index = max(0, math.ceil(fraction * len(ordered)) - 1)
-    return ordered[index]
-
-
-def _clock() -> float:
-    """Cap waktu sistem; hanya untuk jalur runtime, test menyuntiknya."""
-    return time.monotonic()
 
 
 def _has_prediction_stage(pipeline: Pipeline) -> bool:
@@ -151,11 +133,13 @@ class Pipeline:
         self._last_label_error: Exception | None = None
         self._predicted_frames = 0
         # read() None bukan selalu kamera mati; transien (MSMF) pulih sendiri.
-        # Kegagalan berurutan ditoleransi sampai ambang durasi tercapai.
-        self._read_failures = 0
-        self._read_failed_since: float | None = None
+        # Kebijakannya tinggal di core/capture.py supaya bisa diuji tanpa
+        # kamera, thread, dan queue.
+        self._read_guard = ReadFailureGuard(
+            timeout_seconds=self.config.pipeline_read_failure_timeout_seconds,
+            poll_seconds=self.config.pipeline_read_failure_poll_seconds,
+        )
         self._last_read_error: Exception | None = None
-        self._read_warned = False
         # Penghitung jalur label. Ditulis HANYA oleh thread capture — satu
         # publisher: ``_capture_loop`` -> ``_run_predictor`` — dan dibaca
         # oleh ``stats()``/``stop()`` SETELAH thread itu join (``stop()``
@@ -293,51 +277,28 @@ class Pipeline:
     def _tolerate_read_failure(self) -> bool:
         """Catat read() None; True bila masih di dalam ambang toleransi.
 
-        Ambang adalah DURASI gagal berurutan, bukan jumlah read: read gagal
-        kembali ~0,1 ms, jadi batas jumlah habis tak berarti. Jeda polling
-        TIDAK di sini — lihat ``_poll_read_failure``; akuntansi saja, tanpa
-        tidur, supaya pemanggil yang mengatur ritme dan test tanpa hardware
-        tetap bisa memanggil metode ini langsung.
+        Angka dan jeda dikelola ``ReadFailureGuard``; di sini hanya lock
+        pipeline yang dipegang dan cap waktu yang diberikan, supaya urutan
+        penguncian tidak berubah dari perilaku lama.
         """
-        now = _clock()
+        now = clock()
         with self._lock:
-            if self._read_failed_since is None:
-                self._read_failed_since = now
-            # Satu siklus loop = satu polling, bukan satu read(). Angka ini
-            # memperkirakan DURASI kamera mati, bukan beban: hitungan per
-            # read() kasar ~3 juta dalam jendela mati 3 s dan tak berguna.
-            self._read_failures += 1
-            self._last_read_error = RuntimeError("read() None")
-            elapsed = now - self._read_failed_since
-            within = elapsed < self.config.pipeline_read_failure_timeout_seconds
-            if within:
-                if not self._read_warned:
-                    self._read_warned = True
-                    logger.warning(
-                        "Kamera belum mengirim frame (read() None), toleransi "
-                        "%ss yang lalu; pipeline tetap hidup.",
-                        self.config.pipeline_read_failure_timeout_seconds,
-                    )
-
+            self._last_read_error = RuntimeError(READ_NONE_ERROR)
+            within = self._read_guard.record_failure(now)
         return within
 
     def _poll_read_failure(self) -> None:
         """Jeda satu siklus polling saat toleransi masih berlaku.
 
-        Tanpa ini loop capture berputar secepat CPU — read gagal kembali
-        ~0,1 ms, terukur ~3 juta putaran dalam jendela mati 3 s — sehingga
-        merebut core yang dibutuhkan ekstraksi landmark. Dipanggil di luar
-        lock supaya stats() tak ikut membeku dan stop() tidak perlu menunggu
-        jeda habis.
+        Dipanggil di luar lock supaya stats() tak ikut membeku dan stop()
+        tidak perlu menunggu jeda habis.
         """
-        time.sleep(self.config.pipeline_read_failure_poll_seconds)
+        self._read_guard.sleep()
 
     def _clear_read_failure(self) -> None:
         """Reset hitungan toleransi setelah read() berhasil lagi."""
         with self._lock:
-            self._read_failures = 0
-            self._read_failed_since = None
-            self._read_warned = False
+            self._read_guard.clear()
             self._last_read_error = None
 
     def _capture_loop(self) -> None:
@@ -546,7 +507,7 @@ class Pipeline:
                     frame.text = label
                     # Satu cap waktu per label terbit; selisihnya dihitung
                     # worker output ketika frame yang sama sampai ke view.
-                    frame.label_emitted_at = _clock()
+                    frame.label_emitted_at = clock()
                     with self._lock:
                         self._predicted_frames += 1
                     self._record_emission(frame, predicted, label)
@@ -792,15 +753,8 @@ class Pipeline:
         bukan angka palsu.
         """
         with self._lock:
-            ordered = sorted(self._label_latencies)
-        if not ordered:
-            return {"count": 0}
-        return {
-            "count": len(ordered),
-            "p50_ms": _percentile(ordered, 0.50) * 1000.0,
-            "p95_ms": _percentile(ordered, 0.95) * 1000.0,
-            "max_ms": ordered[-1] * 1000.0,
-        }
+            samples = list(self._label_latencies)
+        return latency_summary(samples)
 
     @property
     def read_error(self) -> Exception | None:
@@ -822,38 +776,39 @@ class Pipeline:
         jendela mati 3 s dan tak ada artinya sebagai diagnosis.
         """
         with self._lock:
-            return self._read_failures
+            return self._read_guard.failures
 
     def _output_loop(self) -> None:
-        while not (self._stop.is_set() and self._frames.empty()):
-            try:
-                frame = self._frames.get(timeout=OUTPUT_POLL_SECONDS)
-            except queue.Empty:
-                continue
-            try:
-                # Teks placeholder hanya berlaku bila predictor tidak
-                # menghasilkan label; label predictor menang supaya overlay
-                # memakai teks hasil inferensi.
-                if not frame.text:
-                    frame.text = self.text
-                frame = self.renderer(frame)
-                self.sink.send(frame)
-            except Exception as exc:
-                self._fail(exc)
-                break
-            with self._lock:
-                self._sent += 1
-                self._sent_at.append(frame.timestamp)
-                if frame.label_emitted_at is not None:
-                    self._record_label_latency(
-                        _clock() - frame.label_emitted_at
-                    )
-            if self.on_frame is not None:
-                self.on_frame(frame)
-            if self.on_stats is not None:
-                self.on_stats(self.stats())
-            if self.on_landmarks is not None:
-                self.on_landmarks(frame.landmarks)
+        """Kuras queue dan kirim ke sink lewat ``OutputLoop``.
+
+        Aturannya (placeholder, kuras-sampai-kosong, satu gagal kirim
+        menghentikan semuanya) tinggal di ``core/output.py``; di sini hanya
+        penghitungan yang butuh lock pipeline, diserahkan lewat ``on_sent``
+        supaya urutan penguncian tak berubah.
+        """
+        loop = OutputLoop(
+            self._frames,
+            renderer=self.renderer,
+            send=self.sink.send,
+            placeholder_text=lambda: self.text,
+            should_stop=self._stop.is_set,
+            on_sent=self._record_sent,
+            on_frame=self.on_frame,
+            on_stats=(
+                None if self.on_stats is None else lambda: self.on_stats(self.stats())
+            ),
+            on_landmarks=self.on_landmarks,
+        )
+        loop.run(self._fail)
+
+    def _record_sent(self, frame: Frame) -> None:
+        """Catat satu frame terkirim dan sampel latensi labelnya."""
+        with self._lock:
+            self._sent += 1
+            self._sent_at.append(frame.timestamp)
+            sample = label_latency_sample(frame)
+            if sample is not None:
+                self._record_label_latency(sample)
 
     def queue_depth(self) -> int:
         """Jumlah frame yang menunggu diworker output; batasnya config."""
@@ -863,9 +818,7 @@ class Pipeline:
     def stats(self) -> Stats:
         """Snapshot pengukuran; aman dipanggil dari thread mana pun."""
         with self._lock:
-            sent_at = self._sent_at
-            span = sent_at[-1] - sent_at[0] if len(sent_at) >= 2 else 0.0
-            fps = (len(sent_at) - 1) / span if span > 0 else 0.0
+            fps, span = fps_from_timestamps(list(self._sent_at))
             return Stats(
                 fps=fps,
                 frames_captured=self._captured,
