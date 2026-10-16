@@ -21,7 +21,7 @@ from src.ui import check_task
 from src.ui.check_task import finish_checks, make_renderer
 from src.ui.debug_view import PLACEHOLDER_TEXT, DebugView
 from src.ui.ready_view import ReadyView
-from src.ui.render import (
+from src.adapters.render import (
     BOTTOM_GAP,
     FONT,
     FONT_SCALE,

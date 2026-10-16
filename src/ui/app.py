@@ -58,7 +58,7 @@ def _run_headless(seconds: float) -> int:
     from ..adapters.virtual_camera import FakeVirtualCameraSink
     from ..core.config import load_config
     from ..core.pipeline import Pipeline
-    from .render import draw_overlay, draw_landmarks
+    from ..adapters.render import draw_overlay, draw_landmarks
 
     config = load_config()
     print(

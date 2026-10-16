@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from src.core.pipeline import Frame
-from src.ui.render import BOTTOM_GAP, FONT_SCALE, draw_overlay
+from src.adapters.render import BOTTOM_GAP, FONT_SCALE, draw_overlay
 
 PLACEHOLDER = "Mode debug — belum ada model."
 LABEL = "satu"
@@ -49,7 +49,7 @@ def text_metrics(text: str, scale: float = FONT_SCALE) -> tuple[tuple[int, int],
     Tes minta jarak baseline dari tepi bawah; dihitung dari ``cv2.getTextSize``
     yang sama dipakai modul, jadi tetap valid kalau konstanta modul berubah.
     """
-    from src.ui.render import FONT, FONT_THICKNESS
+    from src.adapters.render import FONT, FONT_THICKNESS
 
     (w, h), baseline = cv2.getTextSize(text, FONT, scale, FONT_THICKNESS)
     return (w, h), baseline
@@ -71,7 +71,7 @@ def drawn_text():
     diassert adalah piksel: tanpa ini tes hanya bisa membaca ``frame.text``,
     tepatnya field yang dulunya merupakan kebenaran ganda.
     """
-    from src.ui import render
+    from src.adapters import render
 
     tertangkap: list[str] = []
     asli = render.cv2.putText

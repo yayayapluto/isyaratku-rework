@@ -28,7 +28,7 @@ from src.core.landmarks import (
 )
 from src.core.pipeline import Frame
 from src.ui.check_task import make_renderer
-from src.ui.render import HAND_STYLE, draw_landmarks
+from src.adapters.render import HAND_STYLE, draw_landmarks
 
 #: Warna BGR hijau tangan, dibaca dari style modul supaya ikut kalau
 #: konstanta hand diganti.

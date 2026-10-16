@@ -1,8 +1,10 @@
-"""Overlay teks di atas frame video.
+"""Overlay teks dan landmark di atas frame video.
 
-Seluruh cv2 hidup di modul ini, bukan di core: core hanya mengangkut Frame dan
-memanggil ``renderer`` yang disuntikkan. Ukuran huruf, warna, dan ketebalan
-adalah konstanta modul ini supaya core tidak tahu soal tampilan.
+Ini adapter: satu-satunya tempat cv2 dan MediaPipe drawing dipakai untuk
+tampilan. Core hanya mengangkut Frame dan memanggil ``renderer`` yang
+disuntikkan, jadi core tidak tahu soal ukuran huruf, warna, atau ketebalan.
+Sebelumnya modul ini tinggal di ``src/ui/``, padahal ia menyentuh pustaka
+luar — aturan ``docs/AGENTS.md`` menaruh itu di ``src/adapters/``.
 """
 
 import cv2
@@ -10,7 +12,8 @@ from mediapipe.tasks.python.vision import drawing_utils
 from mediapipe.tasks.python.vision.hand_landmarker import HandLandmarksConnections
 from mediapipe.tasks.python.vision.pose_landmarker import PoseLandmarksConnections
 
-from ..core.types import Frame
+from ..core.data import Frame
+
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 FONT_SCALE = 0.9

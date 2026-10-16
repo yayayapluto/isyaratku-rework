@@ -22,8 +22,8 @@ from ..adapters.predictor import MODEL_PATH_DEFAULT, TrainedPredictor
 from ..adapters.virtual_camera import VirtualCameraSink
 from ..core.mode_switch import MODE_KATA
 from ..core.pipeline import Pipeline
-from ..core.types import Frame
-from .render import draw_landmarks, draw_overlay, mirror_image
+from ..core.data import Frame
+from ..adapters.render import draw_landmarks, draw_overlay, mirror_image
 from .prediction_probe import PredictionProbe
 
 
