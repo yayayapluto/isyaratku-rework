@@ -29,6 +29,11 @@ from .predictor import Prediction
 
 logger = logging.getLogger(__name__)
 
+#: Batas tunggu pengambilan frame di loop output. Sama konsepnya dengan
+#: ``pipeline.read_failure_poll_seconds`` di sisi capture (20 Hz) tapi tidak
+#: dipakai sebagai tunable: loop output tidak memutar CPU selama menunggu
+#: (``queue.get`` memblokir), jadi hanya perlu angka kecil agar stop() responsif.
+OUTPUT_POLL_SECONDS = 0.05
 
 def _percentile(ordered: list[float], fraction: float) -> float:
     """Persentil nearest-rank atas daftar yang SUDAH terurut.
@@ -866,7 +871,7 @@ class Pipeline:
     def _output_loop(self) -> None:
         while not (self._stop.is_set() and self._frames.empty()):
             try:
-                frame = self._frames.get(timeout=0.05)
+                frame = self._frames.get(timeout=OUTPUT_POLL_SECONDS)
             except queue.Empty:
                 continue
             try:

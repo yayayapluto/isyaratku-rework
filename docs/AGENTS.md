@@ -19,7 +19,7 @@ Dokumen ini adalah titik masuk wajib untuk setiap agent atau manusia yang bekerj
 | training/ | Ekstraksi landmark, training, evaluasi model; tidak dipakai runtime. |
 | models/ | Artefak model hasil training yang dipakai aplikasi. MASUK git (bagian deliverable demo), kecuali `models/tts/` (voice, lihat `python -m training.setup_voice`) dan artefak runtime. |
 | data/ | Dataset mentah dan fitur hasil ekstraksi. Tidak masuk git. |
-| configs/ | Seluruh parameter yang bisa dituning: threshold, panjang window, stride, cooldown. |
+| configs/ | Berkas override TOML. Default seluruh tunable (threshold, panjang window, stride, cooldown) tinggal di `_CONTRACT` (`src/core/config.py`); berkas ini hanya menulis key yang BERBEDA dari default. |
 | tests/ | Test otomatis untuk core/ dan pipeline memakai adapter palsu. |
 
 Struktur direktori di atas sudah ditetapkan. Isi file dan jumlah file di dalamnya ditentukan agent, asal sesuai tanggung jawabnya.

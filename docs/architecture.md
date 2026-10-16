@@ -12,7 +12,7 @@ Dokumen ini menjelaskan susun direktori, alur pipeline, dua mode aplikasi, strat
 | training/ | Skrip ekstraksi landmark, training, evaluasi. | Dipisah dari runtime. runtime tidak mengimpor training/. |
 | models/ | Artefak model hasil training. | Diubah hanya oleh training/. |
 | data/ | Dataset mentah dan fitur hasil ekstraksi. | Tidak masuk git. |
-| configs/ | Semua angka yang bisa dituning. | Tidak ada magic number di kode. |
+| configs/ | Berkas override TOML. Nilai default tinggal di `_CONTRACT` (`src/core/config.py:28`); berkas ini hanya menulis key yang BERBEDA dari default. | Setiap tunable jalur pemrosesan punya key di kontrak; tak ada angka ajaib di kode. |
 | logs/ | Berkas log harian runtime, satu per hari (`isyaratku-YYYY-MM-DD.log`). | Tidak masuk git; hanya ditulis oleh `src/core/logging.py`. |
 
 ## Kontrak konfigurasi

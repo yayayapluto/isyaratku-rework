@@ -63,8 +63,14 @@ PAD_DETIK: float = 0.2
 #: sampai 0, jadi potongan di ujung isi tidak jadi "klik".
 FADE_DETIK: float = 0.2
 
-#: Artifact voice Indonesia: piper-voices rhasspy, 1 speaker, 22050 Hz.
+#: Sampel rate artifact voice (22050 Hz).
 DEFAULT_VOICE = "models/tts/id_ID-news_tts-medium.onnx"
+
+#: Sampel rate header WAV sementara sebelum piper menulis audionya. Bukan
+#: tunable: hanya agar ``wave.close()`` tidak melempar saat sintesis
+#: mengembalikan 0 chunk (label tanpa fonem). ``play()`` membaca rate nyata
+#: dari berkas lewat ``getframerate()``, jadi nilai ini tidak menggeser audio.
+SAMPLE_RATE_HZ = 22050
 
 
 class TtsUnavailableError(RuntimeError):
@@ -422,7 +428,7 @@ class PiperTts:
                         # _tulis_ulang_dengan_penahan (bangku frames == 0).
                         wav.setnchannels(1)
                         wav.setsampwidth(2)
-                        wav.setframerate(22050)
+                        wav.setframerate(SAMPLE_RATE_HZ)
                         voice.synthesize_wav(label, wav)
                     _tulis_ulang_dengan_penahan(sementara)
                     # Setelah replace berhasil, berkas sementara sudah
