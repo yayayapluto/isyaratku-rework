@@ -249,14 +249,26 @@ class Pipeline:
         # galat fatal, jadi Stop bersih jadi `galat=AttributeError`.
         # close() idempoten (`_backend is not None`), jadi posisi panggilan
         # tidak memengaruhi keamanan double-close.
-        self.camera.close()
-        timeout = self.config.pipeline_stop_timeout_seconds
-        for thread in (self._capture_thread, self._output_thread):
-            if thread is not None:
-                thread.join(timeout=timeout)
-        self._capture_thread = None
-        self._output_thread = None
-        self.sink.close()
+        # close() yang melempar (mis. device lepas di driver) tidak boleh
+        # melewati join kedua thread maupun penutupan sink. Exception-nya
+        # ditahan sementara, join tetap jalan, lalu naik lagi di akhir supaya
+        # pemanggil tetap melihat kegagalannya.
+        galat_close: BaseException | None = None
+        try:
+            self.camera.close()
+        except BaseException as exc:  # noqa: BLE001 - re-raised di bawah
+            galat_close = exc
+        try:
+            timeout = self.config.pipeline_stop_timeout_seconds
+            for thread in (self._capture_thread, self._output_thread):
+                if thread is not None:
+                    thread.join(timeout=timeout)
+            self._capture_thread = None
+            self._output_thread = None
+        finally:
+            self.sink.close()
+        if galat_close is not None:
+            raise galat_close
         logger.info("pipeline stop: %s", self._stop_info())
 
     def _stop_info(self) -> str:

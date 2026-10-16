@@ -434,24 +434,19 @@ class RaisingCloseCamera:
         raise OSError("device lepas saat close")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="P0-1: stop() close camera sebelum join/sink.close tanpa try/finally",
-)
 def test_stop_join_dan_sink_close_walau_camera_close_melempar() -> None:
     """P0-1: close() yang melempar tidak boleh melewati join dan sink.close().
 
-    Charakterisasi bug: saat ini test ini GAGAL karena stop() memanggil
-    camera.close() lebih dulu tanpa try/finally. Ditandai xfail(strict=True)
-    supaya begitu S4 memperbaiki stop(), test berubah jadi XPASS dan memaksa
-    penanda dihapus.
+    Regresi urutan stop lama: camera.close() dijalankan sebelum join kedua
+    thread tanpa try/finally, jadi close() yang melempar melewati keduanya
+    dan meninggalkan thread hidup + sink terbuka.
     """
     cfg = config(pipeline_read_failure_timeout_seconds=0.3)
     sink = TrackingSink(cfg)
     camera = RaisingCloseCamera()
     pipeline = Pipeline(camera, sink, cfg)
     pipeline.start()
-    run_for(0.3, pipeline)
+    time.sleep(0.4)
 
     with pytest.raises(OSError):
         pipeline.stop()
