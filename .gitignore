@@ -4,6 +4,11 @@ __pycache__/
 .venv/
 venv/
 
+# PyInstaller build tree + bundle output (lokal saja, dibangun ulang oleh build-exe.cmd)
+build/
+dist/
+*.lnk
+
 # throwaway measurement/probe scripts
 _probe_*
 _pub_*
@@ -29,3 +34,6 @@ logs/
 
 # pindah_mode.mp4: video demo lokal, tidak masuk git
 pindah_mode.mp4
+
+# cadangan artifact model sebelum latih ulang (epic e02): biner besar, lokal saja
+specs/evidence/models-snapshot-*/

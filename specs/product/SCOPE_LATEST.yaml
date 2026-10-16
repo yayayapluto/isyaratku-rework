@@ -1,0 +1,69 @@
+# SCOPE — Cleanliness, Reliability, Ease-of-Use (training-data centred)
+
+Latest. Phase 1 DISCOVER, 2026-10-16.
+
+## In scope
+
+### A. Training data reproducibility (highest priority)
+
+| ID | Item | Current evidence |
+| --- | --- | --- |
+| A1 | Reconcile `data/raw/` layout with the documented extraction command | `training/extract.py:49` `DEFAULT_SOURCE_DIR = data/raw/wl-bisindo`. On disk that dir holds 1155 of 1600 mp4; the other 445 sit in `data/raw/pilih75/`. Re-running the documented command on this layout yields 1155 npz, not the 1600 the models were trained on. |
+| A2 | Make one command reproduce `data/extracted/` from `data/raw/` | Two source dirs must be walked today (`wl-bisindo` + `pilih75`), and only by someone who knows the split. |
+| A3 | Reconcile `data/raw/wl-bisindo.zip` (1600 entries) against the extracted dir (1155 files) | Verified: zip 1600, wl dir 1155, pilih75 446, overlap of missing 445, unaccounted 0. |
+| A4 | Document the demo dataset separately from the real dataset | `data/extracted/demo3/` holds 200 synthetic `signer99_*` npz mixed into the same tree as the 1600 real npz. `training/dataset.py` globs `*.npz` at root only, so demo3 is invisible to it — but nothing states that invariant in docs, and a future `rglob` would silently poison the split. |
+
+### B. Reliability of the verify path
+
+| ID | Item | Current evidence |
+| --- | --- | --- |
+| B1 | Establish and record a green test baseline | 308 test functions, 8273 lines, no pytest config file. Baseline not yet captured this session. |
+| B2 | Pin the TTS dependency that is actually imported | `piper` imported at `src/adapters/tts.py:48`, absent from requirements.txt; `pyttsx3` pinned, never imported. |
+| B3 | Confirm the headless smoke still runs | `python -m src.ui.app --headless --seconds 3` is the documented no-hardware check. |
+
+### C. Cleanliness (from the existing audit)
+
+| ID | Item | Current evidence |
+| --- | --- | --- |
+| C1 | Resolve or formally defer the ponytail audit findings | `docs/ponytail-audit.md`: 23 findings, ~600 removable lines, 1 removable dep. |
+| C2 | Keep the ponytail debt ledger honest | 3 markers, all with triggers. Re-check after any C1 work lands. |
+
+### D. Ease of use
+
+| ID | Item | Current evidence |
+| --- | --- | --- |
+| D1 | One documented path from clean machine to running window | README has setup + usage but the training-data steps assume `data/raw/` is already correct. |
+| D2 | Training-data section that a newcomer can follow end to end | `docs/dataset-notes.md` records dataset facts; no single "extract then train then measure" procedure exists. |
+
+## Out of scope
+
+- Model accuracy on new signers. `data/self/` is empty; that is a recording problem.
+- New glosses, letters, digits, or words.
+- Any change to runtime recognition behaviour in `src/core/` or `src/adapters/`
+  beyond what C1 cleanup requires.
+- Distributing the dataset. `data/` is git-ignored and stays that way.
+- Improving `data/raw/wl-bisindo.zip` handling beyond making the workflow
+  reproducible (the zip is 2.13 GB and already present).
+
+## Constraints
+
+- **Indonesian prose, English identifiers** (docs/AGENTS.md). All new docs in
+  Bahasa Indonesia; code, paths, and library names in English.
+- **No fabricated numbers** (docs/AGENTS.md "Kebenaran data"). Every count must
+  come from a command run in this repo. Unverified = "belum diperiksa".
+- **`data/` never enters git.**
+- **Don't edit files under `data/raw/`.** Training reads them only.
+- **Dependency direction:** `ui -> core <- adapters`. `src/core/` must not import
+  UI, adapter, camera, or GUI libraries.
+- **No virtualenv on this machine**; packages live on the global interpreter.
+- **Slices, not schedules:** each story ends with a run that shows its result.
+
+## Open questions for the user
+
+1. Should `data/raw/wl-bisindo/` be completed to 1600 files (extract the 445 from
+   the zip / move them from `pilih75`), or should the documented extraction
+   command be changed to read both directories? Completing the dir is the smaller,
+   more honest fix; changing the command hides the layout problem.
+2. Is the committed model set expected to be re-trained during this initiative, or
+   are the existing `models/*.npz` frozen deliverables? Re-training would let A1's
+   fix be proven against a real run; freezing means A1 is proven by npz-count only.

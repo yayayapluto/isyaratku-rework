@@ -1,0 +1,27 @@
+{
+  "recorded": "2026-10-16",
+  "purpose": "Pre-change snapshot for epic e01. Reproducible by the commands below.",
+  "commands": {
+    "zip_entries": "python -c \"import zipfile;print(len(zipfile.ZipFile('data/raw/wl-bisindo.zip').namelist()))\"",
+    "wl_mp4": "python -c \"import pathlib;print(len(list(pathlib.Path('data/raw/wl-bisindo').glob('*.mp4'))))\"",
+    "pilih75_mp4": "python -c \"import pathlib;print(len(list(pathlib.Path('data/raw/pilih75').glob('*.mp4'))))\"",
+    "npz_root": "python -c \"import pathlib;print(len(list(pathlib.Path('data/extracted').glob('*.npz'))))\"",
+    "npz_demo3": "python -c \"import pathlib;print(len(list(pathlib.Path('data/extracted/demo3').glob('*.npz'))))\""
+  },
+  "counts": {
+    "zip_mp4_entries": 1600,
+    "wl_bisindo_mp4": 1155,
+    "pilih75_mp4": 446,
+    "npz_root": 1600,
+    "npz_demo3": 200
+  },
+  "reconciliation": {
+    "zip_minus_wl": 445,
+    "zip_minus_wl_in_pilih75": 445,
+    "unaccounted": 0,
+    "zip_ids_never_extracted": 0,
+    "npz_not_in_zip": 0,
+    "raw_mp4_without_npz": 0
+  },
+  "conclusion": "data/raw/wl-bisindo/ holds 1155 of the zip's 1600 mp4. The 445 missing entries all live in data/raw/pilih75/. The npz set is complete (1600) because pilih75 was extracted, but the documented command (DEFAULT_SOURCE_DIR=data/raw/wl-bisindo) would yield 1155 on a clean checkout."
+}

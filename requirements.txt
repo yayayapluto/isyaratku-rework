@@ -1,9 +1,24 @@
+# Paket yang BENAR-BENAR diimpor repo ini. Sumber tunggal versi; pyproject.toml
+# membacanya lewat [tool.setuptools.dynamic].
+#
+# Runtime
 opencv-python==5.0.0.93
 mediapipe==1.0.1
 numpy==2.5.3
 pyvirtualcam==0.15.0
 PySide6==6.11.2
-pyttsx3==2.99
 sounddevice==0.5.6
+# piper-tts: mesin TTS offline, dipanggil sebagai pustaka (`from piper import
+# PiperVoice`, src/adapters/tts.py:48), bukan subprocess. Model .onnx dibaca dari
+# models/tts/ dan TIDAK masuk git. Ini yang membuat aplikasi tetap offline.
+piper-tts==1.8.0
+scikit-learn==1.9.1
+joblib==1.6.0
 
+# Alat
 pytest==9.1.1
+
+# DIHAPUS 2026-10-16: pyttsx3==2.99. Tidak pernah diimpor di mana pun; satu-satunya
+# kemunculannya di repo adalah prosa yang menjelaskan KENAPA ia tidak dipakai
+# sebagai fallback (src/adapters/tts.py:21, tests/test_tts.py:138). Dipakai
+# sebagai alat ukur sekali, bukan dependensi.

@@ -1,0 +1,54 @@
+# VISION — IsyaratKu Cam
+
+Latest. Phase 1 DISCOVER, 2026-10-16.
+
+## Problem
+
+IsyaratKu Cam is a BISINDO sign-language desktop app: webcam in, recognised text
+out, spoken through offline TTS, published as a virtual camera for Zoom/Meet.
+The build plan (slices 1-7, docs/implementation-plan.md) is largely done. What is
+NOT done is the thing that decides whether anyone can pick this repo up and trust
+it: the project is hard to reproduce, hard to verify, and hard for a newcomer to
+operate — most sharply around its training data.
+
+## Who it serves
+
+1. **The maintainer** (primary). Needs to re-extract, re-train, and re-measure
+   without guessing, and to see honestly what the models do and do not know.
+2. **A judge or reviewer** running the demo. Needs one command to a working window.
+3. **A future contributor**. Needs the repo to say what is true and to not lie
+   about its own numbers.
+
+## What "done" means for this initiative
+
+The project is clean, reliable, and easy to use when:
+
+1. **Reproducible training data.** The documented extraction command, run on a
+   clean checkout with `data/raw/` present, produces exactly the dataset the
+   committed models were trained on. No silent subset. Counts reconcile by
+   command, not by memory.
+2. **Honest, checkable measurements.** Every accuracy claim in docs/ traces to a
+   command that recomputes it. No number is copied from a previous session.
+3. **Verify-before-ship.** One command runs the full suite; the suite is green and
+   its coverage of core/ is real, not scaffolding.
+4. **Low-complexity codebase.** The repo carries no dead weight: the ponytail
+   audit's findings are either applied or explicitly deferred with a reason.
+5. **Operable by a newcomer.** A single documented path takes a fresh machine to
+   a running window, and the failure modes say what to do next.
+
+## Non-goals
+
+- Raising model accuracy on new users. That requires `data/self/` recordings that
+  do not exist yet; it is a data-collection problem, not a code problem.
+- New recognition features (more glosses, more letters, more words).
+- Any cloud service. The app is offline by a recorded decision
+  (docs/tech-decisions.md:74) and stays offline.
+
+## Success signals
+
+- `python -m training.dataset` prints a split whose counts match the committed
+  models' training provenance, and a single command reproduces `data/extracted/`
+  from `data/raw/`.
+- `python -m pytest` green from a documented single command.
+- `docs/ponytail-audit.md` findings resolved or deferred with rationale.
+- A newcomer section in README takes a clean machine to a running window.

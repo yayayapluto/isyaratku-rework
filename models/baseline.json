@@ -35,6 +35,8 @@
     "Siang",
     "Sore",
     "Malam",
+    "Nama",
+    "Halo",
     "tidak ada isyarat"
   ],
   "gloss_dataset": [
@@ -69,10 +71,12 @@
     "Pagi",
     "Siang",
     "Sore",
-    "Malam"
+    "Malam",
+    "Nama",
+    "Halo"
   ],
   "no_sign_label": "tidak ada isyarat",
-  "no_sign_id": 32,
+  "no_sign_id": 34,
   "kelas_model": [
     0,
     1,
@@ -106,7 +110,7 @@
     29,
     30,
     31,
-    32
+    34
   ],
   "jumlah_kelas_dilatih": 33,
   "split": {
@@ -134,6 +138,6 @@
   "akurasi_val": 0.9713513513513513,
   "akurasi_test": 0.5745052386495926,
   "akurasi_gloss_saja": 0.08564231738035265,
-  "durasi_fit_detik": 0.97,
-  "dilatih": "2026-10-01 15:06:47"
+  "durasi_fit_detik": 1.85,
+  "dilatih": "2026-10-16 16:20:13"
 }

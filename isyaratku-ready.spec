@@ -1,19 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_data_files
-from PyInstaller.utils.hooks import collect_dynamic_libs
-from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('configs/app.toml', 'configs'), ('models/baseline.npz', 'models'), ('models/huruf.npz', 'models'), ('models/angka.npz', 'models'), ('models/demo-kata.npz', 'models'), ('models/demo-huruf.npz', 'models'), ('models/demo-angka.npz', 'models'), ('models/mediapipe/hand_landmarker.task', 'models/mediapipe'), ('models/mediapipe/pose_landmarker_lite.task', 'models/mediapipe')]
+datas = []
 binaries = []
-hiddenimports = ['piper', 'cv2', 'numpy', 'pyvirtualcam']
-datas += collect_data_files('mediapipe')
-binaries += collect_dynamic_libs('mediapipe')
-hiddenimports += collect_submodules('mediapipe')
-hiddenimports += collect_submodules('src')
+hiddenimports = []
 tmp_ret = collect_all('PySide6')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('sounddevice')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
@@ -26,7 +17,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['torch', 'torchvision', 'tensorboard', 'scipy', 'sklearn'],
+    excludes=[],
     noarchive=False,
     optimize=0,
 )

@@ -1,0 +1,140 @@
+# Release plan — IsyaratKu cleanliness / reliability / ease-of-use
+
+Version target: **v0.9.0-data-reproducible** (a data-correctness release, not a feature release)
+Phase 3 PLAN, 2026-10-16.
+Baseline: 313 tests passing, 157.54s. Branch `dev`, HEAD `018d266`.
+
+Ordering is WSJF: user/business value ÷ job size, highest first. Every task carries a
+`verify:` that produces an observable result.
+
+---
+
+## Epic index
+
+| Epic | Title | WSJF rationale | Trains? | Blocks |
+| --- | --- | --- | --- | --- |
+| e01 | Dataset raw layout + reproducible extraction | Highest value: it is the one thing the user named ("especially on training data") and currently false. Small job. | no | e03 |
+| e02 | Retrain and re-measure, recording honest numbers | User chose it; produces the evidence that e01 is correct end to end. Medium job. | yes | e04 |
+| e03 | Verify path: pytest config, lint, single documented command | Low cost, unblocks every later story's verify step. | no | — |
+| e04 | Training-data guide a newcomer can follow | Ease-of-use payoff, depends on e01+e02 being true first. | no | — |
+| e05 | Cleanliness: apply the ponytail audit | ~600 lines and 1 dep; independent of the data work, so it can run in parallel. | no | — |
+
+## Dependency order
+
+```mermaid
+graph LR
+  e01 --> e02
+  e02 --> e04
+  e01 --> e04
+  e05
+  e03
+```
+
+e03 and e05 are independent and may proceed in parallel with e01/e02.
+
+---
+
+## e01 — Dataset raw layout + reproducible extraction
+
+**Objective:** the documented extraction command produces the dataset the models
+were trained on.
+
+- [ ] e01s01 — Snapshot `data/extracted/` counts and the raw inventory into
+  `specs/evidence/` before touching anything. `verify:` the snapshot file names
+  1600 npz, 1155 wl mp4, 446 pilih75 mp4.
+- [ ] e01s02 — Extract the 445 missing videos from `data/raw/wl-bisindo.zip` into
+  `data/raw/wl-bisindo/`. `verify:` `python -c "import pathlib;print(len(list(pathlib.Path('data/raw/wl-bisindo').glob('*.mp4'))))"` prints 1600.
+- [ ] e01s03 — Confirm extraction of the completed directory is a no-op and the npz
+  set is unchanged. `verify:` `python -m training.extract` reports 1600 skipped,
+  0 processed; `python -m training.dataset` still reports 1600 npz.
+- [ ] e01s04 — Record the raw-layout fact in `docs/dataset-notes.md` in Bahasa
+  Indonesia, including that `pilih75` is a selection, not a source.
+  `verify:` the doc states zip=1600, wl=1600, pilih75=446 and cites this plan.
+
+**Closes:** SCOPE A1, A2, A3. **Resolves:** ADR-0001.
+
+## e02 — Retrain and re-measure
+
+**Objective:** models re-trained from the now-reproducible dataset, with numbers
+recomputed this session.
+
+- [ ] e02s01 — Snapshot current `models/*.joblib|.npz|.json` to a timestamped dir
+  outside git before overwriting. `verify:` snapshot dir contains 21 files.
+- [ ] e02s02 — Retrain the word baseline. `verify:` `python -m training.train`
+  finishes and writes `models/baseline.joblib|.npz|.json`; the printed split counts
+  match `training.dataset`.
+- [ ] e02s03 — Retrain the static models per README's documented targets.
+  `verify:` `python -m training.train_static --target <each>` finishes and each
+  `models/<stem>.json` carries a fresh metric block.
+- [ ] e02s04 — Re-measure and record p50/p95 prediction latency and accuracy per
+  model into `docs/tech-decisions.md`. `verify:` every number in the new section
+  traces to a command run this session; no number copied from a prior entry.
+- [ ] e02s05 — Confirm the runtime still loads the fresh artifacts.
+  `verify:` `python -m src.ui.app --headless --seconds 3` prints
+  `Headless smoke: LOLOS`.
+
+**Closes:** SCOPE B3, and provides the evidence behind A1.
+
+## e03 — Verify path
+
+**Objective:** one command, green, reproducible.
+
+- [ ] e03s01 — Add `pyproject.toml` with `[tool.pytest.ini_options]` (`testpaths`,
+  `filterwarnings` for the known sounddevice deprecation) and project metadata.
+  `verify:` `python -m pytest -q` collects 313 tests without needing `-p no:cacheprovider`.
+- [ ] e03s02 — Add a linter config (ruff) and fix only real findings; leave stylistic
+  churn out. `verify:` the linter runs and its remaining findings are listed with a
+  reason each, or zero.
+- [ ] e03s03 — Record the exact test command and current count in README.
+  `verify:` README shows the command and `313 passed`.
+
+**Closes:** SCOPE B1, and the tooling gap in TECH_STACK.
+
+## e04 — Training-data guide
+
+**Objective:** a newcomer goes from clean checkout to a trained, measured model
+using one document.
+
+- [ ] e04s01 — Write `docs/training-guide.md` in Bahasa Indonesia: where raw data
+  goes, the single extract command, the signer split and why it is by signer, how
+  to train each model family, how to read the per-class output, and the honest
+  limits (val is thin; `data/self/` empty).
+  `verify:` following it on this machine reproduces the npz count and one model's
+  json metric block.
+- [ ] e04s02 — Link it from README and `docs/AGENTS.md`.
+  `verify:` both files reference the guide.
+
+**Closes:** SCOPE D1, D2, A4.
+
+## e05 — Cleanliness: apply the ponytail audit
+
+**Objective:** the repo stops carrying dead weight.
+
+- [ ] e05s01 — Apply the zero-risk findings (audit #1-7, #12, #16-18, #20, #22, #25):
+  no call-site churn outside tests. `verify:` `python -m pytest -q` still green.
+- [ ] e05s02 — Apply the call-site findings that must land together (audit #8, #10,
+  #11, #17, #19, #21). `verify:` suite green; `--headless` still LOLOS.
+- [ ] e05s03 — Drop `pyttsx3` from requirements, add the `piper` pin.
+  `verify:` `python -c "import piper"` succeeds and `grep -c pyttsx3 requirements.txt` is 0.
+- [ ] e05s04 — Re-run the ponytail debt ledger and update it if the marker set moved.
+  `verify:` ledger row count and marker count agree with a fresh grep.
+
+**Closes:** SCOPE C1, C2.
+
+---
+
+## Release gate (e06, phase 6)
+
+- [ ] Full suite green from the documented command.
+- [ ] Headless smoke LOLOS.
+- [ ] Every number in docs/ added this release traces to a command.
+- [ ] `docs/ponytail-audit.md` findings all resolved or deferred with rationale.
+- [ ] Tag `v0.9.0-data-reproducible`; `state.yaml` `release.last_tag` set.
+
+## Explicitly deferred
+
+- Model accuracy on new signers (`data/self/` empty). Needs recordings, not code.
+- Any new recognition feature.
+- Cleaning up build artifacts (`dist/`, `build/`, `*.lnk`, `run_*.bat`) presently
+  untracked in the working tree — real, but outside this release's objective and
+  the user has not asked; noted so it is not silently ignored.

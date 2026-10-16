@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "isyaratku-cam"
+version = "0.9.0"
+description = "Penerjemah BISINDO kamera ke teks dan suara, offline."
+requires-python = ">=3.11"
+readme = "README.md"
+
+# Catatan: daftar di bawah adalah paket yang BENAR-BENAR diimpor. Sumber tunggal
+# versi tetap requirements.txt supaya tidak ada dua daftar yang bisa menyimpang.
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools]
+packages = ["src", "training"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Qt jalan tanpa layar: seluruh tes view mengandalkan ini.
+# Qt tanpa layar diatur lewat fixture autouse di tests/conftest.py, bukan di
+# sini: opsi `env` butuh plugin pytest-env dan repo ini tidak memakainya.
+filterwarnings = [
+    "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning",
+]

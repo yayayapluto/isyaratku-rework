@@ -173,6 +173,112 @@ Only one path runs at a time, and both write to the same subtitle line.
 - A cooldown follows each switch (`MODE_SWITCH_COOLDOWN_SECONDS`) so the gesture cannot toggle the mode repeatedly.
 - TTS speaks the combined subtitle line, not a queue of labels; a newer line replaces one that has not been spoken yet. Audio already in flight cannot be cancelled — there is no cancel API in `src/adapters/tts.py`.
 
+## CLI
+
+Semua perintah di bawah dijalankan dari root repo, jadi `cd` ke root dulu, lalu panggil sebagai modul (`python -m ...`).
+
+### Aplikasi
+
+```bash
+python -m src.ui.app [--mode ready|debug]
+```
+
+Menjalankan GUI. `--mode` memilih tampilan awal: `ready` (Start/Stop) atau `debug` (dasbor).
+
+```bash
+python -m src.ui.app --headless [--seconds N]
+```
+
+Menjalankan pipeline penuh dengan fake adapter — tanpa GUI, tanpa kamera, tanpa hardware.
+
+### Persiapan data dan training
+
+```bash
+python -m training.extract [--source DIR] [--out DIR] [--limit N]
+```
+
+Mengekstrak landmark MediaPipe dan fitur dari video dataset menjadi berkas `.npz`, satu berkas per video.
+
+```bash
+python -m training.train [--stem NAME] [--extracted DIR] [--limit-window N] [--skip-save] [--signer-tambahan-train SIGNER ...] [--confusion CSV]
+```
+
+Melatih model word baseline dan menulis `models/<stem>.joblib` + `.json`, plus CSV confusion.
+
+```bash
+python -m training.export_numpy [--model PATH] [--out PATH]
+```
+
+Mengubah pipeline joblib hasil training menjadi format `.npz` yang dimuat runtime dan aplikasi frozen.
+
+```bash
+python -m training.train_static --target huruf|huruf-isyaratku|angka|angka-0-9|angka-dinamis [--model mlp|logreg] [--no-dedup] [--stem NAME]
+```
+
+Melatih model huruf / angka statis per-frame. `--no-dedup` mempertahankan baris yang identik dengan val alih-alih membuangnya.
+
+```bash
+python -m training.train_demo_kata [--stem NAME] [--filler N] [--seed N]
+```
+
+Membangun model kata demo kecil dari data filler yang dibangkitkan.
+
+```bash
+python -m training.record_self [--max-reps N] [--seconds S] [--camera INDEX] [--skip-record]
+```
+
+Merekam video gloss dari webcam untuk signer tambahan, atau mengekstrak landmark dari video yang sudah direkam sebelumnya.
+
+```bash
+python -m training.dataset [--extracted DIR]
+```
+
+Mencetak ringkasan dataset dan split; tidak menulis apa pun ke `data/`.
+
+```bash
+python -m training.diagnose_urutan [--extracted DIR]
+```
+
+Mendiagnosis masalah urutan label antara dataset, split, dan class model.
+
+```bash
+python -m training.diagnose_demo_v1 [--extracted DIR] [--tulis-artifact]
+```
+
+Menjalankan diagnostik demo v1; `--tulis-artifact` menulis berkas model ketika gerbang lolos.
+
+```bash
+python -m training.features_angles [--extracted DIR]
+```
+
+Melaporkan perilaku fitur angle di split train/val/test.
+
+### Voice dan utilitas lain
+
+```bash
+python -m training.setup_voice [--check] [--warm-cache]
+```
+
+Mengunduh voice piper ketika belum ada, lalu mempra-sintesis cache WAV. `--check` hanya memeriksa apakah voice sudah tersedia.
+
+```bash
+python tools/exe_debug.py
+```
+
+Wrapper build frozen yang menjalankan tampilan debug.
+
+```bash
+python tools/exe_ready.py
+```
+
+Wrapper build frozen yang menjalankan tampilan ready.
+
+```bash
+python tools/exe_train.py
+```
+
+Wrapper build frozen di sekitar entry point training baseline.
+
 ## Configuration
 
 All tuning numbers live in a single contract: `_CONTRACT` in `src/core/config.py`, currently 26 `section.key` entries. `configs/app.toml` deliberately holds only comments and no active keys, so out of the box every value comes from `_CONTRACT`. To override values, write a TOML file with just the keys you want and point the app at it:
@@ -227,7 +333,7 @@ isyaratku-rework/
 ├── training/          extraction, training, export — not imported by the runtime
 ├── tests/             pytest suite using fake adapters
 ├── models/            trained artifacts (tracked in git)
-│   ├── baseline.{joblib,json,npz}       33-class word model
+│   ├── baseline.{joblib,json,npz}       35-label word model (34 gloss + "no sign")
 │   ├── huruf.{joblib,json,npz}          26-class letter model
 │   ├── angka.{joblib,json,npz}          11-class digit model
 │   ├── angka-dinamis.{...}              10-class dynamic number model, not wired into the pipeline
@@ -246,10 +352,15 @@ The dependency direction is `ui → core ← adapters`. `src/core/` imports neit
 Run the whole suite:
 
 ```bash
-QT_QPA_PLATFORM=offscreen python -m pytest -q -p no:cacheprovider
+python -m pytest -q
 ```
 
-`-p no:cacheprovider` is not optional: without it an earlier run stalled long enough to exceed the harness timeout. Read the pass count from the final line; the suite occasionally hangs during teardown, and the printed count is still valid. Offscreen mode is needed on a headless machine, though the tests never open a window.
+`pyproject.toml` already sets `testpaths = ["tests"]`, and `tests/conftest.py`
+sets `QT_QPA_PLATFORM=offscreen` for every test, so neither needs to be passed
+on the command line. On a machine with no cache directory, add
+`-p no:cacheprovider`: an earlier run without it stalled long enough to exceed
+the harness timeout. Read the pass count from the final line; the suite
+occasionally hangs during teardown, and the printed count is still valid.
 
 Quickest check without any hardware:
 
@@ -270,6 +381,9 @@ QT_QPA_PLATFORM=offscreen python -m src.ui.app --headless --seconds 3
 Inference is not the bottleneck of the pipeline; landmark extraction is.
 
 ### Retraining
+
+Full walkthrough, including the raw-data layout requirement and how to read the
+per-class output: **`docs/training-guide.md`**.
 
 ```bash
 # 1. extract landmarks from the dataset videos into data/extracted/

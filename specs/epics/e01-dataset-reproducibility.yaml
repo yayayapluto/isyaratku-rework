@@ -1,0 +1,51 @@
+epic: e01
+title: Dataset raw layout + reproducible extraction
+status: in_progress
+phase: BUILD
+release: v0.9.0-data-reproducible
+depends_on: []
+trains: false
+closes: [A1, A2, A3]
+adr: specs/adr/0001-dataset-raw-layout.md
+
+objective: >
+  Make the documented extraction command produce the dataset the committed
+  models were trained on. Today data/raw/wl-bisindo/ holds 1155 of the 1600
+  videos in data/raw/wl-bisindo.zip; the other 445 were extracted from
+  data/raw/pilih75/. The npz set is complete but not reproducible by the
+  documented command.
+
+non_goals:
+  - Changing training/extract.py behaviour.
+  - Changing the signer split.
+  - Touching data/extracted/ contents (already correct).
+
+stories:
+  - id: e01s01
+    title: Snapshot counts before any change
+    done_when: A file in specs/evidence/ records 1600 zip entries, 1155 wl mp4,
+      446 pilih75 mp4, 1600 root npz, 200 demo3 npz.
+    verify: The evidence file exists and each number is produced by a command in it.
+
+  - id: e01s02
+    title: Extract the 445 missing videos into data/raw/wl-bisindo/
+    done_when: data/raw/wl-bisindo/ holds 1600 .mp4.
+    verify: >
+      python -c "import pathlib;print(len(list(pathlib.Path('data/raw/wl-bisindo').glob('*.mp4'))))"
+      prints 1600.
+
+  - id: e01s03
+    title: Prove extraction is now a no-op and npz set is unchanged
+    done_when: Running the documented extract command processes 0 videos and
+      skips 1600; the dataset summary is unchanged.
+    verify: >
+      python -m training.extract reports "Video dilewati : 1600";
+      python -m training.dataset still reports 1600 npz.
+
+  - id: e01s04
+    title: Record the raw-layout fact in docs/dataset-notes.md
+    done_when: The doc states, in Bahasa Indonesia, that the zip holds 1600,
+      wl-bisindo/ now holds 1600, pilih75/ is a curated selection of 446 and is
+      NOT a second source directory.
+    verify: The doc contains those three figures and no longer implies a
+      two-directory extract.

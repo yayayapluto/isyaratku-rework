@@ -75,6 +75,6 @@
     "sha256_val": "e9b416f7e2f8dc37880aae99e54367a6c37b45278f16a3c7ad93f7098e77071a"
   },
   "batas": "split train/val apa adanya; 9 kelas 0..9; bukan generalisasi lintas signer (tanpa info signer).",
-  "durasi_fit_detik": 0.45,
-  "dilatih": "2026-10-03 20:00:56"
+  "durasi_fit_detik": 0.47,
+  "dilatih": "2026-10-16 16:21:40"
 }

@@ -74,6 +74,6 @@
   },
   "akurasi_test": 1.0,
   "uji_jenis": "same-signer per-video holdout (optimistis, bukan LOSO)",
-  "durasi_fit_detik": 0.24,
-  "dilatih": "2026-10-04 12:07:17"
+  "durasi_fit_detik": 0.15,
+  "dilatih": "2026-10-16 16:21:59"
 }

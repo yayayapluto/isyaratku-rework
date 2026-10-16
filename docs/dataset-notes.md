@@ -136,11 +136,54 @@ Item "varian isyarat antar signer" sudah terpenuhi pada 32 gloss: diukur dengan 
 - Contoh ukuran berkas: terkecil 460.698 byte (`signer1_label28_sample9.mp4`), terbesar 6.234.157 byte (`signer2_label2_sample10.mp4`), median 992.801 byte.
 - Resolusi (sampel 229 dari 1.600 berkas): 1.920x1.080 pada 194 berkas, 1.280x720 pada 35 berkas. Berdasarkan per signer: signer0 hanya 1.280x720; signer1 hampir semuanya 1.920x1.080; signer2 campuran; signer3 dan signer4 hanya 1.920x1.080.
 - FPS: mayoritas 30 (177 dari 229 sampel); sisa 25/26/27/28/29. Durasi frame 43–155 frame, median 66, tidak ada berkas di bawah 30 frame.
+
 - Codec (4 berkas yang dibuka langsung): `h264` dan `hevc`.
 - Berkas anotasi/metadata: tidak ada di paket (0 berkas selain `.mp4`), jadi tidak ada isi yang bisa dikutip. Pemetaan gloss ada di deskripsi Kaggle, bukan berkas lokal. Paper dengan protokol split ada di luaran dataset: DOI 10.1016/j.procs.2025.08.277 (Procedia Computer Science, vol. 269, hal. 249–258) dan repositori https://github.com/AceKinnn/WL-BISINDO.
+
+- Codec (4 berkas yang dibuka langsung): `h264` dan `hevc`.
 - Model pretrained/notebook di paket: tidak ada.
 - Ukuran `data/raw` sebelum pengunduhan: 0 (direktori `data/raw` tidak ada). Sesudah: 4.291.586.531 byte (4,29 GB) — terdiri dari arsip zip 2.126.878.088 byte ditambah 1.600 file `.mp4` terdekompresi 2.164.708.443 byte.
-- Ukuran `data/raw` untuk dataset ini: 29.046.594 byte terdekompresi (0,02 GB), tanpa arsip zip tersimpan karena `--unzip` dan zip dibuang oleh CLI. Unduhan terukur 13,5 MB; `data/raw/suryaadji/` sekarang memuat 8 berkas.
+
+### Pemulihan tata letak `data/raw/wl-bisindo/` (2026-10-16)
+
+Baris "1.600 berkas" di atas sempat TIDAK benar di disk. Terukur 2026-10-16:
+
+| Lokasi | Jumlah |
+| --- | --- |
+| `data/raw/wl-bisindo.zip` entri `.mp4` | 1.600 |
+| `data/raw/wl-bisindo/` `.mp4` di disk | **1.155** |
+| `data/raw/pilih75/` `.mp4` | 446 |
+| entri zip yang tidak ada di `wl-bisindo/` | 445 |
+| dari 445 itu, yang ada di `pilih75/` | 445 |
+| tidak terhitung | 0 |
+
+Artinya 445 video pernah diekstrak dari `data/raw/pilih75/`, bukan dari
+`data/raw/wl-bisindo/`. Perintah terdokumentasi `python -m training.extract`
+(`training/extract.py:49`, `DEFAULT_SOURCE_DIR = data/raw/wl-bisindo`) karena itu
+hanya melihat 1.155 dari 1.600 video. Himpunan `.npz` di `data/extracted/` tetap
+lengkap 1.600 pada saat itu, tetapi TIDAK dapat direproduksi dari perintah
+terdokumentasi pada checkout bersih. Tidak ada data yang hilang — `extract`
+idempoten (melewati `.npz` yang sudah ada), jadi ekstraksi dua arah itu tidak
+pernah merusak apa pun.
+
+Diperbaiki 2026-10-16 dengan mengisi `data/raw/wl-bisindo/` dari zip: 445 berkas
+diekstrak, ukuran byte-identik dengan entri zip, 0 berkas kosong, 0 byte
+menyimpang. Sekarang:
+
+- `data/raw/wl-bisindo/` = 1.600 `.mp4` (datar), cocok dengan isi zip.
+- `python -m training.extract` melaporkan "Video ditemukan : 1600 / Video diproses
+  : 0 / Video dilewati : 1600 (sudah ada .npz)" — perintah terdokumentasi sudah
+  benar dan idempoten pada pohon yang lengkap.
+- `python -m training.dataset` masih melaporkan 1.600 `.npz`, split tidak berubah.
+
+**`data/raw/pilih75/` adalah SELEKSI, bukan direktori sumber kedua.** Isinya 446
+berkas (445 di antaranya kebetulan adalah entri zip yang tadi belum diekstrak,
+plus 1 duplikat), dengan `manifest.csv` berisi 447 baris (header + 446). Tidak ada
+kode yang membacanya sebagai sumber ekstraksi. Jangan jadikan ia sumber kedua —
+itu justru menyembunyikan masalah tata letak, bukan memperbaikinya. Lihat
+`specs/adr/0001-dataset-raw-layout.md` untuk alasan keputusan ini.
+
+Bukti angka sebelum perubahan: `specs/evidence/e01-before.json`.
 
 ### Temuan: `suryaadji/bisindo-alphabet-mediapipe-hand-landmarks`
 

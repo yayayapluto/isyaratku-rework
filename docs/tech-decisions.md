@@ -314,3 +314,81 @@ masing-masing: biaya acquisisi kedua terukur **26,9-31,4 s** (penyebabnya
 `set()` W/H/FPS sebelum `read()` pertama — re-init MSMF ~6-7 s per properti).
 Sesudah pemakaian ulang: **`finish_checks` 0,162 s**. Kenapa ini belum ditulis
 sebelumnya: angka ini baru terukur sesi ini, bukan hasil ukuran lama.
+
+## Latih ulang seluruh model + label yang tidak punya kelas (2026-10-16)
+
+Seluruh artifact di `models/` dilatih ulang tanggal ini setelah tata letak
+`data/raw/wl-bisindo/` diperbaiki (lihat `docs/dataset-notes.md` bagian
+"Pemulihan tata letak"). Perintah yang dijalankan, apa adanya:
+
+```
+python -m training.train
+python -m training.train_static --target huruf
+python -m training.train_static --target angka
+python -m training.train_static --target angka-dinamis
+python -m training.train_static --target huruf-isyaratku --stem demo-huruf
+python -m training.train_static --target angka-0-9        --stem demo-angka
+python -m training.train_demo_kata
+```
+
+### Temuan: `models/baseline.json` BASI, bukan salah latih
+
+Sebelum latih ulang, artifact yang tersimpan tidak cocok dengan sumbernya:
+
+| | Sebelum | Sesudah |
+| --- | --- | --- |
+| `gloss_dataset` | 32 | 34 |
+| `no_sign_id` | 32 | 34 |
+| `label` | 33 | 35 |
+| `kelas_model` | 33 | 33 |
+
+`training/dataset.py:GLOSSES` sudah memuat 34 gloss (ditambah `Nama` id 32 dan
+`Halo` id 33) dan `NO_SIGN_ID = len(GLOSSES) = 34`. Commit `30b4cfc` yang
+menambahkan dua gloss itu, sedangkan `models/baseline.json` terakhir ditulis di
+`b360013` — SEBELUM commit tersebut. Jadi artifact-nya bukan salah hitung,
+hanya ketinggalan: ia mendeklarasikan `no_sign_id` 32 pada saat sumber sudah
+menyatakan 34.
+
+**Batas jujur yang penting:** latih ulang TIDAK membuat `Nama` dan `Halo` bisa
+diucapkan. `kelas_model` tetap 33 id sebelum dan sesudah — id 32 (`Nama`) dan id
+33 (`Halo`) tidak punya satu window bertangan pun di `data/extracted/`, jadi
+tidak ada kelas yang bisa di-fit. Bukti: `python -m training.dataset` mencetak
+`label tanpa window test/train: [32, 33]`. Yang diperbaiki adalah METADATA yang
+basi; yang tetap terbuka adalah CELAH DATASET. Menghafal dua kata itu butuh
+video yang memang tidak ada di wl-bisindo.
+
+### Angka terukur (mesin ini, 2026-10-16)
+
+- Baseline kata, split signer seperti biasa (train s0-2, val s4, test s3):
+  akurasi val **0.971**, akurasi test **0.575**, akurasi gloss saja
+  **0.086** (0.0856 tercatat untuk artifact 32-gloss lama — sama sampai presisi
+  yang dicatat; split tidak berubah). `Durasi fit: 1.8s, total 5.7s`.
+- Huruf statis 26 kelas: akurasi **0.9534**, macro-F1 **0.9530**.
+- Angka statis 11 kelas: akurasi **0.9868**, macro-F1 **0.9857**.
+- Angka dinamis 10 kelas: akurasi **0.8769**, macro-F1 **0.8730**.
+- Demo kata (4 kelas): akurasi **1.000** di keempat kelas. Angka ini pada
+  vokabuler tertutup 4 kata, bukan akurasi umum.
+
+### Latensi predictor hasil latih ulang
+
+Dari `models/baseline.npz` yang baru, 3000 panggilan `predict` pada window
+sintetis `(30, 456)`:
+
+| | p50 | p95 | p99 | maks | rata-rata |
+| --- | --- | --- | --- | --- | --- |
+| ms | **0.061** | **0.0791** | 0.0973 | 0.3473 | 0.0633 |
+
+Bandingkan angka lama di bagian "Diagnosa slice 4b": p50 0.066, p95 0.084, maks
+0.191. Lebih cepat, arah yang benar, dan yang penting tidak memburuk. Batas
+jujur tidak berubah: ini latensi PREDICTOR sendiri, bukan ujung-ke-ujung sampai
+audio terdengar.
+
+### Verifikasi kemurnian data
+
+Latih ulang ini sekaligus menjadi bukti tidak langsung untuk perbaikan tata
+letak raw: enam dari tujuh artifact menghasilkan angka yang byte-persis sama
+dengan sebelum latih ulang (`angka`, `angka-dinamis`, `demo-angka`,
+`demo-huruf`, `demo-kata`, `huruf` — `kelas_model` identik), dan hanya
+`baseline.json` yang berubah, persis di bagian yang memang basi. Kalau
+`data/extracted/` sempat tercampur, latih ulang akan menyimpang di lebih dari
+satu artifact. Rinciannya di `specs/evidence/e02-baseline-staleness.json`.

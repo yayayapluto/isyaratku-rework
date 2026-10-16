@@ -1,0 +1,27 @@
+{
+  "recorded": "2026-10-16",
+  "finding": "models/baseline.json was STALE. It declared 32 glosses and no_sign_id=32, while training/dataset.py:GLOSSES declares 34 glosses (Nama id 32, Halo id 33) and NO_SIGN_ID = len(GLOSSES) = 34. Commit 30b4cfc added Nama/Halo to GLOSSES; the artifact was last written in b360013, before that commit.",
+  "why_it_matters": "The runtime loads models/baseline.npz. A model trained before Nama/Halo existed cannot emit those two labels at all, so two glosses the source declares were unreachable in the shipped demo. Not a crash \u2014 a silent capability gap.",
+  "before": {
+    "label": 33,
+    "gloss_dataset": 32,
+    "kelas_model": 33,
+    "no_sign_id": 32
+  },
+  "after": {
+    "label": 35,
+    "gloss_dataset": 34,
+    "kelas_model": 33,
+    "no_sign_id": 34
+  },
+  "verified_by": "python -m training.train",
+  "metrics_after": {
+    "akurasi_val": 0.971,
+    "akurasi_test": 0.575,
+    "akurasi_gloss_saja": 0.086,
+    "kelas_dilatih": "33 dari 35"
+  },
+  "note_gloss_only": "0.086 here vs 0.0856 recorded in docs/tech-decisions.md:95 for the older, 32-gloss artifact. Same figure to the precision recorded; the label set grew two glosses and the signer split is unchanged.",
+  "honest_limit": "The retrain fixed the STALE METADATA (35 labels declared, no_sign_id=34 correct), but it did NOT make Nama/Halo reachable. kelas_model is still 33 ids: glosses 32 (Nama) and 33 (Halo) have no hand-landmark windows anywhere in data/extracted/, so no class can be fitted for them. training.dataset confirms: 'label tanpa window test/train: [32, 33]'. Reciting them requires videos, which the wl-bisindo dataset does not contain for those two labels.",
+  "conclusion": "Two separate defects, one fixed: (1) stale artifact metadata \u2014 FIXED by retrain; (2) Nama/Halo have no training data \u2014 NOT a code or artifact problem, a dataset gap. Recorded so nobody later reads 'no_sign_id: 34' as 'Nama/Halo work'."
+}

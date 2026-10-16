@@ -1,0 +1,77 @@
+project_cycle:
+  current_phase: 1
+  phase_name: DISCOVER
+  completed_phases: []
+  mode: standard
+  started: 2026-10-16
+
+handoff:
+  next_skill: scope-work
+  reason: Phase 1 DISCOVER — define vision and scope for a cleanliness/reliability/ease-of-use pass centred on training data.
+  context_for_next: |
+    Repo is IsyaratKu Cam (Python sign-language app). Slices 1-7 of the build are
+    largely complete and documented in docs/implementation-plan.md. The user's new
+    request is NOT "build more features" — it is to lead the project into
+    cleanliness, reliability, and ease of use, ESPECIALLY on training data.
+
+    Evidence already gathered this session (authoritative, current state):
+    - specs/ did not exist before this session; it was created now.
+    - Whole-repo over-engineering audit done: docs/ponytail-audit.md (23 findings,
+      ~600 removable lines, 1 removable dep). That is the cleanliness backlog.
+    - Ponytail debt ledger: 3 markers, all with triggers (src/adapters/tts.py:386,
+      src/adapters/virtual_camera.py:60, src/core/smoothing.py:42).
+    - TRAINING DATA DEFECT (verified by reconciling counts):
+        data/raw/wl-bisindo.zip  -> 1600 mp4
+        data/raw/wl-bisindo/     -> 1155 mp4 on disk
+        data/raw/pilih75/        -> 446 mp4 (445 of them are the missing zip entries)
+        data/extracted/          -> 1600 npz at root + 200 in demo3/ = 1800 total
+      Reconciliation: zip_ids(1600) - wl_dir(1155) = 445, of which 445 are in pilih75.
+      unaccounted = 0; zip ids never extracted = 0; extracted not in zip = 0.
+      CONSEQUENCE: `python -m training.extract` (DEFAULT_SOURCE_DIR =
+      data/raw/wl-bisindo) sees only 1155 of 1600 videos. The .npz set is complete
+      today only because pilih75 was extracted separately; re-running the
+      documented command on a clean checkout would produce 1155 npz, not 1600.
+      Extract is idempotent (skips existing .npz), so nothing was lost — the raw
+      layout is simply not reproducible from the documented command.
+
+decisions:
+  - id: D1
+    date: 2026-10-16
+    decision: Complete data/raw/wl-bisindo/ to 1600 files by extracting the 445
+      missing entries from wl-bisindo.zip. Code unchanged; documented extract
+      command stays DEFAULT_SOURCE_DIR = data/raw/wl-bisindo.
+    rationale: User chose the option that makes the documented command true again
+      instead of hiding the broken layout behind code. See specs/adr/0001.
+  - id: D2
+    date: 2026-10-16
+    decision: Re-train the baseline and static models during this pass.
+    rationale: User chose retraining, so the dataset fix is proven against a real
+      run and the accuracy numbers in docs/ get refreshed from this session
+      rather than carried forward.
+
+baseline:
+  test_command: python -m pytest -q
+  recorded: 2026-10-16
+  result: 313 passed, 68 warnings, 157.54s
+  note: Warnings are all sounddevice DeprecationWarning from NumPy 2.5, third-party.
+
+risks:
+  - id: R1
+    text: Re-training overwrites committed models/*.npz, which the README calls demo
+      deliverables. Mitigation — snapshot the current artifacts before training so
+      the previous state is recoverable, and commit only after eval numbers are
+      recorded.
+  - id: R2
+    text: data/raw is 15 GB and extraction of 445 videos (MediaPipe per frame) is
+      slow. Mitigation — extract is idempotent, so run it with a time budget and
+      resume; progress prints every 50 videos.
+  - id: R3
+    text: val signer4 has only 137/1850 hand windows across 13/34 labels. Any
+      retrain inherits this. It is a known property of the dataset, not a bug; do
+      not silently "fix" the split to make numbers look better.
+
+repos:
+  remote: https://github.com/yayayapluto/isyaratku-rework.git
+  dev: origin/dev
+  main: local only, not pushed
+
