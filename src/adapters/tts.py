@@ -42,8 +42,16 @@ import threading
 import time
 import wave
 from collections.abc import Callable
-from functools import lru_cache
 from pathlib import Path
+
+
+# Di-ekspor ulang: ``checks.py`` dan ``tests/test_tts.py`` mengimpornya dari
+# ``src.adapters.tts``, jadi jalur impor itu harus tetap bekerja.
+from .audio_devices import (
+    _reset_local_speaker_cache,
+    match_cable_device,
+    resolve_local_speaker,
+)
 
 from piper import PiperVoice
 
@@ -52,16 +60,6 @@ from src.core.predictor import NO_SIGN_LABEL
 
 logger = logging.getLogger(__name__)
 
-
-#: Jumlah keheningan (detik) di depan dan di belakang setiap ucapan.
-#: 0,2 s per sisi menutup potongan ~0,25 s yang diukur pada host API MME
-#: dan memberi waktu device menghabiskan buffer terakhir, jadi suara tidak
-#: berhenti mendadak di ujung kata.
-PAD_DETIK: float = 0.2
-
-#: Panjang fade-out (detik). Sama dengan penahan belakang: meredam tepat
-#: sampai 0, jadi potongan di ujung isi tidak jadi "klik".
-FADE_DETIK: float = 0.2
 
 #: Sampel rate artifact voice (22050 Hz).
 DEFAULT_VOICE = "models/tts/id_ID-news_tts-medium.onnx"
@@ -85,166 +83,15 @@ class DeviceTtsError(RuntimeError):
     """
 
 
-def match_cable_device(devices: list[dict], want: str) -> int | None:
-    """Indeks endpoint PEMUTAR kabel dari daftar ``sounddevice.query_devices()``.
-
-    Aturan, dipakai juga ``checks._check_vb_cable()`` supaya kedua modul
-    sepakat soal "VB-Cabel hadir":
-
-    1. ``max_output_channels > 0`` — endpoint capture tidak memutar,
-       disaring. Jebakan yang terukur: nama "CABLE Output" adalah
-       endpoint CAPTURE (2 in / 0 out); difilter literal dia tidak cocok
-       dengan endpoint pemutar mana pun dan audio jatuh ke speaker lokal
-       (bug 1).
-    2. nama mengandung ``want``. Untuk keluarga VB-Cabel (``want``
-       mengandung "cable") pencarian memakai "cable", bukan literal
-       "cable output", supaya endpoint pemutar mana pun dari kabel ikut
-       terpilih; ``want`` lain tetap substring literal.
-    3. beberapa yang cocok: indeks TERKECIL dipilih (deterministik).
-
-    Tidak cocok apa pun: ``None`` — pemanggil wajib memutuskan gagalan,
-    bukan memakai device default.
-    """
-    cari = want.lower()
-    if "cable" in cari:
-        cari = "cable"
-    for index, device in enumerate(devices):
-        name = str(device.get("name", "")).lower()
-        if cari in name and int(device.get("max_output_channels", 0)) > 0:
-            return index
-    return None
-
-
-def resolve_local_speaker(devices: list[dict] | None = None) -> int | None:
-    """Indeks SPEAKER LOKAL: supaya mode debug terdengar di ruangan.
-
-    Kabel virtual menamai endpoint pemutarnya nampak seperti speaker
-    ("Speakers (2- VB-Audio Virtual C)"), jadi endpoint kabel WAJIB
-    dikecualikan — kalau tidak demo memutar dua kali ke endpoint yang
-    sama dan ruangan tetap diam.
-
-    Urutan: nama ("speakers") pada endpoint PEMUTAR; bila tak ada, output
-    default sistem (``sd.default.device[1]``) asal bukan kabel. Panggilan
-    tanpa daftar device di-cache: ``query_devices`` jalan paling banyak
-    sekali per proses. ``None`` = jangan putar lokal.
-    """
-    if devices is None:
-        return _resolve_local_speaker_cached()
-    return _match_local_speaker(devices)
-
-
-def _match_local_speaker(devices: list[dict]) -> int | None:
-    """Endpoint output pertama yang speaker fisik: nama + bukan kabel."""
-    for index, device in enumerate(devices):
-        name = str(device.get("name", "")).lower()
-        if (
-            "speakers" in name
-            and "cable" not in name
-            and "vb-audio" not in name
-            and int(device.get("max_output_channels", 0)) > 0
-        ):
-            return index
-    return _default_local_speaker()
-
-
-def _default_local_speaker() -> int | None:
-    """Output default sistem; ``None`` kalau itu endpoint kabel atau tak ada."""
-    import sounddevice as sd
-
-    try:
-        index = int(sd.default.device[1])
-        device = sd.query_devices(index)
-    except Exception:  # backend audio tidak terinisialisasi
-        return None
-    name = str(device.get("name", "")).lower()
-    if "cable" in name or "vb-audio" in name:
-        return None
-    if int(device.get("max_output_channels", 0)) <= 0:
-        return None
-    return index
-
-
-@lru_cache(maxsize=1)
-def _resolve_local_speaker_cached() -> int | None:
-    """Hasil pencarian speaker lokal, sekali per proses (indeks stabil)."""
-    import sounddevice as sd
-
-    try:
-        devices = sd.query_devices()
-    except Exception:  # backend audio tidak terinisialisasi
-        return None
-    return _match_local_speaker(devices)
-
-
-def _reset_local_speaker_cache() -> None:
-    """Bersihkan cache resolver (test; perangkat bisa dicabut/dipasang)."""
-    _resolve_local_speaker_cached.cache_clear()
-
-
-def _tulis_ucapan_dengan_penahan(wav_file, audio) -> None:
-    """Tulis ``audio`` dengan keheningan 0,2 s di depan/belakang + fade-out.
-
-    Dipakai SATU tempat (jalur sintesis, sebelum berkas jadi cache) supaya
-    setiap label dan setiap voice memperlakainya sama. Pemanggil sudah
-    menyetel header, jadi tinggal menulis frame ber-penahan.
-
-    Trim: ``audio`` int16 2-D ``(n_frames, n_channels)``. ``PAD_DETIK`` dan
-    ``FADE_DETIK`` dihitung pada framerate berkas itu sendiri, bukan konstanta
-    absolut, jadi rate lain tetap dapat 0,2 s.
-    """
-    import numpy as np
-
-    frames, channels = audio.shape
-    rate = wav_file.getframerate()
-    head = int(PAD_DETIK * rate)
-    tail = int(PAD_DETIK * rate)
-    fade = int(FADE_DETIK * rate)
-
-    isi = audio.astype(np.float64)
-    # Fade LINIER di 0,2 s terakhir isi, meredam tepat sampai 0 supaya
-    # potongan di ujung tidak jadi klik. Isi lebih pendek dari fade: seluruh
-    # isi diredam (ramp 1 -> 0), bukan galat.
-    n_fade = min(fade, frames)
-    if n_fade > 1:
-        isi[-n_fade:] *= np.linspace(1.0, 0.0, n_fade, dtype=np.float64)[:, None]
-
-    # Amplitudo tidak boleh melewati puncak sumber: di-clip balik ke puncak
-    # asli, dan source sudah int16 jadi hasilnya tetap int16-safe.
-    puncak = float(np.abs(audio).max())
-    hasil = np.clip(isi, -puncak, puncak) if puncak > 0 else isi
-
-    diem_depan = np.zeros((head, channels), dtype=np.int16)
-    diem_belakang = np.zeros((tail, channels), dtype=np.int16)
-    gabung = np.concatenate([diem_depan, hasil.astype(np.int16), diem_belakang])
-    wav_file.writeframes(gabung.tobytes())
-
-
-def _tulis_ulang_dengan_penahan(path: Path) -> None:
-    """Tulis ulang berkas WAV di ``path``: tambah penahan + fade-out.
-
-    Dipanggil SATU tempat, di ``PiperTts.speak()`` tepat setelah piper
-    selesai menulis dan sebelum berkas menjadi cache, sehingga tiap label
-    dan tiap voice memperoleh ucapan yang tidak terputus. Isi dibaca apa
-    adanya (header piper yang dipakai: kanal, framerate, 16-bit) supaya
-    cache tetap WAV mono 16-bit biasa.
-    """
-    import numpy as np
-
-    with wave.open(str(path), "rb") as baca:
-        channels = baca.getnchannels()
-        rate = baca.getframerate()
-        frames = baca.getnframes()
-        isi = baca.readframes(frames)
-    if frames == 0 or not channels or not rate:
-        # Tidak ada yang diterjemahkan: biarkan berkas kosong seperti
-        # sebelumnya (play() membacanya sebagai durasi 0, bukan galat senyap).
-        return
-    audio = np.frombuffer(isi, dtype=np.int16).reshape(-1, channels)
-    with wave.open(str(path), "wb") as wav:
-        wav.setnchannels(channels)
-        wav.setsampwidth(2)
-        wav.setframerate(rate)
-        _tulis_ucapan_dengan_penahan(wav, audio)
+# Di-ekspor ulang: ``tests/test_tts_truncation.py`` mengimpornya dari sini
+# dan membandingkan terhadap nilai yang benar-benar dipakai penulisan WAV —
+# karena itu ``tts_wav`` yang jadi sumbernya, bukan salinan di sini.
+from .tts_wav import (
+    FADE_DETIK,
+    PAD_DETIK,
+    tulis_ulang_dengan_penahan,
+    tulis_ucapan_dengan_penahan,
+)
 
 
 class PiperTts:
@@ -425,12 +272,12 @@ class PiperTts:
                         # "# channels not specified". Format disetel lebih dulu;
                         # piper menimpa bila ada audio. Berkas nolframe hasilnya
                         # dibaca play() sebagai durasi 0 dan dilewati
-                        # _tulis_ulang_dengan_penahan (bangku frames == 0).
+                        # tulis_ulang_dengan_penahan (bangku frames == 0).
                         wav.setnchannels(1)
                         wav.setsampwidth(2)
                         wav.setframerate(SAMPLE_RATE_HZ)
                         voice.synthesize_wav(label, wav)
-                    _tulis_ulang_dengan_penahan(sementara)
+                    tulis_ulang_dengan_penahan(sementara)
                     # Setelah replace berhasil, berkas sementara sudah
                     # berpindah nama: jangan disentuh lagi.
                     os.replace(sementara, target)
