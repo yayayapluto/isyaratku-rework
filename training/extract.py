@@ -40,7 +40,7 @@ if str(_REPO_ROOT) not in sys.path:
 from src.adapters.landmark import MediaPipeLandmarkExtractor  # noqa: E402
 from src.core.config import load_config  # noqa: E402
 from src.core.features import FEATURE_COUNT, FeatureExtractor, Windower  # noqa: E402
-from src.core.pipeline import Frame  # noqa: E402
+from src.core.types import Frame  # noqa: E402
 
 #: Nama berkas dataset: ``[signerID]_[labelID]_[sampleID].mp4``.
 FILENAME_PATTERN = re.compile(r"^signer(\d+)_label(\d+)_sample(\d+)\.mp4$")

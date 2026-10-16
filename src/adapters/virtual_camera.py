@@ -41,7 +41,7 @@ import numpy as np
 import pyvirtualcam
 
 from ..core.config import AppConfig
-from ..core.pipeline import Frame
+from ..core.types import Frame
 
 
 class VirtualCameraSink:

@@ -10,7 +10,7 @@ from mediapipe.tasks.python.vision import drawing_utils
 from mediapipe.tasks.python.vision.hand_landmarker import HandLandmarksConnections
 from mediapipe.tasks.python.vision.pose_landmarker import PoseLandmarksConnections
 
-from ..core.pipeline import Frame
+from ..core.types import Frame
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 FONT_SCALE = 0.9

@@ -25,6 +25,7 @@ import numpy as np
 from .config import AppConfig
 from .mode_switch import MODE_BERSAMA, MODE_KATA, MODE_STATIS, ModeSwitch
 from .predictor import Prediction
+from .types import Frame, Stats
 
 
 logger = logging.getLogger(__name__)
@@ -62,51 +63,6 @@ def _as_int(error: Exception | None) -> int:
     return 0 if error is None else 1
 
 
-@dataclass
-class Frame:
-    """Satu frame video beserta penanda waktu, urutan, teks overlay, dan
-    hasil ekstraksi landmark (``None`` bila belum diekstraksi).
-
-    Landmark ikut di objek Frame, bukan lewat queue sendiri: ekstraksi terjadi
-    di thread capture dan sampai ke worker output tanpa thread atau antrean baru.
-    """
-
-    image: np.ndarray
-    timestamp: float
-    index: int
-    text: str = ""
-    landmarks: object | None = None
-
-    #: Waktu monotonic saat label stabil TERAKHIR terbit di thread capture;
-    #: None bila frame ini tidak membawa label. Diisi sekali saat Smoother
-    #: mengeluarkan label, dibaca sekali oleh worker output untuk menghitung
-    #: latensi label -> layar.
-    label_emitted_at: float | None = None
-
-    #: Teks jalur statis: huruf yang sedang disusun, atau kata terakhir
-    #: yang selesai bila sedang kosong. Ditulis thread capture tiap frame
-    #: statis, dibaca worker output — sama seperti ``text``. "" berarti
-    #: jalur statis tidak aktif, jadi overlay lama tak berubah.
-    static_text: str = ""
-
-@dataclass
-class Stats:
-    """Angka pengukuran pipeline; fps dihitung dari frame yang terkirim.
-
-    ``mode``/``mode_switches`` jadi bagian Stats, bukan aksesor terpisah:
-    pengukur lain sudah sampai ke view lewat jalur ini (``on_stats`` lalu
-    tick GUI), jadi panel mode tidak perlu mekanisme polling kedua.
-    """
-
-    fps: float = 0.0
-    frames_captured: int = 0
-    frames_sent: int = 0
-    frames_dropped: int = 0
-    elapsed_seconds: float = 0.0
-    #: Mode aktif saat snapshot diambil ("" = tidak ada sakelar).
-    mode: str = MODE_BERSAMA
-    #: Berapa kali ganti mode SUDAH terjadi sejak pipeline dibangun.
-    mode_switches: int = 0
 
 
 def _identity(frame: Frame) -> Frame:
