@@ -6,6 +6,7 @@ import threading
 import time
 
 import numpy as np
+import pytest
 
 from src.adapters.camera import FakeCameraSource
 from src.adapters.landmark import FakeLandmarkExtractor
@@ -391,6 +392,75 @@ def test_stop_unblocks_blocked_camera_before_joining() -> None:
     assert not capture.is_alive(), "capture thread masih hidup setelah stop"
     assert pipeline.running() is False
     assert capture.join(timeout=0.0) is None or not capture.is_alive()
+
+
+class TrackingSink(FakeVirtualCameraSink):
+    """Sink yang mencatat apakah close()-nya pernah dipanggil."""
+
+    def __init__(self, cfg) -> None:
+        super().__init__(cfg)
+        self.ditutup = False
+
+    def close(self) -> None:
+        self.ditutup = True
+        super().close()
+
+
+class RaisingCloseCamera:
+    """Kamera yang close()-nya melempar, seperti driver MSMF yang lepas device.
+
+    Dipakai untuk membuktikan P0-1: kalau close() melempar SEBELUM join dan
+    sink.close() (urutan saat ini di Pipeline.stop), kedua thread jadi tidak
+    pernah di-join dan sink tetap terbuka.
+    """
+
+    def __init__(self) -> None:
+        self.total = 3
+        self.calls = 0
+        self.closed = False
+
+    def read(self) -> Frame | None:
+        self.calls += 1
+        if self.calls > self.total:
+            return None
+        return Frame(
+            image=np.zeros((4, 4, 3), np.uint8),
+            timestamp=time.monotonic(),
+            index=self.calls,
+        )
+
+    def close(self) -> None:
+        self.closed = True
+        raise OSError("device lepas saat close")
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="P0-1: stop() close camera sebelum join/sink.close tanpa try/finally",
+)
+def test_stop_join_dan_sink_close_walau_camera_close_melempar() -> None:
+    """P0-1: close() yang melempar tidak boleh melewati join dan sink.close().
+
+    Charakterisasi bug: saat ini test ini GAGAL karena stop() memanggil
+    camera.close() lebih dulu tanpa try/finally. Ditandai xfail(strict=True)
+    supaya begitu S4 memperbaiki stop(), test berubah jadi XPASS dan memaksa
+    penanda dihapus.
+    """
+    cfg = config(pipeline_read_failure_timeout_seconds=0.3)
+    sink = TrackingSink(cfg)
+    camera = RaisingCloseCamera()
+    pipeline = Pipeline(camera, sink, cfg)
+    pipeline.start()
+    run_for(0.3, pipeline)
+
+    with pytest.raises(OSError):
+        pipeline.stop()
+
+    capture = pipeline._capture_thread
+    output = pipeline._output_thread
+    assert capture is None or not capture.is_alive(), "capture thread masih hidup"
+    assert output is None or not output.is_alive(), "output thread masih hidup"
+    assert sink.ditutup is True, "sink tidak ditutup saat camera.close() melempar"
 
 
 # -- renderer ----------------------------------------------------------------
