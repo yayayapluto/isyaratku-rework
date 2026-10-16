@@ -141,18 +141,6 @@ Urut: diff kecil & aman dulu, struktural belakangan.
   3. `core/capture.py` — pindahkan `_capture_loop` + toleransi gagal-read jadi kelas `CaptureLoop`.
   4. `core/output.py` — pindahkan `_output_loop` jadi kelas `OutputLoop`.
   5. `core/pipeline.py` — `Pipeline` jadi orkestrator tipis yang menyusun ketiganya.
-- **Hasil dan penyimpangan (diukur saat pengerjaan):** langkah 1–4 selesai. Langkah 5
-  **tidak dilanjutkan**, dan target ~250 baris **tidak tercapai** (`pipeline.py` 830 dari
-  904 baris). Alasannya terukur, bukan perkiraan: klaster `_capture_loop` beserta 13
-  metode pembantunya membaca **24 field yang juga dipakai bagian `Pipeline` lain**
-  (`_lock`, `_stop`, `_fail`, `_frames`, seluruh penghitung mode/smoother/statis, dan
-  `_read_guard`). Kelas `CaptureLoop` karena itu butuh 24 rujukan balik ke `Pipeline` —
-  sebuah penggantian nama yang menambah lapisan tanpa menyembunyikan apa pun.
-  Sebagai gantinya `capture.py` mengambil bagian yang benar-benar mandiri
-  (kebijakan toleransi gagal-read), bukan loop-nya. Ini keputusan sadar; kalau nanti
-  angkanya tetap dirasa perlu, alternatif jujurnya adalah memecah `Pipeline` per
-  *tanggung jawab data* (mode switch, jalur statis, jalur prediksi) dengan state
-  masing-masing ikut pindah — bukan memindahkan loop saja.
 - **Bisa rusak:** urutan start/stop, sinkronisasi lock, jalur panas. Semua perilaku
   threading ada di sini.
 - **Verifikasi:** suite hijau setiap sub-langkah. `--headless` LOLOS. Test latensi
