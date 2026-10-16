@@ -20,6 +20,12 @@ Cara pakai:
 
     python -m training.diagnose_urutan
 
+Status: skrip RISET sekali-pakai. Angka yang dicetaknya adalah dasar
+keputusan yang sudah tercatat di ``docs/`` (lihat catatan audit refactor),
+jadi isinya dipertahankan apa adanya dan TIDAK dipakai jalur runtime
+maupun build. Dibersihkan hanya di sisi resep (kini lewat
+``training.baseline``) supaya hasilnya tetap sebanding dengan baseline.
+
 Tidak menulis apa pun ke models/, data/, atau docs/; hanya membaca
 data/extracted/ dan mencetak angka. Training/train.py dan artifact
 baseline* tidak disentuh.
@@ -81,14 +87,10 @@ def akurasi_gloss(y_true: np.ndarray, y_pred: np.ndarray, no_sign_id: int = 32) 
 
 
 def latih_logreg(X: np.ndarray, y: np.ndarray):
-    """LogReg + StandardScaler; konfigurasi identik dengan training/train.py."""
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.pipeline import make_pipeline
-    from sklearn.preprocessing import StandardScaler
+    """LogReg + StandardScaler; resep bersama ``training/train.py``."""
+    from training.baseline import latih_logreg as _latih
 
-    model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000, C=1.0))
-    model.fit(X, y)
-    return model
+    return _latih(X, y)
 
 
 def main(argv: list[str] | None = None) -> int:

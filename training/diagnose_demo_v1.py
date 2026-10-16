@@ -17,6 +17,13 @@ T2  Apakah menolak jawaban ber-confidence rendah membantu demo? Untuk
     python -m training.diagnose_demo_v1
     python -m training.diagnose_demo_v1 --tulis-artifact
 
+Status: skrip RISET sekali-pakai. Angka yang dicetaknya adalah dasar
+pemilihan label demo yang sudah tercatat di ``docs/``, jadi isinya
+dipertahankan apa adanya dan TIDAK dipakai jalur runtime. Satu-satunya
+pengecualian: ``latih_logreg`` di sini kini mendelegasi ke
+``training.baseline``, dan ``training/train_demo_kata.py`` mengimpornya
+sebagai API umum — bukan sebagai skrip diagnosa.
+
 Skrip ini TIDAK menyentuh models/baseline*, src/, atau configs/app.toml.
 Artifact baru ditulis hanya kalau kandidat lolos gerbang val di bawah.
 """
@@ -70,15 +77,14 @@ def muat(signers: tuple[int, ...], extracted: Path) -> tuple[np.ndarray, np.ndar
 
 
 def latih_logreg(X: np.ndarray, y: np.ndarray, keep: set[int] | None = None):
-    """Latih LogReg seperti baseline; ``keep`` membatasi kelas yang dilatih."""
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.pipeline import make_pipeline
-    from sklearn.preprocessing import StandardScaler
+    """Latih LogReg seperti baseline; ``keep`` membatasi kelas yang dilatih.
 
-    Xb, yb = (X, y) if keep is None else (X[np.isin(y, [*keep, NO_SIGN_ID])], y[np.isin(y, [*keep, NO_SIGN_ID])])
-    model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000, C=1.0))
-    model.fit(Xb, yb)
-    return model
+    Delegasi ke ``training.baseline``: resepnya dipakai bersama ``train.py``
+    supaya angka di sini dan angka baseline benar-benar sebanding.
+    """
+    from training.baseline import latih_logreg as _latih
+
+    return _latih(X, y, keep, no_sign_id=NO_SIGN_ID)
 
 
 def akurasi(y_true: np.ndarray, y_pred: np.ndarray) -> float:

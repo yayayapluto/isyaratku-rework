@@ -110,10 +110,9 @@ def muat_XY(
 
 def latih(split: SignerSplit, extracted_dir: Path, limit_windows: int = 0) -> dict[str, object]:
     """Latih model baseline, evaluasi di test set, dan balikkan laporan angka."""
-    from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import accuracy_score, confusion_matrix
-    from sklearn.pipeline import make_pipeline
-    from sklearn.preprocessing import StandardScaler
+
+    from training.baseline import buat_logreg
 
     mulai = time.time()
     train = Dataset(split.train, extracted_dir, name="train")
@@ -125,7 +124,7 @@ def latih(split: SignerSplit, extracted_dir: Path, limit_windows: int = 0) -> di
     X_test, y_test = muat_XY(test, limit_windows)
 
     t_fit = time.time()
-    model = make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000, C=1.0))
+    model = buat_logreg()
     model.fit(X_train, y_train)
     durasi_fit = time.time() - t_fit
 

@@ -217,15 +217,14 @@ def indeks_dedup(
 
 def bangun_model(jenis: str, n_kelas: int):
     """Pipeline scaler + klasifier; default MLP, pembanding logreg."""
-    from sklearn.linear_model import LogisticRegression
     from sklearn.neural_network import MLPClassifier
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
 
+    from training.baseline import buat_logreg
+
     if jenis == "logreg":
-        return make_pipeline(
-            StandardScaler(), LogisticRegression(max_iter=3000, C=1.0)
-        )
+        return buat_logreg()
     return make_pipeline(
         StandardScaler(),
         MLPClassifier(

@@ -18,6 +18,13 @@ Tata letak kolom satu frame 456 lebar (dari `training/dataset.py`):
     [228:456) delta koordinat terhadap frame sebelumnya
 Baris yang masuk modul ini sudah dinormalkan ke titik tengah bahu dan diskala
 lebar bahu oleh `src/core/features.py:normalise`.
+
+Status: skrip RISET sekali-pakai. Ia dulu punya salinan ``ringkas`` sendiri;
+salinan itu sudah dibuang dan sekarang memakai ``src/core/features.py`` —
+tapi ``ringkas`` di sini punya tanda tangan berbeda, ``(N, 30, F)`` dengan
+``axis=1``, sehingga sengaja TIDAK disatukan dengan versi runtime. Isi
+analisisnya dipertahankan apa adanya; tidak dipakai jalur runtime maupun
+build.
 """
 
 from __future__ import annotations
