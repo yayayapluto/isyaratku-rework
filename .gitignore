@@ -37,3 +37,6 @@ pindah_mode.mp4
 
 # cadangan artifact model sebelum latih ulang (epic e02): biner besar, lokal saja
 specs/evidence/models-snapshot-*/
+
+# dokumentasi markdown: lokal saja, tidak masuk git (repo depan dijaga bersih)
+*.md
