@@ -135,7 +135,6 @@ FAKE_ORIGIN_Y = 0.25
 
 #: Pola kelengkapan fake, murni fungsi ``frame.index`` supaya test bisa
 #: menghitung persentase yang diharapkan tanpa kamera.
-FAKE_ALL_MISSING_PHASE = 5
 FAKE_PARTIAL_PHASE = 5
 
 

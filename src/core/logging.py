@@ -93,10 +93,6 @@ class _DatedFileHandler(logging.FileHandler):
         self.stream = self._open()
         _prune()
 
-    def force_rollover(self) -> None:
-        """Jejak publik untuk probe: paksa pindah tanggal tanpa tunggu tengah malam."""
-        self._rotate()
-
 
 class _ConsoleHandler(logging.StreamHandler):
     """Stderr; dipasang hanya kalau berkas log tidak bisa dibuat."""

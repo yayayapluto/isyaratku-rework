@@ -66,9 +66,6 @@ FADE_DETIK: float = 0.2
 #: Artifact voice Indonesia: piper-voices rhasspy, 1 speaker, 22050 Hz.
 DEFAULT_VOICE = "models/tts/id_ID-news_tts-medium.onnx"
 
-#: Durasi sintesis placeholder: sinyal 20 ms, cukup untuk pipeline/FakeSpeechSink.
-FAKE_VOICE = "models/tts/fake.wav"
-
 
 class TtsUnavailableError(RuntimeError):
     """Voice TTS tidak tersedia. Sikap: gagal terang, bukan fallback senyap."""

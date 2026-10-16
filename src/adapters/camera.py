@@ -127,7 +127,6 @@ class OpenCvCameraSource:
 # catatan fake di configs/app.toml. Menjadi nyata pada slice 2 (landmark) dan
 # slice 4 (model); fake sengaja tanpa time.sleep supaya angka FPS headless apa
 # adanya, tidak palsu 30 FPS.
-FAKE_SPEED = 4.0
 FAKE_SIDE = 40
 FAKE_ROW_RATIO = 0.6
 

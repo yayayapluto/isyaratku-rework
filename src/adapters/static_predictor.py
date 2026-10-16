@@ -118,11 +118,6 @@ class StaticTrainedPredictor:
         """Daftar label kelas model statis."""
         return self._labels
 
-    @property
-    def class_count(self) -> int:
-        """Jumlah kelas keluaran model."""
-        return len(self._labels)
-
     # -- konsistensi artifact -----------------------------------------------------
 
     def _validate(self) -> None:

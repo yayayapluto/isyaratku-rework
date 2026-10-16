@@ -19,7 +19,6 @@ noise — dan threshold tetap satu-satunya penapis di belakangnya.
 from __future__ import annotations
 
 import threading
-import time
 
 import numpy as np
 
@@ -152,10 +151,6 @@ class Smoother:
 
             self._last_emitted[prediction.label] = timestamp
             return prediction.label
-
-    def now(self) -> float:
-        """Cap waktu sistem; hanya untuk jalur runtime, test menyuntiknya."""
-        return time.monotonic()
 
     def status(self) -> dict[str, object]:
         """Snapshot voting, cooldown, dan gerak untuk panel mode debug.
