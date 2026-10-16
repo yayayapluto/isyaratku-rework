@@ -15,6 +15,40 @@ Dokumen ini menjelaskan susun direktori, alur pipeline, dua mode aplikasi, strat
 | configs/ | Berkas override TOML. Nilai default tinggal di `_CONTRACT` (`src/core/config.py:28`); berkas ini hanya menulis key yang BERBEDA dari default. | Setiap tunable jalur pemrosesan punya key di kontrak; tak ada angka ajaib di kode. |
 | logs/ | Berkas log harian runtime, satu per hari (`isyaratku-YYYY-MM-DD.log`). | Tidak masuk git; hanya ditulis oleh `src/core/logging.py`. |
 
+### Isi modul
+
+`src/core/` dipecah per tanggung jawab, bukan satu berkas besar:
+
+| Modul | Isi |
+| --- | --- |
+| `pipeline.py` | Perakitan dan orkestrasi: thread, mode, jalan prediksi. |
+| `capture.py` | `CaptureLoop` dan `ReadFailureGuard` — siklus baca frame. |
+| `output.py` | `OutputLoop`, `label_latency_sample`, `OUTPUT_POLL_SECONDS` — siklus render dan kirim. |
+| `stats.py` | `clock`, `percentile`, `latency_summary`, `fps_from_timestamps` — fungsi hitung FPS dan latensi. |
+| `data.py` | `Frame` dan `Stats` sebagai tipe data murni. |
+| `config.py` | `AppConfig` dan loader TOML. |
+| `normalization.py` | `wrist_normalise_row` / `wrist_normalise_batch` — satu sumber normalisasi pergelangan untuk jalur runtime dan training. |
+| `features.py` | Ekstraksi fitur, `Windower`, `pool_mean_std`. |
+| `landmarks.py`, `smoothing.py`, `predictor.py`, `static_path.py`, `mode_switch.py`, `logging.py` | Sesuai namanya. |
+
+`src/adapters/` dipecah per dunia luar:
+
+| Modul | Isi |
+| --- | --- |
+| `camera.py` | Sumber kamera OpenCV (`warm_up`, backend per pemakaian). |
+| `landmark.py` | Extractor MediaPipe. |
+| `predictor.py`, `static_predictor.py` | Predictor kata dan statis. |
+| `virtual_camera.py` | Sink ke OBS Virtual Camera. |
+| `tts.py` | `PiperTts`, `SpeechSink`, `FakeTTS` — sintesis dan pemutaran. |
+| `audio_devices.py` | Pencarian device kabel/speaker lokal. |
+| `tts_wav.py` | Padding dan fade WAV; sumber `PAD_DETIK`/`FADE_DETIK`. |
+| `render.py` | Overlay dan gambar landmark. |
+| `checks.py` | Pra-cek hardware; `CheckResults`, `_SharedCameraSource`. |
+
+Alasan pemecahan ini: berkas besar membuat perubahan sulit ditinjau dan sulit diuji
+terpisah. `pipeline.py` yang dulu 904 baris kini memuat orkestrasi saja; siklus
+baca, siklus output, dan statistiknya berdiri sendiri dan bisa diuji sendiri.
+
 ## Kontrak konfigurasi
 
 Aturan proyek: tidak ada angka ajaib di kode. Kontrak ini menentukan cara konfigurasi dimuat dan dibaca.
@@ -138,4 +172,17 @@ Aturan queue:
 
 ## Verifikasi struktur
 
-Setiap perubahan arsitektur harus memenuhi pemeriksaan ini: tidak ada berkas di src/core/ yang mengimpor src/ui/, src/adapters/, library GUI, atau framework model. Perintahnya akan ditentukan.
+Setiap perubahan arsitektur harus memenuhi pemeriksaan ini: tidak ada berkas di
+`src/core/` yang mengimpor `src/ui/`, `src/adapters/`, library GUI, atau framework
+model. Arah sebaliknya yang benar: `src/adapters/` dan `src/ui/` boleh memakai
+`src/core/`, dan `training/` boleh memakai `src.core`.
+
+Perintahnya:
+
+    python -m pytest tests/test_architecture.py -q
+
+Pemeriksaan itu membaca AST tiap modul, jadi tidak bisa dilewati dengan impor di
+dalam fungsi. Cakupannya: `src/core/` dan `src/adapters/` tidak boleh mengimpor
+`core.pipeline`; `src/` tidak boleh mengimpor `training/`; `src/ui/` tidak boleh
+memuat `cv2`/`mediapipe`; dan `Frame`/`Stats` harus objek yang sama antara
+`core.data` dan `core.pipeline`.

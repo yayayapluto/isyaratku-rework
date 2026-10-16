@@ -273,10 +273,10 @@ Daftar resolusi dan FPS maksimal per format: **tidak dapat diverifikasi** — ti
 | `git rev-parse HEAD` | berubah setiap commit; acukan ke `git log --oneline -1` |
 | `git rev-parse --abbrev-ref HEAD` | `dev` |
 | `git status --short` | tidak kosong — `build/`, `dist/`, berkas `.spec`, shortcut `.lnk`, dan `docs/build-exe-cmd.md` untracked; `data/raw/` ada (7 dataset Kaggle terunduh) |
-| `ls -la docs/` | sekarang 13 berkas `.md`: AGENTS, architecture, dataset-notes, environment, implementation-plan, info-dataset, project-overview, tech-decisions, build-exe-cmd (ditambah 6 berkas `.csv` confusion dan direktori `images/`) |
+| `ls -la docs/` | sekarang 13 berkas `.md`: AGENTS, architecture, dataset-notes, environment, implementation-plan, info-dataset, project-overview, tech-decisions, training-guide, ponytail-audit, refactor-audit, refactor-plan, build-exe-cmd |
 | `df -h .` | `D: 444G 127G 317G 29% /d` |
 
-Catatan: subtree `docs/` di baris di atas adalah rekon slice 0. Struktur repo sekarang lengkap: `src/`, `models/`, `configs/`, `training/`, `tests/`, `data/raw/`, `logs/`, dan artefak bundel `build/` + `dist/` ada di disk; `requirements.txt` masih belum ada (daftar paket tercatat di bagian Paket Python dokumen ini).
+Catatan: subtree `docs/` di baris di atas adalah rekon slice 0. Struktur repo sekarang lengkap: `src/`, `models/`, `configs/`, `training/`, `tests/`, `data/raw/`, `logs/`, dan artefak bundel `build/` + `dist/` ada di disk. `requirements.txt` SUDAH ADA dan jadi sumber tunggal versi paket (11 paket dipin; `pyproject.toml` membacanya lewat `[tool.setuptools.dynamic]`). Tabel paket di bagian Paket Python dokumen ini adalah catatan historis saat berkas itu belum ada — untuk versi yang berlaku, rujuk `requirements.txt`.
 
 ## Feasibility MediaPipe
 

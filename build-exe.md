@@ -167,7 +167,7 @@ Kalau salah satu gagal, JANGAN build EXE — hasilnya akan sulit dibedakan dari 
 # 1. Jalur pipeline penuh harus lolos. Output terakhir harus: Headless smoke: LOLOS
 QT_QPA_PLATFORM=offscreen python -m src.ui.app --headless --seconds 3
 
-# 2. Suite test harus 263 lolos, 0 skip
+# 2. Suite test harus lolos semua: 0 failed, 0 skipped, 0 xfailed
 python -m pytest -q -p no:cacheprovider
 
 # 3. PyInstaller memang terpasang di interpreter yang dipakai build

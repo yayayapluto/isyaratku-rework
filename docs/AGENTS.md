@@ -43,6 +43,12 @@ Arah tunggal: `ui -> core <- adapters`.
 
 - Setiap perubahan wajib di-commit segera, sekecil apa pun. Tidak boleh ada perubahan menggantung saat menyerahkan hasil. Commit kecil lebih baik daripada satu commit besar.
 - Branch utama: `main`. Semua development dikerjakan di `dev`. Tidak ada branch baru (tidak ada feature branch); cukup `dev`.
+  - **Deviasi sadar (refactor maintainability, 2026-10-16):** pengerjaan refactor berjalan di
+    `refactor/maintainability`, bukan langsung di `dev`. Alasan: refactor menyentuh hampir
+    seluruh `src/` dalam belasan commit; mengerjakannya di `dev` membuat riwayat `dev` sulit
+    dibedakan dari pekerjaan fitur, dan `main` bisa keliru menerima merge di tengah jalan.
+    Branch ini diturunkan dari `dev` dan hasilnya di-merge kembali ke `dev` setelah
+    verifikasi — aturan `main` hanya menerima merge dari `dev` TIDAK berubah.
 - `main` hanya menerima hasil yang sudah jadi dan terverifikasi lewat merge dari `dev`. Langsung commit ke `main` dilarang.
 - Remote sudah ada: `origin` = `https://github.com/yayayapluto/isyaratku-rework.git` (fetch dan push). `dev` melacak `origin/dev` dan sudah di-push; cabang lokal `main` masih level dengan `dev` dan TIDAK di-push. Jumlah commit belum di-push berubah setiap sesi, jadi acuannya `git log origin/dev..dev --oneline`, bukan angka di dokumen ini.
 - Pesan commit: Conventional Commits dengan deskripsi imperatif Bahasa Indonesia (mis. `feat: tambah normalisasi landmark`, `fix: ...`, `docs: ...`, `chore: ...`). Commit root/inisiasi boleh tanpa prefix.

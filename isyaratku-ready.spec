@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+datas = [('configs/app.toml', 'configs'), ('models/baseline.npz', 'models'), ('models/mediapipe/hand_landmarker.task', 'models/mediapipe'), ('models/mediapipe/pose_landmarker_lite.task', 'models/mediapipe')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('PySide6')
