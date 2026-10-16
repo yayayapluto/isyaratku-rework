@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import PySide6.QtCore as qc
@@ -37,6 +38,17 @@ WORD_MODEL_PATH = "models/demo-kata.npz"
 #: bila berkasnya ADA, kalau tidak jatuh ke default config.
 DEMO_STATIC_HURUF = "models/demo-huruf.npz"
 DEMO_STATIC_ANGKA = "models/demo-angka.npz"
+
+@dataclass
+class _PipelineParts:
+    """Komponen yang dibangun fase pra-cek, sebelum ``Pipeline`` disusun."""
+
+    camera: object
+    sink: object
+    extractor: object
+    predictor: object
+    speech: object
+    static_path: object | None
 
 
 class _Langkah:
@@ -177,7 +189,70 @@ def finish_checks(
         _report_failure(view, results, details)
         logger.info("finish_checks selesai dalam %.3f s (galat)", time.monotonic() - t0)
         return None
-    pipeline = None
+    try:
+        bagian = _build_pipeline_parts(view, results, local_speech=local_speech)
+        pipeline = Pipeline(
+            camera=bagian.camera,
+            sink=bagian.sink,
+            config=view._config,
+            renderer=renderer,
+            on_frame=view._on_frame,
+            on_stats=view._on_stats,
+            extractor=bagian.extractor,
+            predictor=bagian.predictor,
+            # Tracker landmark hidup di view (punya labelnya), diisi per frame.
+            on_landmarks=getattr(view, "_on_landmarks", None),
+            on_label=_make_label_fanout(bagian.speech, view, speech_state),
+            static_predictor=bagian.static_path,
+            on_static_word=_make_static_fanout(bagian.speech, view, speech_state),
+            # Sakelar mode: HANYA setelah ``mode`` diset. Tanpa argumen ini
+            # ``mode`` default kosong dan kedua jalur jalan bersamaan,
+            # seperti sebelum mode ada.
+            mode=MODE_KATA,
+            on_mode_change=_make_mode_switch_handler(
+                speech_state, on_switch=view._queue_mode
+            ),
+        )
+    except Exception as exc:
+        # Kamera pra-cek hidup di sini, tapi ``bagian`` belum pernah lahir
+        # sehingga handle-nya tak terbaca dari sini. Pembangun yang menutup
+        # apa pun yang sempat dia buka (lihat ``_build_pipeline_parts``);
+        # kalau tidak, device tersandera sampai proses keluar dan Start
+        # berikutnya gagal membuka kamera.
+        logger.warning("pipeline gagal dibangun: %r", exc)
+        view._set_status(*view.STATUS_ERROR)
+        if details is not None:
+            details.setText(f"Pipeline gagal start: {exc}")
+        logger.info("finish_checks selesai dalam %.3f s (gagal bangun)", time.monotonic() - t0)
+        return None
+    camera = bagian.camera
+    speech = bagian.speech
+    view._pipeline = pipeline
+    # Sink suara tidak dipegang pipeline (hanya closure fanout), jadi view
+    # menyimpan handle-nya sendiri: hanya lewat sini `speech_errors` bisa
+    # dibaca tick GUI. Tanpa baris ini galat TTS tetap tak terlihat.
+    view._speech = speech
+    view._pipeline.start()
+    view._timer.start()
+    view._set_status(*view.STATUS_RUNNING)
+    # Baris mode ikut terisi sejak Start: pipeline lahir di MODE_KATA, dan
+    # user boleh melihatnya SEBELUM gestur pertama, sebagai bukti indikator
+    # memang hidup. Nama mode apa adanya dari core.
+    view._set_mode(MODE_KATA)
+    logger.info("finish_checks selesai dalam %.3f s; pipeline berjalan", time.monotonic() - t0)
+    return camera
+
+def _build_pipeline_parts(view, results, *, local_speech: bool) -> _PipelineParts:
+    """Bangun kamera, sink, extractor, predictor, dan speech sebelum pipeline.
+
+    Semua dibangun DI SINI, bukan setelah pipeline jalan, supaya kegagalan
+    baca model/voice muncul sebagai galat pemeriksaan di UI — bukan thread
+    yang mati diam-diam saat demo.
+
+    Kalau salah satu tahap gagal, apa pun yang sudah terbuka ditutup lebih
+    dulu sebelum galat diteruskan: kamera pra-cek memegang device MSMF, dan
+    membiarkannya hidup membuat Start berikutnya gagal membuka kamera.
+    """
     camera = None
     try:
         # Kamera yang SUDAH dibuka saat pra-cek dipakai lagi: acquisisi
@@ -194,6 +269,7 @@ def finish_checks(
         else:
             camera = OpenCvCameraSource(view._config)
         step.selesai()
+
         step = _Langkah("sink virtual camera")
         sink = VirtualCameraSink(
             view._config,
@@ -202,11 +278,13 @@ def finish_checks(
             view._config.camera_fps,
         )
         step.selesai()
+
         # Extractornya dibuat sebelum pipeline jalan: kegagalan baca model harus
         # muncul sebagai galat pemeriksaan di sini, bukan thread mati sepinya.
         step = _Langkah("extractor landmark")
         extractor = MediaPipeLandmarkExtractor(view._config)
         step.selesai()
+
         # Predictor asli dibangun di sini juga: model hilang harus muncul
         # sebagai galat pemeriksaan, bukan demo yang diam tanpa teks.
         # Model kata demo dipakai hanya bila artifact-nya ADA; belum ada =
@@ -217,12 +295,14 @@ def finish_checks(
         )
         predictor = PredictionProbe(TrainedPredictor(view._config, model_path=model_kata))
         step.selesai()
+
         # TTS: speech sink dibuat lebih dulu supaya VoiceModel hilang
         # muncul sebagai galat pemeriksaan, bukan thread yang mati
         # sepinya di tengah demo. PiperTts ganti FakeTTS bila voice ada.
         step = _Langkah("speech sink")
         speech = _build_speech(view._config, local_speech=local_speech)
         step.selesai()
+
         # Pra-sintesis seluruh label model di fase pra-cek: feed() tidak lagi
         # mensintesis di thread capture, jadi tanpa warm_up kata pertama
         # tiap label membayar ~1,6 s sintesis di thread pemutaran. Gagalnya
@@ -231,6 +311,7 @@ def finish_checks(
         step = _Langkah("speech warm_up")
         speech.warm_up(predictor.labels)
         step.selesai()
+
         # Jalur statis (huruf/angka) hanya bila config menghidupkannya;
         # default False: build-nya dilewati dan app berperilaku seperti
         # sebelumnya. Kegagalan baca artifact tetap muncul sebagai galat
@@ -241,53 +322,18 @@ def finish_checks(
             static_path = _build_static_path(view)
             speech.warm_up(static_path.labels)
             step.selesai()
-        pipeline = Pipeline(
-            camera=camera,
-            sink=sink,
-            config=view._config,
-            renderer=renderer,
-            on_frame=view._on_frame,
-            on_stats=view._on_stats,
-            extractor=extractor,
-            predictor=predictor,
-            # Tracker landmark hidup di view (punya labelnya), diisi per frame.
-            on_landmarks=getattr(view, "_on_landmarks", None),
-            on_label=_make_label_fanout(speech, view, speech_state),
-            static_predictor=static_path,
-            on_static_word=_make_static_fanout(speech, view, speech_state),
-            # Sakelar mode: HANYA setelah ``mode`` diset. Tanpa argumen ini
-            # ``mode`` default kosong dan kedua jalur jalan bersamaan,
-            # seperti sebelum mode ada.
-            mode=MODE_KATA,
-            on_mode_change=_make_mode_switch_handler(
-                speech_state, on_switch=view._queue_mode
-            ),
-        )
-    except Exception as exc:
-        # Pipeline gagal dibangun tapi kamera pra-cek tetap hidup: tanpa close
-        # di sini device tersandera sampai proses keluar, dan Start berikutnya
-        # gagal membuka kamera.
-        logger.warning("pipeline gagal dibangun: %r", exc)
+    except Exception:
         _close_quietly(camera)
-        view._set_status(*view.STATUS_ERROR)
-        if details is not None:
-            details.setText(f"Pipeline gagal start: {exc}")
-        logger.info("finish_checks selesai dalam %.3f s (gagal bangun)", time.monotonic() - t0)
-        return None
-    view._pipeline = pipeline
-    # Sink suara tidak dipegang pipeline (hanya closure fanout), jadi view
-    # menyimpan handle-nya sendiri: hanya lewat sini `speech_errors` bisa
-    # dibaca tick GUI. Tanpa baris ini galat TTS tetap tak terlihat.
-    view._speech = speech
-    view._pipeline.start()
-    view._timer.start()
-    view._set_status(*view.STATUS_RUNNING)
-    # Baris mode ikut terisi sejak Start: pipeline lahir di MODE_KATA, dan
-    # user boleh melihatnya SEBELUM gestur pertama, sebagai bukti indikator
-    # memang hidup. Nama mode apa adanya dari core.
-    view._set_mode(MODE_KATA)
-    logger.info("finish_checks selesai dalam %.3f s; pipeline berjalan", time.monotonic() - t0)
-    return camera
+        raise
+
+    return _PipelineParts(
+        camera=camera,
+        sink=sink,
+        extractor=extractor,
+        predictor=predictor,
+        speech=speech,
+        static_path=static_path,
+    )
 
 
 def _report_failure(view, results, details) -> None:
